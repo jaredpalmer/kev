@@ -1,0 +1,26 @@
+services:
+  kev:
+    build: .
+    ports:
+      - "8008:8008"
+    volumes:
+      - hf-cache:/hf          # persists the Hub checkpoint + Qwen base model
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8008/v1/models')"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 300s      # first boot downloads ~1 GB of weights
+
+  playground:
+    build: ./playground
+    ports:
+      - "3001:3000"
+    environment:
+      KEV_API: http://kev:8008
+    depends_on:
+      kev:
+        condition: service_healthy
+
+volumes:
+  hf-cache:
