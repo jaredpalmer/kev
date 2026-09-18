@@ -1,6 +1,8 @@
 services:
   kev:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.cpu
     ports:
       - "8008:8008"
     volumes:
