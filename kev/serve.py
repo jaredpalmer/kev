@@ -166,7 +166,7 @@ def main():
     STATE.update(run=run, tok=tok, model=model, dev=dev, base=meta["base"], lora=meta["lora"])
     print(f"serving {run} on {dev} :{a.port}")
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=a.port)
+    uvicorn.run(app, host=os.environ.get("KEV_HOST", "127.0.0.1"), port=a.port)
 
 
 if __name__ == "__main__":
