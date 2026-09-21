@@ -36,7 +36,13 @@ bounded non-blocking admission queue, futures carry results and exceptions,
 request deadlines are enforced, and shutdown drains or fails pending work.
 Same-state cross-request batching is now enabled for MLX: compatible queued
 jobs share one prefix computation and one branch batch, while different states
-remain separate. The worker reports queue wait, worker time, and server time in the returned metadata;
+remain separate. Batches are bounded by request count, flattened branch rows,
+and estimated prefix-plus-branch tokens; device/cache-level runtime failures
+fail closed and require a process restart. Async HTTP routes cancel queued jobs
+when the client disconnects; in-flight Metal work remains non-preemptive and its
+result is discarded. A 1 ms configurable microbatch window lets concurrent
+same-state requests arrive before dispatch; setting it to zero restores the
+minimum-latency mode. The worker reports queue wait, worker time, and server time in the returned metadata;
 `/api/info` reports worker state and queue depth.
 
 The checkpoint is covered by `tests/test_inference.py`: worker ownership,

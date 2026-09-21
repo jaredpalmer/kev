@@ -5,13 +5,14 @@ Run: uv run --extra serve python -m kev.serve --run runs/kev --port 8008
 import argparse, json, os, random, re, time
 from contextlib import asynccontextmanager
 import torch
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
 from .data import DISTRACTORS, NONE
+from .encoding import rows_of
 from .evaluate import load
-from .inference import InferenceBusy, InferenceTimeout, InferenceUnavailable, InferenceWorker
+from .inference import InferenceBusy, InferenceCancelled, InferenceTimeout, InferenceUnavailable, InferenceWorker
 
 # inference limits (training used 384/640); per-branch cap mirrors Jev's ~32k, bounded by the base model window
 INFER_MAX_STATE, INFER_MAX_BRANCH = 8192, 8192
@@ -32,6 +33,9 @@ PREFIX_MIN_TOKENS = int(os.environ.get("KEV_PREFIX_MIN_TOKENS", "384"))
 INFER_QUEUE_SIZE = int(os.environ.get("KEV_INFER_QUEUE", "64"))
 INFER_TIMEOUT_S = float(os.environ.get("KEV_INFER_TIMEOUT_S", "120"))
 INFER_BATCH_ROWS = int(os.environ.get("KEV_INFER_BATCH_ROWS", "8"))
+INFER_BATCH_WAIT_MS = float(os.environ.get("KEV_INFER_BATCH_WAIT_MS", "1"))
+INFER_BATCH_MAX_ROWS = int(os.environ.get("KEV_INFER_BATCH_MAX_ROWS", "32"))
+INFER_BATCH_MAX_TOKENS = int(os.environ.get("KEV_INFER_BATCH_MAX_TOKENS", "8192"))
 TEMPERATURE = float(os.environ.get("KEV_TEMPERATURE", "1.0"))               # opt-in: probabilities ^ (1/T), renormalised; 2.0 is the value fitted in-distribution for the Qwen3.5 family (scripts/temperature_groups.py)
 DATE_FACTS = os.environ.get("KEV_DATE_FACTS", "0") == "1"                  # opt-in: append day counts between absolute dates in the state (api.with_date_facts)   # below this the branch-only pass is not faster on MPS (per-op overhead dominates)
 
@@ -82,6 +86,11 @@ def _probs_core_many(records, encs=None):
     model, dev = STATE["model"], STATE["dev"]
     encs = [_encode(rec) for rec in records] if encs is None else encs
     Ls = encs[0]["seg"].count(0); key = (tuple(encs[0]["ids"][:Ls]), bool(encs[0].get("option_isolation")))
+    row_sets = [rows_of(enc)[2] for enc in encs]
+    batch_rows = sum(len(rows) for rows in row_sets)
+    batch_tokens = sum(len(rows) * (Ls + max((len(row["ids"]) for row in rows), default=0)) for rows in row_sets)
+    if batch_rows > INFER_BATCH_MAX_ROWS or batch_tokens > INFER_BATCH_MAX_TOKENS:
+        raise HTTPException(413, "request or batch exceeds inference memory limits")
     cache = STATE["prefix_cache"]
     _sync(dev); t = time.monotonic()
     # MLX's recurrent prefix pass is substantially cheaper than repeating
@@ -118,7 +127,7 @@ def _probs_core_many(records, encs=None):
     for enc, ps, hit in zip(encs, pss, hits):
         if TEMPERATURE != 1.0:                  # opt-in calibration: pointer logit scaling (argmax unchanged)
             ps = [(lambda q: q / q.sum())(torch.as_tensor(p).clamp_min(1e-9) ** (1.0 / TEMPERATURE)) for p in ps]
-        out.append(([p.tolist() for p in ps], {"tokens": len(enc["ids"]), "state_tokens": Ls, "latency_ms": round(dt * 1000, 1), "prefix_cache_hit": hit, "batch_requests": len(encs)}))
+        out.append(([p.tolist() for p in ps], {"tokens": len(enc["ids"]), "state_tokens": Ls, "latency_ms": round(dt * 1000, 1), "prefix_cache_hit": hit, "batch_requests": len(encs), "batch_rows": batch_rows, "batch_tokens": batch_tokens}))
     return out
 
 
@@ -136,29 +145,59 @@ def _batch_jobs(jobs):
             encs.append(_encode(job.payload))
             valid.append(i)
         except Exception as exc:
-            outcomes[i] = BatchItem(error=exc)
+            outcomes[i] = BatchItem(error=exc, fatal=isinstance(exc, (MemoryError, SystemError, RuntimeError)))
     if not valid:
         return outcomes
-    try:
-        values = _probs_core_many([jobs[i].payload for i in valid], [encs[n] for n in range(len(encs))])
-    except Exception as exc:
-        for i in valid:
-            outcomes[i] = BatchItem(error=exc)
-        return outcomes
-    for i, value in zip(valid, values):
-        outcomes[i] = BatchItem(value=value)
+    chunks, chunk = [], []
+    rows_used = tokens_used = 0
+    for i, enc in zip(valid, encs):
+        rows = rows_of(enc)[2]
+        row_count = len(rows)
+        state_len = enc["seg"].count(0)
+        token_count = row_count * (state_len + max((len(row["ids"]) for row in rows), default=0))
+        if row_count > INFER_BATCH_MAX_ROWS or token_count > INFER_BATCH_MAX_TOKENS:
+            outcomes[i] = BatchItem(error=HTTPException(413, "request exceeds inference batch memory limits"))
+            continue
+        if chunk and (rows_used + row_count > INFER_BATCH_MAX_ROWS or tokens_used + token_count > INFER_BATCH_MAX_TOKENS):
+            chunks.append(chunk)
+            chunk, rows_used, tokens_used = [], 0, 0
+        chunk.append((i, enc))
+        rows_used += row_count
+        tokens_used += token_count
+    if chunk:
+        chunks.append(chunk)
+    for chunk_index, chunk in enumerate(chunks):
+        indices = [i for i, _ in chunk]
+        chunk_encs = [enc for _, enc in chunk]
+        try:
+            values = _probs_core_many([jobs[i].payload for i in indices], chunk_encs)
+        except Exception as exc:
+            fatal = isinstance(exc, (MemoryError, SystemError, RuntimeError))
+            for i in indices:
+                outcomes[i] = BatchItem(error=exc, fatal=fatal)
+            if fatal:
+                for remaining in chunks[chunk_index + 1:]:
+                    for i, _ in remaining:
+                        outcomes[i] = BatchItem(error=exc, fatal=True)
+                break
+            continue
+        for i, value in zip(indices, values):
+            outcomes[i] = BatchItem(value=value)
     return outcomes
 
 
-def _probs(rec):
+async def _probs_async(rec, request: Request):
     worker = STATE.get("worker")
     if worker is None:
         raise HTTPException(503, "inference worker is not ready", headers={"Retry-After": "1"})
     try:
-        return worker.run(lambda: _probs_core(rec), timeout_s=INFER_TIMEOUT_S,
-                          batch_key=_batch_key(rec), payload=rec)
+        return await worker.run_async(lambda: _probs_core(rec), timeout_s=INFER_TIMEOUT_S,
+                                      batch_key=_batch_key(rec), payload=rec,
+                                      is_disconnected=request.is_disconnected)
     except InferenceBusy as exc:
         raise HTTPException(503, str(exc), headers={"Retry-After": "1"}) from exc
+    except InferenceCancelled:
+        raise HTTPException(499, "client disconnected")
     except InferenceTimeout as exc:
         raise HTTPException(504, str(exc)) from exc
     except InferenceUnavailable as exc:
@@ -166,11 +205,11 @@ def _probs(rec):
 
 
 @app.post("/v1/systemone")
-def systemone(req: SystemOneRequest):
+async def systemone(req: SystemOneRequest, request: Request):
     """TypeSafe-compatible endpoint: typed questions in, typed answers out, one prefill pass."""
     if DATE_FACTS: req = req.model_copy(update={"state": with_date_facts(req.state)})
     rec, meta = to_record(req)
-    ps, m = _probs(rec)
+    ps, m = await _probs_async(rec, request)
     answers = to_answers(ps, meta)
     return {"model": req.model, "answers": answers, "usage": {"input_tokens": m["tokens"], "output_tokens": output_tokens(STATE["tok"], answers)}, "latency_ms": m["latency_ms"]}
 
@@ -183,7 +222,7 @@ class PermuteSystemOne(BaseModel):
 
 
 @app.post("/v1/systemone/permute")
-def systemone_permute(r: PermuteSystemOne):
+async def systemone_permute(r: PermuteSystemOne, request: Request):
     """Re-run one Choice question under n_perm option orders. Returns per-order probabilities keyed by option name."""
     q = r.request.questions.get(r.question)
     if q is None or q.type != "choice": raise HTTPException(422, "question must be an existing choice question")
@@ -193,7 +232,7 @@ def systemone_permute(r: PermuteSystemOne):
         if i > 0: rng.shuffle(order)
         req = r.request.model_copy(update={"questions": {r.question: q.model_copy(update={"criteria": {k: q.criteria[k] for k in order}})}})
         if DATE_FACTS: req = req.model_copy(update={"state": with_date_facts(req.state)})
-        rec, meta = to_record(req); ps, m = _probs(rec)
+        rec, meta = to_record(req); ps, m = await _probs_async(rec, request)
         a = to_answers(ps, meta)[r.question]
         runs.append({"order": order, "probabilities": a["probabilities"], "choice": a["choice"], "latency_ms": m["latency_ms"]})
     spread = {k: max(x["probabilities"][k] for x in runs) - min(x["probabilities"][k] for x in runs) for k in keys}
@@ -201,11 +240,11 @@ def systemone_permute(r: PermuteSystemOne):
 
 
 @app.post("/v1/systemone/separate")
-def systemone_separate(req: SystemOneRequest):
+async def systemone_separate(req: SystemOneRequest, request: Request):
     """Answer each question in its own request against the same state (N passes). For packed-vs-separate comparison."""
     answers, tokens, ms = {}, 0, 0.0
     for qid, q in req.questions.items():
-        rec, meta = to_record(req.model_copy(update={"questions": {qid: q}, **({"state": with_date_facts(req.state)} if DATE_FACTS else {})})); ps, m = _probs(rec)
+        rec, meta = to_record(req.model_copy(update={"questions": {qid: q}, **({"state": with_date_facts(req.state)} if DATE_FACTS else {})})); ps, m = await _probs_async(rec, request)
         answers.update(to_answers(ps, meta)); tokens += m["tokens"]; ms += m["latency_ms"]
     return {"model": req.model, "answers": answers, "usage": {"input_tokens": tokens, "output_tokens": output_tokens(STATE["tok"], answers)}, "latency_ms": round(ms, 1)}
 
@@ -222,7 +261,7 @@ def info():
     worker = STATE.get("worker")
     return {"run": STATE["run"], "device": STATE["dev"], "base": STATE["base"], "lora": STATE["lora"],
             "none_option": NONE, "distractors": DISTRACTORS, "has_eval": os.path.exists(ev),
-            "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": effective_min, "hits": STATE["prefix_hits"], "misses": STATE["prefix_misses"], "coalesced_misses": STATE["prefix_coalesced"], "cached_states": len(STATE["prefix_cache"]), "worker_state": worker.state if worker else "STOPPED", "queue_depth": worker.queue_depth if worker else 0, "queue_capacity": INFER_QUEUE_SIZE, "batch_rows": INFER_BATCH_ROWS}}
+            "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": effective_min, "hits": STATE["prefix_hits"], "misses": STATE["prefix_misses"], "coalesced_misses": STATE["prefix_coalesced"], "cached_states": len(STATE["prefix_cache"]), "worker_state": worker.state if worker else "STOPPED", "queue_depth": worker.queue_depth if worker else 0, "queue_capacity": INFER_QUEUE_SIZE, "batch_requests": INFER_BATCH_ROWS, "batch_wait_ms": INFER_BATCH_WAIT_MS, "batch_max_rows": INFER_BATCH_MAX_ROWS, "batch_max_tokens": INFER_BATCH_MAX_TOKENS}}
 
 
 @app.get("/api/eval")
@@ -233,31 +272,31 @@ def eval_json():
 
 
 @app.post("/api/predict")
-def predict(r: Record):
+async def predict(r: Record, request: Request):
     """All questions in one block-causal pass (shared state prefix)."""
-    ps, meta = _probs(_rec(r))
+    ps, meta = await _probs_async(_rec(r), request)
     return {"probs": ps, **meta}
 
 
 @app.post("/api/predict_separate")
-def predict_separate(r: Record):
+async def predict_separate(r: Record, request: Request):
     """Each question alone against the same state (N passes). For packed-vs-separate comparison."""
     rec = _rec(r); out, tokens, ms = [], 0, 0.0
     for q in rec["questions"]:
-        ps, meta = _probs({"state": rec["state"], "questions": [q]})
+        ps, meta = await _probs_async({"state": rec["state"], "questions": [q]}, request)
         out.append(ps[0]); tokens += meta["tokens"]; ms += meta["latency_ms"]
     return {"probs": out, "tokens": tokens, "latency_ms": round(ms, 1)}
 
 
 @app.post("/api/permute")
-def permute(r: PermuteReq):
+async def permute(r: PermuteReq, request: Request):
     """Shuffle the option order n_perm times; return each ordering's probs mapped back to original indices."""
     rng = random.Random(r.seed); K = len(r.question.options); runs = []
     for i in range(r.n_perm):
         perm = list(range(K))
         if i > 0: rng.shuffle(perm)
         q = {"instr": r.question.instr, "options": [r.question.options[j] for j in perm], "label": 0}
-        ps, meta = _probs({"state": r.state, "questions": [q]})
+        ps, meta = await _probs_async({"state": r.state, "questions": [q]}, request)
         orig = [0.0] * K
         for pos, j in enumerate(perm): orig[j] = ps[0][pos]
         runs.append({"perm": perm, "probs": orig, "argmax": perm[max(range(K), key=lambda i: ps[0][i])], "latency_ms": meta["latency_ms"]})
@@ -299,7 +338,7 @@ def main():
     STATE.update(run=label, tok=tok, model=model, dev=dev, base=meta["base"], lora=meta["lora"],
                  worker=InferenceWorker(max_queue=INFER_QUEUE_SIZE, request_timeout_s=INFER_TIMEOUT_S,
                                         batch_fn=_batch_jobs if dev == "mlx" else None,
-                                        max_batch=INFER_BATCH_ROWS))
+                                        max_batch=INFER_BATCH_ROWS, batch_wait_s=INFER_BATCH_WAIT_MS / 1000.0))
     print(f"serving {label} ({run}) on {dev} :{a.port}")
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=a.port)

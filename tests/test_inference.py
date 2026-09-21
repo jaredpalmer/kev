@@ -1,9 +1,10 @@
+import asyncio
 import threading
 import time
 
 import pytest
 
-from kev.inference import BatchItem, InferenceBusy, InferenceTimeout, InferenceUnavailable, InferenceWorker
+from kev.inference import BatchItem, InferenceBusy, InferenceCancelled, InferenceTimeout, InferenceUnavailable, InferenceWorker
 
 
 def test_worker_runs_one_owner_and_reports_queue_time():
@@ -55,6 +56,39 @@ def test_worker_rejects_after_stop():
     worker.stop()
     with pytest.raises(InferenceUnavailable):
         worker.run(lambda: 1)
+
+
+def test_worker_fails_closed_after_runtime_error():
+    worker = InferenceWorker(max_queue=2)
+    with pytest.raises(InferenceUnavailable, match="device exploded"):
+        worker.run(lambda: (_ for _ in ()).throw(RuntimeError("device exploded")))
+    assert worker.state == "FAILED"
+    with pytest.raises(InferenceUnavailable):
+        worker.run(lambda: 1)
+    worker.stop()
+
+
+def test_async_wait_cancels_when_client_disconnects():
+    worker = InferenceWorker(max_queue=2)
+    entered = threading.Event()
+    release = threading.Event()
+    blocker, _ = worker.submit(lambda: (entered.set(), release.wait(1))[1])
+    assert entered.wait(1)
+
+    async def run():
+        with pytest.raises(InferenceCancelled):
+            await worker.run_async(lambda: "never delivered", is_disconnected=lambda: _true())
+
+    async def _true():
+        return True
+
+    try:
+        asyncio.run(run())
+        assert blocker.done() is False
+    finally:
+        release.set()
+        assert blocker.result(timeout=1) is True
+        worker.stop()
 
 
 def test_worker_batches_jobs_with_the_same_key():

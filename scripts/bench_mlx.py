@@ -75,6 +75,8 @@ def summarize(rows: list[dict]) -> dict:
         "state_tokens": sorted(set(r["state_tokens"] for r in rows)),
         "input_tokens": sorted(set(r["input_tokens"] for r in rows)),
         "batch_requests": sorted(set(r["batch_requests"] for r in rows if r.get("batch_requests") is not None)),
+        "batch_rows": sorted(set(r["batch_rows"] for r in rows if r.get("batch_rows") is not None)),
+        "batch_tokens": sorted(set(r["batch_tokens"] for r in rows if r.get("batch_tokens") is not None)),
     }
     for name in ("queue_wait_ms", "worker_ms", "server_latency_ms"):
         values = [r[name] for r in rows if r.get(name) is not None]
@@ -89,14 +91,14 @@ def run_serial(url: str, payloads: list[dict], warmup: int) -> dict:
     rows = []
     for payload in payloads[warmup:]:
         result, wall = post(url, payload)
-        rows.append({"wall_ms": wall, "model_ms": result["latency_ms"], "queue_wait_ms": result.get("queue_wait_ms"), "worker_ms": result.get("worker_ms"), "server_latency_ms": result.get("server_latency_ms"), "batch_requests": result.get("batch_requests"), "cache_hit": result["prefix_cache_hit"], "state_tokens": result["state_tokens"], "input_tokens": result["tokens"]})
+        rows.append({"wall_ms": wall, "model_ms": result["latency_ms"], "queue_wait_ms": result.get("queue_wait_ms"), "worker_ms": result.get("worker_ms"), "server_latency_ms": result.get("server_latency_ms"), "batch_requests": result.get("batch_requests"), "batch_rows": result.get("batch_rows"), "batch_tokens": result.get("batch_tokens"), "cache_hit": result["prefix_cache_hit"], "state_tokens": result["state_tokens"], "input_tokens": result["tokens"]})
     return summarize(rows)
 
 
 def run_parallel(url: str, payload: dict, n: int, workers: int) -> dict:
     def one(_):
         result, wall = post(url, payload)
-        return {"wall_ms": wall, "model_ms": result["latency_ms"], "queue_wait_ms": result.get("queue_wait_ms"), "worker_ms": result.get("worker_ms"), "server_latency_ms": result.get("server_latency_ms"), "batch_requests": result.get("batch_requests"), "cache_hit": result["prefix_cache_hit"], "state_tokens": result["state_tokens"], "input_tokens": result["tokens"]}
+        return {"wall_ms": wall, "model_ms": result["latency_ms"], "queue_wait_ms": result.get("queue_wait_ms"), "worker_ms": result.get("worker_ms"), "server_latency_ms": result.get("server_latency_ms"), "batch_requests": result.get("batch_requests"), "batch_rows": result.get("batch_rows"), "batch_tokens": result.get("batch_tokens"), "cache_hit": result["prefix_cache_hit"], "state_tokens": result["state_tokens"], "input_tokens": result["tokens"]}
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         rows = list(pool.map(one, range(n)))

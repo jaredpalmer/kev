@@ -1,5 +1,7 @@
 import kev.serve as serve
 import numpy as np
+import pytest
+from fastapi import HTTPException
 
 
 class FakeModel:
@@ -10,6 +12,9 @@ class FakeModel:
         return {
             "ids": [11, 12, 13],
             "seg": [0, 0, 1],
+            "pos": [0, 1, 2],
+            "decide_idx": [2],
+            "opt_idx": [[2]],
             "option_isolation": False,
         }
 
@@ -57,3 +62,16 @@ def test_same_state_batch_reuses_one_prefix(monkeypatch):
     assert model.calls[-1] == ("hit_one", 1)
     assert one[0][1]["prefix_cache_hit"] is True
     assert one[0][0] == [[0.6, 0.4]]
+
+
+def test_batch_memory_budget_rejects_oversized_batch(monkeypatch):
+    model = FakeModel()
+    state = {"tok": object(), "model": model, "dev": "mlx", "prefix_cache": {}, "prefix_hits": 0, "prefix_misses": 0, "prefix_coalesced": 0}
+    monkeypatch.setattr(serve, "STATE", state)
+    monkeypatch.setattr(serve, "INFER_BATCH_MAX_ROWS", 1)
+    monkeypatch.setattr(serve, "INFER_BATCH_MAX_TOKENS", 8192)
+    monkeypatch.setattr(serve, "TEMPERATURE", 1.0)
+    rec = {"state": "same", "questions": [{"instr": "a", "options": ["x", "y"]}]}
+    with pytest.raises(HTTPException) as exc:
+        serve._probs_core_many([rec, rec])
+    assert exc.value.status_code == 413
