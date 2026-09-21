@@ -61,10 +61,10 @@ def test_split_keeps_states_together_and_is_deterministic():
     assert len(parts["calibration"]) == 16 and len(parts["development"]) == 16
 
 
-def test_cli_writes_partitions_and_summary(tmp_path):
+def test_cli_writes_partitions_and_summary(tmp_path, monkeypatch):
     src = tmp_path / "d.jsonl"
     src.write_text("".join(json.dumps(record(f"case {i}", dept=["returns", "shipping", "billing", "account"][i % 4], level=i % 3)) + "\n" for i in range(60)) + "not json\n", encoding="utf-8")
-    sys.argv = ["split_data.py", str(src), "--out", str(tmp_path / "out")]
+    monkeypatch.setattr(sys, "argv", ["split_data.py", str(src), "--out", str(tmp_path / "out")])
     assert split_data.main() == 0
     summary = json.loads((tmp_path / "out/summary.json").read_text(encoding="utf-8"))
     assert summary["records"] == 60 and summary["invalid_lines"] == 1
@@ -118,24 +118,24 @@ def test_coerce_noul_only_accepts_booleans(value, expected):
     assert generate_data.coerce_label(q, value) == expected
 
 
-def test_split_holdout_keeps_real_records_out_of_train(tmp_path):
+def test_split_holdout_keeps_real_records_out_of_train(tmp_path, monkeypatch):
     synthetic = [record(f"gen {i}", dept=["returns", "shipping", "billing", "account"][i % 4]) for i in range(100)]
     real = [record(f"real {i}") for i in range(40)] + [record("gen 3")]   # one real state also appears in the synthetic file
     for name, rows in (("gen.jsonl", synthetic), ("real.jsonl", real)):
         (tmp_path / name).write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    sys.argv = ["split_data.py", str(tmp_path / "gen.jsonl"), "--out", str(tmp_path / "out"), "--holdout", str(tmp_path / "real.jsonl")]
+    monkeypatch.setattr(sys, "argv", ["split_data.py", str(tmp_path / "gen.jsonl"), "--out", str(tmp_path / "out"), "--holdout", str(tmp_path / "real.jsonl")])
     assert split_data.main() == 0
     parts = {p: [json.loads(l) for l in (tmp_path / f"out/{p}.jsonl").read_text(encoding="utf-8").splitlines()] for p in ("train", "calibration", "development")}
     assert len(parts["train"]) == 99 and all(r["state"].startswith("gen") for r in parts["train"])
     assert len(parts["calibration"]) + len(parts["development"]) == 41 and all(not r["state"].startswith("gen ") or r["state"] == "gen 3" for r in parts["calibration"] + parts["development"])
 
 
-def test_convert_maps_columns_and_labels(tmp_path):
+def test_convert_maps_columns_and_labels(tmp_path, monkeypatch):
     csv_path = tmp_path / "t.csv"
     csv_path.write_text('body,team,urgent,prio\n"charged twice",Billing Ops,yes,2\n"where is it",shipping,no,1\n"login",Legal,no,1\n,billing,no,1\n', encoding="utf-8")
     out = tmp_path / "out.jsonl"
-    sys.argv = ["convert_data.py", str(SKILL / "assets/workload.example.json"), str(csv_path), "--state", "body", "--label", "department=team", "--label", "escalate=urgent",
-                "--label", "frustration=prio", "--score-offset", "1", "--map", "department=Billing Ops:billing", "--out", str(out)]
+    monkeypatch.setattr(sys, "argv", ["convert_data.py", str(SKILL / "assets/workload.example.json"), str(csv_path), "--state", "body", "--label", "department=team", "--label", "escalate=urgent",
+                "--label", "frustration=prio", "--score-offset", "1", "--map", "department=Billing Ops:billing", "--out", str(out)])
     assert convert_data.main() == 0
     rows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()]
     assert [r["questions"]["department"]["label"] for r in rows] == ["billing", "shipping"]
@@ -171,9 +171,9 @@ def test_extract_finds_typescript_and_python_questions(tmp_path):
     assert found["spam"]["type"] == "noul" and "ignored" not in json.dumps(found)
 
 
-def test_extract_cli_writes_draft(tmp_path, capsys):
+def test_extract_cli_writes_draft(tmp_path, capsys, monkeypatch):
     (tmp_path / "a.py").write_text('q = {"ok": {"type": "noul", "instructions": "Fine?"}}\nrequests.post(url + "/v1/systemone", json=q)\n', encoding="utf-8")
-    sys.argv = ["extract_workload.py", str(tmp_path), "--out", str(tmp_path / "wl.json")]
+    monkeypatch.setattr(sys, "argv", ["extract_workload.py", str(tmp_path), "--out", str(tmp_path / "wl.json")])
     assert extract_workload.main() == 0
     spec = json.loads((tmp_path / "wl.json").read_text(encoding="utf-8"))
     assert spec["questions"]["ok"]["instructions"] == "Fine?" and spec["domain"].startswith("_todo")

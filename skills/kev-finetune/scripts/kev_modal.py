@@ -26,24 +26,23 @@ from pathlib import Path
 
 import modal
 
-APP_NAME = os.environ.get("KEV_APP_NAME", "kev-finetune")
+# Launch-time settings that the container must see identically: they travel in the image env (names only, never secret
+# values). The module is re-evaluated inside the container, and a Secret list or a served run that differs there either
+# fails the container ("Function has N dependencies but got M") or serves the wrong model.
+SETTINGS = {"KEV_APP_NAME": "kev-finetune", "KEV_REF": "f0ae8fb9af5762254974dcdba8c82cbf48587b2e", "KEV_SERVE_RUN": "jaredpalmer/kev-4b", "KEV_HF_SECRET": "", "KEV_SERVE_SECRET": ""}
+SETTINGS = {k: os.environ.get(k, v) for k, v in SETTINGS.items()}
+APP_NAME, KEV_REF, SERVE_RUN = SETTINGS["KEV_APP_NAME"], SETTINGS["KEV_REF"], SETTINGS["KEV_SERVE_RUN"]
 KEV_REPO = "https://github.com/jaredpalmer/kev.git"
-KEV_REF = os.environ.get("KEV_REF", "f0ae8fb9af5762254974dcdba8c82cbf48587b2e")
 KEV_ROOT = "/kev"
 SUITE = f"{KEV_ROOT}/evals/v7/decision-v7"        # the public recipe the released checkpoints trained on: replay source and regression check
 RUNS, HF = "/runs", "/hf"
-GPU = os.environ.get("KEV_GPU", "H100")
+GPU = os.environ.get("KEV_GPU", "H100")           # GPU choices are resolved at launch and sent as config, so they need not match inside the container
 SERVE_GPU = os.environ.get("KEV_SERVE_GPU", "L4")
-SERVE_RUN = os.environ.get("KEV_SERVE_RUN", "jaredpalmer/kev-4b")
 DEFAULT_INIT = "jaredpalmer/kev-4b"
+MAX_DELTA_LR = 5e-5                               # a delta never trains hotter than the released deltas did (2e-5 .. 4e-5); protects an init trained from scratch (2e-4)
 GPU_HOURLY = {"H100": 3.95, "H200": 4.54, "B200": 6.25, "A100-80GB": 2.50, "A100": 2.10, "L40S": 1.95, "A10G": 1.10, "L4": 0.80, "T4": 0.59}
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}")
 PARTITIONS = ("train", "calibration", "development")
-
-# Launch-time settings travel into the image env (names only, never secret values): the module is re-evaluated inside the
-# container, and a Secret/Volume list that differs there fails the container with "Function has N dependencies but got M".
-SETTINGS = {k: os.environ[k] for k in ("KEV_APP_NAME", "KEV_REF", "KEV_SERVE_RUN", "KEV_HF_SECRET", "KEV_SERVE_SECRET") if os.environ.get(k)}
-SETTINGS.setdefault("KEV_SERVE_RUN", SERVE_RUN); SETTINGS.setdefault("KEV_REF", KEV_REF)
 
 app = modal.App(APP_NAME)
 image = (
@@ -60,23 +59,11 @@ image = (
 runs = modal.Volume.from_name("kev-finetune-runs", create_if_missing=True)
 hf_cache = modal.Volume.from_name("kev-hf-cache", create_if_missing=True)
 VOLUMES = {RUNS: runs, HF: hf_cache}
-hf_secret = [modal.Secret.from_name(os.environ["KEV_HF_SECRET"])] if os.environ.get("KEV_HF_SECRET") else []
-serve_secret = [modal.Secret.from_name(os.environ["KEV_SERVE_SECRET"])] if os.environ.get("KEV_SERVE_SECRET") else []
+hf_secret = [modal.Secret.from_name(SETTINGS["KEV_HF_SECRET"])] if SETTINGS["KEV_HF_SECRET"] else []
+serve_secret = [modal.Secret.from_name(SETTINGS["KEV_SERVE_SECRET"])] if SETTINGS["KEV_SERVE_SECRET"] else []
 
 
 # --- shared helpers (run inside containers) ---------------------------------------------------------------------------
-
-def size_billions(base):
-    m = re.search(r"(\d+(?:\.\d+)?)B", base)
-    return float(m.group(1)) if m else 4.0
-
-
-def recipe(size):
-    """Training knobs by backbone size: what the released deltas used (experiments/night2-*-du.json)."""
-    if size < 2: return {"lr": 4e-5, "batch": 8, "accum": 1, "checkpointing": 0}
-    if size < 6: return {"lr": 2e-5, "batch": 4, "accum": 2, "checkpointing": 1}
-    return {"lr": 2e-5, "batch": 2, "accum": 4, "checkpointing": 1}
-
 
 def resolve_checkpoint(run):
     """A run name on the volume -> its checkpoint directory; anything else (local path, Hub id) is passed through."""
@@ -124,23 +111,42 @@ def error_rows(rows, records, temperature, limit=60):
     return sorted(out, key=lambda e: -e["confidence"])[:limit]
 
 
-def score(run, development, out, calibration=None, temperature=None):
-    """Raw-logit predictions of one checkpoint on the development records; the temperature is fitted on the calibration
-    records when given (min NLL), else `temperature` (default: raw). Returns (report, rows, temperature)."""
-    import gc
-    import torch
+def load_data(name, *parts):
+    """{partition: records} for the partitions of /runs/<name>/data that exist."""
+    from kev.data import load_records
+    data = Path(RUNS) / name / "data"
+    return {p: load_records(data / f"{p}.jsonl") for p in parts if (data / f"{p}.jsonl").exists()}
+
+
+def score(predictor, development, out, calibration=None):
+    """Score one predictor: fit a temperature on the calibration records when given (raw-logit min NLL), then score the
+    development records at that temperature. Returns (report, rows, temperature); reports land under `out`."""
     from kev.benchmark import evaluate_records
-    from kev.checkpoint import LoadOptions
     from kev.metrics import fit_temperature
-    from kev.predictors import LocalPredictor
-    predictor = LocalPredictor(run, "cuda", LoadOptions(temperature=1.0))
-    T = temperature or 1.0
+    T = 1.0
     if calibration:
         _, cal_rows = evaluate_records(calibration, predictor, Path(out) / "calibration")
         T = fit_temperature(cal_rows, aggregation="micro")
     report, rows = evaluate_records(development, predictor, Path(out) / "development", T)
-    del predictor; gc.collect(); torch.cuda.empty_cache()
     return report, rows, T
+
+
+def raw_predictor(run):
+    """A LocalPredictor that returns raw logits (temperature 1.0), so the fit above starts from scratch for every checkpoint."""
+    from kev.checkpoint import LoadOptions
+    from kev.predictors import LocalPredictor
+    return LocalPredictor(run, "cuda", LoadOptions(temperature=1.0))
+
+
+def score_checkpoint(run, development, out, calibration=None):
+    """score() with a fresh raw predictor that is released afterwards: one training run scores several checkpoints on one GPU."""
+    import gc
+    import torch
+    predictor = raw_predictor(run)
+    try:
+        return score(predictor, development, out, calibration)
+    finally:
+        del predictor; gc.collect(); torch.cuda.empty_cache()
 
 
 def summary_block(report, rows, temperature):
@@ -149,6 +155,16 @@ def summary_block(report, rows, temperature):
     clean = [r for r in rows if r["variant"] == "clean"]
     return {"temperature": temperature, "raw": report["clean"], "calibrated": report["calibrated_clean"],
             "per_question": grouped_metrics(clean, "question", temperature), "n_questions": len(clean)}
+
+
+def write_result(out, development, report, rows, temperature, **fields):
+    """result.json + errors.jsonl for a scored development set (the shape print_result, publish, compare and plan_size read)."""
+    from kev.suite import write_json, write_jsonl
+    result = {**fields, "temperature": temperature, "kev_ref": KEV_REF, "development": summary_block(report, rows, temperature)}
+    errors = error_rows(rows, development, temperature)
+    write_jsonl(out / "errors.jsonl", errors); result["errors"] = len(errors)
+    write_json(out / "result.json", result); runs.commit()
+    return result
 
 
 KEYS = (("accuracy", "acc", "{:.3f}"), ("brier (lower is better)", "brier", "{:.3f}"), ("nll (lower is better)", "nll", "{:.3f}"),
@@ -168,21 +184,20 @@ def render_table(columns):
 
 
 def print_result(result):
-    dev, base = result["development"], result.get("baseline")
-    cols = []
-    if base:
-        cols += [(f"{result['init_from']} raw", base["development"]["raw"]), (f"{result['init_from']} calibrated", base["development"]["calibrated"])]
+    """The human summary of a result.json: metrics table (baseline columns when the run scored one), per-question
+    accuracy / brier, bootstrap deltas, regression check."""
+    dev, base = result["development"], (result.get("baseline") or {}).get("development")
+    cols = [(f"{result['init_from']} raw", base["raw"]), (f"{result['init_from']} calibrated", base["calibrated"])] if base else []
     cols += [(f"{result['name']} raw", dev["raw"]), (f"{result['name']} calibrated", dev["calibrated"])]
-    print(f"\n== development partition ({dev['n_questions']} questions), fitted temperature {dev['temperature']:.2f}" + (f" (baseline {base['development']['temperature']:.2f})" if base else ""))
+    print(f"\n== development partition ({dev['n_questions']} questions), fitted temperature {dev['temperature']:.2f}" + (f" (baseline {base['temperature']:.2f})" if base else ""))
     print(render_table(cols))
-    if base:
-        print("\nper question (calibrated accuracy / brier):")
-        for qid, m in dev["per_question"].items():
-            b = base["development"]["per_question"].get(qid, {})
-            print(f"  {qid:<24} baseline {b.get('acc', float('nan')):.3f} / {b.get('brier', float('nan')):.3f}   finetuned {m['acc']:.3f} / {m['brier']:.3f}   n={m['n']}")
-        for metric, boot in result.get("bootstrap", {}).items():
-            lo, hi = boot["ci95"]
-            print(f"  {metric} delta (finetuned - baseline): {boot[f'micro_{metric}_delta']:+.3f}  95% CI [{lo:+.3f}, {hi:+.3f}]" + ("  significant" if lo > 0 or hi < 0 else ""))
+    print("\nper question (calibrated accuracy / brier):")
+    for qid, m in dev["per_question"].items():
+        b = base["per_question"].get(qid) if base else None
+        print(f"  {qid:<24} " + (f"baseline {b['acc']:.3f} / {b['brier']:.3f}   finetuned " if b else "") + f"{m['acc']:.3f} / {m['brier']:.3f}   n={m['n']}")
+    for metric, boot in result.get("bootstrap", {}).items():
+        lo, hi = boot["ci95"]
+        print(f"  {metric} delta (finetuned - baseline): {boot[f'micro_{metric}_delta']:+.3f}  95% CI [{lo:+.3f}, {hi:+.3f}]" + ("  significant" if lo > 0 or hi < 0 else ""))
     reg = result.get("regression")
     if reg:
         before = f"baseline acc {reg['baseline']['acc']:.3f} brier {reg['baseline']['brier']:.3f} -> " if reg.get("baseline") else ""
@@ -194,6 +209,27 @@ def print_result(result):
 
 def stage(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+def train_subprocess(cmd, log_path):
+    """Run kev.train, tee its output to train.log and echo the progress lines."""
+    with log_path.open("w", encoding="utf-8") as log, subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=KEV_ROOT) as proc:
+        for line in proc.stdout:
+            log.write(line); log.flush()
+            if line.startswith(("ep", "saved", "device", "delta", "replay", "dropped")) or "Error" in line or "Traceback" in line: print(line.rstrip(), flush=True)
+    if proc.returncode:
+        raise subprocess.CalledProcessError(proc.returncode, cmd, "kev.train failed; see train.log")
+
+
+def regression_sample(n_groups, seed):
+    """Whole groups from the public development partition: a permuted variant is scored against its parent and a
+    contrastive pair against its sibling, so sampling records would break both."""
+    import random
+    from kev.suite import load_split
+    groups = {}
+    for r in load_split(SUITE, "development"): groups.setdefault(r["_meta"]["group_id"], []).append(r)
+    chosen = random.Random(seed).sample(sorted(groups), min(n_groups, len(groups)))
+    return [r for g in chosen for r in groups[g]]
 
 
 # --- remote functions ---------------------------------------------------------------------------------------------------
@@ -212,13 +248,11 @@ def run_validate(name, init_from):
 def run_train(name, config, baseline=True, regression=300):
     """Delta fine-tune from `config['init_from']` on /runs/<name>/data/train.jsonl, fit a temperature on calibration.jsonl,
     score development.jsonl (and the init checkpoint on the same records), check the public recipe for forgetting."""
-    import random
     import torch
     from kev.checkpoint import Checkpoint, read_meta, write_meta
-    from kev.data import load_records
     from kev.metrics import metrics, paired_bootstrap
     from kev.model import load_tokenizer
-    from kev.suite import load_split, write_json, write_jsonl
+    from kev.suite import write_json
 
     runs.reload()
     out = Path(RUNS) / name
@@ -226,21 +260,21 @@ def run_train(name, config, baseline=True, regression=300):
         raise FileExistsError(f"/runs/{name} already holds a run; choose a new name")
     started = time.time()
     init = Checkpoint(config["init_from"])
-    meta, args = init.meta, init.meta.extra.get("args", {})
-    size = size_billions(meta.base)
-    cfg = {**recipe(size), **{k: config[k] for k in ("lr", "batch", "accum") if config.get(k)},   # 0 = the recipe's value
+    meta, args = init.meta, init.meta.extra["args"]   # the init checkpoint's own training args are the recipe: batch/accum/checkpointing fit its size, lr is its delta lr
+    cfg = {"lr": min(args["lr"], MAX_DELTA_LR), **{k: args[k] for k in ("batch", "accum", "checkpointing")},
+           **{k: config[k] for k in ("lr", "batch", "accum") if config.get(k)},   # 0 = keep the checkpoint's value
            **{k: config[k] for k in ("epochs", "seed", "replay", "p_none_pair")}}
     tok = load_tokenizer(meta.base, revision=meta.base_revision)
     checks = check_partitions(out / "data", tok)
     write_json(out / "config.json", {"name": name, "init_from": config["init_from"], "init_resolved": init.path, "base": meta.base, "base_revision": meta.base_revision,
                                      "config": cfg, "data": checks, "kev_ref": KEV_REF, "gpu": torch.cuda.get_device_name(0)})
-    stage(f"{meta.base} ({size:g}B) from {config['init_from']}; config {json.dumps(cfg)}; data {json.dumps({k: (v['records'], v['over_limit']) for k, v in checks.items()})}")
+    stage(f"{meta.base} from {config['init_from']}; config {json.dumps(cfg)}; data {json.dumps({k: (v['records'], v['over_limit']) for k, v in checks.items()})}")
     for part, c in checks.items():
         if c["over_limit"]: print(f"warning: {c['over_limit']} {part} records exceed Kev's training context and will be dropped (state limit {c['state_tokens']['limit']} tokens)", flush=True)
 
     run = str(out / "checkpoint")
     cmd = [sys.executable, "-m", "kev.train", "--data", str(out / "data/train.jsonl"), "--init_from", config["init_from"], "--out", run, "--device", "cuda", "--dtype", "bf16",
-           "--base", meta.base, "--lora", meta.lora, "--head_dim", meta.head_dim, "--lora_targets", args.get("lora_targets", "all"),
+           "--base", meta.base, "--lora", meta.lora, "--head_dim", meta.head_dim, "--lora_targets", args["lora_targets"],
            "--option_isolation", int(meta.option_isolation), "--special_embeddings", int(meta.special_embeddings), "--weights_dtype", meta.weights_dtype,
            "--epochs", cfg["epochs"], "--lr", cfg["lr"], "--batch", cfg["batch"], "--accum", cfg["accum"], "--checkpointing", cfg["checkpointing"],
            "--seed", cfg["seed"], "--p_none_pair", cfg["p_none_pair"]]
@@ -249,90 +283,60 @@ def run_train(name, config, baseline=True, regression=300):
     cmd = [str(c) for c in cmd]
     stage("training: " + " ".join(cmd[2:]))
     try:
-        with (out / "train.log").open("w", encoding="utf-8") as log, subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=KEV_ROOT) as proc:
-            for line in proc.stdout:
-                log.write(line); log.flush()
-                if line.startswith(("ep", "saved", "device", "delta", "replay", "dropped")) or "Error" in line or "Traceback" in line: print(line.rstrip(), flush=True)
-        if proc.returncode:
-            raise subprocess.CalledProcessError(proc.returncode, cmd, "kev.train failed; see train.log")
+        train_subprocess(cmd, out / "train.log")
     finally:
         runs.commit(); hf_cache.commit()
 
-    calibration, development = load_records(out / "data/calibration.jsonl"), load_records(out / "data/development.jsonl")
+    data = load_data(name, "calibration", "development")
+    calibration, development = data["calibration"], data["development"]
     stage(f"scoring {name} on {len(calibration)} calibration + {len(development)} development records")
-    report, rows, T = score(run, development, out, calibration)
+    report, rows, T = score_checkpoint(run, development, out, calibration)
     m = read_meta(run); m.temperature = T
     m.extra["temperature_fit"] = {"rows": "calibration.jsonl", "n": len(calibration), "method": "min NLL, micro, kev.metrics.fit_temperature", "value": T}
     write_meta(run, m)   # the checkpoint now serves calibrated probabilities by default
-    result = {"name": name, "init_from": config["init_from"], "base": meta.base, "config": cfg, "temperature": T, "data": checks, "kev_ref": KEV_REF,
-              "development": summary_block(report, rows, T)}
-    errors = error_rows(rows, development, T)
-    write_jsonl(out / "errors.jsonl", errors); result["errors"] = len(errors)
-    write_json(out / "result.json", result); runs.commit()
+    result = write_result(out, development, report, rows, T, name=name, init_from=config["init_from"], base=meta.base, config=cfg, data=checks)
 
     if baseline:
         stage(f"scoring the baseline {config['init_from']} on the same records")
-        b_report, b_rows, b_T = score(config["init_from"], development, out / "baseline", calibration)
+        b_report, b_rows, b_T = score_checkpoint(config["init_from"], development, out / "baseline", calibration)
         result["baseline"] = {"run": config["init_from"], "development": summary_block(b_report, b_rows, b_T)}
         result["bootstrap"] = {metric: paired_bootstrap(tempered(rows, T), tempered(b_rows, b_T), metric=metric, aggregation="micro") for metric in ("acc", "brier", "ece")}
         write_json(out / "result.json", result); runs.commit()
     if regression:
-        groups = {}   # whole groups: a permuted variant is scored against its parent and a contrastive pair against its sibling
-        for r in load_split(SUITE, "development"): groups.setdefault(r["_meta"]["group_id"], []).append(r)
-        chosen = random.Random(cfg["seed"]).sample(sorted(groups), min(regression, len(groups)))
-        sample = [r for g in chosen for r in groups[g]]
+        sample = regression_sample(regression, cfg["seed"])
         stage(f"regression check: {len(sample)} public decision-v7 development records")
-        _, r_rows, _ = score(run, sample, out / "regression/finetuned")
+        _, r_rows, _ = score_checkpoint(run, sample, out / "regression/finetuned")
         result["regression"] = {"n": len(sample), "suite": "evals/v7/decision-v7", "finetuned": metrics([r for r in r_rows if r["variant"] == "clean"])}
         if baseline:
-            _, rb_rows, _ = score(config["init_from"], sample, out / "regression/baseline")
+            _, rb_rows, _ = score_checkpoint(config["init_from"], sample, out / "regression/baseline")
             result["regression"]["baseline"] = metrics([r for r in rb_rows if r["variant"] == "clean"])
     result["wall_seconds"] = round(time.time() - started); result["gpu"] = torch.cuda.get_device_name(0)
     write_json(out / "result.json", result); runs.commit(); hf_cache.commit()
     return result
 
 
-def score_job(name, predictor_factory, data_dir, calibrate):
-    """Score any predictor on /runs/<name>/data/development.jsonl (+ calibration.jsonl when calibrate). Used by the GPU and
-    CPU evaluate functions."""
-    from kev.benchmark import evaluate_records
-    from kev.data import load_records
-    from kev.metrics import fit_temperature
-    from kev.suite import write_json, write_jsonl
+def evaluate_data(name, predictor, calibrate, **fields):
+    """Score one predictor on /runs/<name>/data/development.jsonl (temperature fitted on calibration.jsonl when `calibrate`
+    and the file exists) and write the run's result files."""
     runs.reload()
     out = Path(RUNS) / name
     if (out / "development").exists(): raise FileExistsError(f"/runs/{name}/development exists; choose a new name")
-    development = load_records(data_dir / "development.jsonl")
-    predictor = predictor_factory()
-    T = 1.0
-    if calibrate and (data_dir / "calibration.jsonl").exists():
-        _, cal_rows = evaluate_records(load_records(data_dir / "calibration.jsonl"), predictor, out / "calibration")
-        T = fit_temperature(cal_rows, aggregation="micro")
-    report, rows = evaluate_records(development, predictor, out / "development", T)
-    result = {"name": name, "temperature": T, "development": summary_block(report, rows, T), "kev_ref": KEV_REF}
-    errors = error_rows(rows, development, T); write_jsonl(out / "errors.jsonl", errors); result["errors"] = len(errors)
-    write_json(out / "result.json", result); runs.commit()
-    return result
+    data = load_data(name, "development", *(("calibration",) if calibrate else ()))
+    report, rows, T = score(predictor, data["development"], out, data.get("calibration"))
+    return write_result(out, data["development"], report, rows, T, name=name, **fields)
 
 
 @app.function(image=image, gpu=GPU, cpu=2, memory=(32768, 65536), timeout=3600, retries=0, volumes=VOLUMES, secrets=hf_secret)
 def run_evaluate(name, run):
-    from kev.checkpoint import LoadOptions
-    from kev.predictors import LocalPredictor
-    target = resolve_checkpoint(run)
-    result = score_job(name, lambda: LocalPredictor(target, "cuda", LoadOptions(temperature=1.0)), Path(RUNS) / name / "data", calibrate=True)
-    result["run"] = run
-    return result
+    return evaluate_data(name, raw_predictor(resolve_checkpoint(run)), calibrate=True, run=run)
 
 
 @app.function(image=image, cpu=2, memory=4096, timeout=3600, retries=0, volumes=VOLUMES)
 def run_evaluate_remote(name, base_url, model, api_key):
     """Score any System One-compatible endpoint (a deployed Kev, or Jev with a TypeSafe key) on the same development file.
-    Remote probabilities are already what the service returns, so no temperature is fitted."""
+    Remote probabilities are what the service returns: there are no logits to refit, so no temperature is fitted."""
     from kev.predictors import RemotePredictor
-    result = score_job(name, lambda: RemotePredictor(base_url, model, api_key), Path(RUNS) / name / "data", calibrate=False)
-    result["remote"] = {"base_url": base_url, "model": model}
-    return result
+    return evaluate_data(name, RemotePredictor(base_url, model, api_key), calibrate=False, remote={"base_url": base_url, "model": model})
 
 
 @app.function(image=image, cpu=2, memory=4096, timeout=600, volumes=VOLUMES)
@@ -346,9 +350,8 @@ def run_compare(a, b, metrics=("acc", "brier", "ece")):
         result = read_json(Path(RUNS) / name / "result.json")
         rows = read_json(Path(RUNS) / name / "development/rows.json")
         sides.append((tempered(rows, result["temperature"]), result["development"]["calibrated"]))
-    out = {"a": a, "b": b, "a_metrics": sides[0][1], "b_metrics": sides[1][1],
-           "bootstrap": {m: paired_bootstrap(sides[0][0], sides[1][0], metric=m, aggregation="micro") for m in metrics}}
-    return out
+    return {"a": a, "b": b, "a_metrics": sides[0][1], "b_metrics": sides[1][1],
+            "bootstrap": {m: paired_bootstrap(sides[0][0], sides[1][0], metric=m, aggregation="micro") for m in metrics}}
 
 
 CARD = """---
@@ -446,11 +449,8 @@ class Serve:
 
 def check_name(name):
     if not NAME.fullmatch(name): raise SystemExit("--name must be letters, digits, - or _ (max 80 characters)")
-    try:
-        entries = {Path(e.path).name for e in runs.listdir("/")}
-    except Exception:
-        entries = set()
-    if name in entries: raise SystemExit(f"/runs/{name} already exists on the volume; names are immutable, choose a new one (e.g. {name}-2)")
+    if name in {Path(e.path).name for e in runs.listdir("/")}:
+        raise SystemExit(f"/runs/{name} already exists on the volume; names are immutable, choose a new one (e.g. {name}-2)")
 
 
 def upload_data(name, source, required, optional=()):
@@ -503,7 +503,7 @@ def validate(data: str, name: str = "validate", init_from: str = DEFAULT_INIT):
 def train(data: str, name: str, init_from: str = DEFAULT_INIT, epochs: int = 1, lr: float = 0.0, replay: int = 2000, batch: int = 0, accum: int = 0,
           seed: int = 0, p_none_pair: float = 0.25, regression: int = 300, baseline: bool = True, gpu: str = GPU, timeout: int = 10800):
     """Delta fine-tune `init_from` on data/train.jsonl, calibrate on calibration.jsonl, score development.jsonl against the
-    baseline and pull the reports to runs/<name>/. lr/batch/accum default to the released recipe for the backbone size."""
+    baseline and pull the reports to runs/<name>/. lr/batch/accum default to the init checkpoint's own training args (lr capped at 5e-5)."""
     check_name(name)
     counts = upload_data(name, data, PARTITIONS)
     config = {"init_from": init_from, "epochs": epochs, "lr": lr, "replay": replay, "batch": batch, "accum": accum, "seed": seed, "p_none_pair": p_none_pair}
@@ -526,12 +526,9 @@ def evaluate(data: str, name: str, run: str = "", remote: str = "", remote_model
         result = run_evaluate_remote.remote(name, remote, remote_model, os.environ.get("KEV_REMOTE_API_KEY", "local"))
     else:
         result = run_evaluate.with_options(gpu=gpu).remote(name, run)
-    dev = result["development"]
-    print(f"\n== {name}: {run or remote} on {dev['n_questions']} development questions, temperature {dev['temperature']:.2f}")
-    print(render_table([(f"{name} raw", dev["raw"]), (f"{name} calibrated", dev["calibrated"])]))
-    for qid, m in dev["per_question"].items(): print(f"  {qid:<24} acc {m['acc']:.3f} brier {m['brier']:.3f} n={m['n']}")
-    target = download_run(name)
-    print(f"\n{result['errors']} wrong answers in {target}/errors.jsonl; full report in {target}/development/report.json")
+    print(f"\n== {name}: {run or remote}")
+    print_result(result)
+    print(f"\nreports in {download_run(name)}/ (result.json, errors.jsonl, development/report.json)")
 
 
 @app.local_entrypoint()
@@ -581,6 +578,6 @@ def teardown(run: str = "", endpoint: bool = False, everything: bool = False, ca
     if everything:
         modal_cli("volume", "delete", "kev-finetune-runs", "--yes"); print("deleted volume kev-finetune-runs")
         if cache: modal_cli("volume", "delete", "kev-hf-cache", "--yes"); print("deleted volume kev-hf-cache")
-        for secret in (os.environ.get("KEV_SERVE_SECRET"), os.environ.get("KEV_HF_SECRET")):
+        for secret in (SETTINGS["KEV_SERVE_SECRET"], SETTINGS["KEV_HF_SECRET"]):
             if secret: print(f"secret {secret} was left in place; remove it with: modal secret delete {secret}")
         print("images are garbage-collected by Modal; nothing else remains")

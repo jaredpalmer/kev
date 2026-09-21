@@ -49,7 +49,7 @@ Why this matters against Jev: a hosted model's probabilities cannot be re-fitted
    Doubling the training set usually beats any hyperparameter.
 2. **Epochs.** `--epochs 2` when you have 1000+ records and the training loss in `train.log` is still falling at the
    end of epoch 1. Watch `mean_conf` vs `acc` afterwards.
-3. **Learning rate.** Recipe defaults: 4e-5 (0.8B), 2e-5 (4B, 9B). Halve on regression, do not go above 5e-5 for a delta.
+3. **Learning rate.** Defaults come from the init checkpoint's own training args (4e-5 for kev-0.8b, 2e-5 for kev-4b and kev-9b), capped at 5e-5. Halve on regression; never go above the cap for a delta.
 4. **Replay.** `--replay 2000` (default) mixes public records so the model keeps general skill. `--replay 500` if your
    data is large (3000+) and training time matters; `--replay 0` only for a throwaway experiment.
 5. **Base size.** When two data rounds stop moving the 4B, run the same data on `jaredpalmer/kev-9b`
