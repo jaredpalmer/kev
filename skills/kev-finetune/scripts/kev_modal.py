@@ -507,7 +507,7 @@ def train(data: str, name: str, init_from: str = DEFAULT_INIT, epochs: int = 1, 
     check_name(name)
     counts = upload_data(name, data, PARTITIONS)
     config = {"init_from": init_from, "epochs": epochs, "lr": lr, "replay": replay, "batch": batch, "accum": accum, "seed": seed, "p_none_pair": p_none_pair}
-    print(f"uploaded {counts} to /runs/{name}/data; training on {gpu}, cost bound ${bound(gpu, timeout):.2f} for the {timeout}s timeout (typical for 400 records: 0.8B ~8 min, 4B ~15 min, 9B ~30 min)", flush=True)
+    print(f"uploaded {counts} to /runs/{name}/data; training on {gpu}, cost bound ${bound(gpu, timeout):.2f} for the {timeout}s timeout (typical: 0.8B ~8 min, 4B ~12-15 min for 400-1000 records, 9B ~30 min)", flush=True)
     result = run_train.with_options(gpu=gpu, timeout=timeout).remote(name, config, baseline, regression)
     print_result(result)
     target, script = download_run(name), os.path.relpath(__file__)

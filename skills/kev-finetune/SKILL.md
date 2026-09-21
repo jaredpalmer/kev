@@ -51,7 +51,7 @@ Do not generate anything before you can answer these. Ask what you cannot infer;
    spec (`generate_data.py`; ask which endpoint and key they want to use: OpenAI, Vercel AI Gateway, Ollama, or any
    OpenAI-compatible URL); (c) you write records yourself from the `--dry-run` prompt in batches of 20 (fine for the
    first 100, slow beyond).
-5. **Base size.** Recommend `jaredpalmer/kev-4b` (~15 min, ~$1 per run for 400 records; ~25 min for 1500).
+5. **Base size.** Recommend `jaredpalmer/kev-4b` (~12 min and ~$1 per run for 400 records, ~15 min for 1000).
    `kev-0.8b` for fast loops, `kev-9b` for the final model. Same recipe on all three; a run transfers unchanged.
 6. **Deployment and money.** Modal account ready (`modal setup`)? Budget: each `train` prints a cost bound before it
    starts. Where will the model be called from (so you can wire the endpoint in at the end)? Should the checkpoint stay
@@ -73,8 +73,9 @@ python3 scripts/split_data.py data/x.jsonl --out data/x
 
 `plan_size.py` turns "detect a +5 point accuracy gain at 80% power" into a record count (typically ~1000 for three
 questions per record; ~$0.25 of gpt-4.1-mini). Do not settle for 300 records unless the user only wants a smoke test:
-with 60 development records the confidence interval on the gain is ±7 points and nothing is conclusive. If the baseline
-accuracy is unknown, measure it first (`evaluate --run jaredpalmer/kev-4b` on a small split) and re-plan.
+on the example workload 400 records gave +0.6 points with a ±6 point CI (nothing), 1050 records gave +5.9 points with a
+CI of [+2.3, +9.7]. If the baseline accuracy is unknown, measure it first (`evaluate --run jaredpalmer/kev-4b` on a
+small split) and re-plan.
 
 Read the `split_data.py` report. Fix the spec and regenerate when a label is under 5% or missing, states are flagged
 long, or samples read alike. Real labelled rows: keep them as the development/calibration side when possible

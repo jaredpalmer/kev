@@ -43,9 +43,12 @@ Iterate between 3 and 5: read `errors.jsonl`, tighten the labelling rules in the
 
 The released Kev checkpoints already answer these questions zero-shot, and `train` scores that baseline for you. What
 the fine-tune adds on a specific workload is (a) accuracy on your labels and (b) a temperature fitted to your data, so
-the confidence you threshold on means what it says. On the example workload (support tickets, three questions, 400
-records) the 4B went from automating 47% of decisions at a 5% error budget to 61%, with confident errors near zero.
-A hosted model cannot be recalibrated to your data; that is the whole argument.
+the confidence you threshold on means what it says. On the example workload (`assets/workload.example.json`: support
+tickets, three questions, 1050 generated records, 15 minutes on an H100) Kev-4B went from 67.7% to 73.6% accuracy
+(95% CI on the gain +2.3 to +9.7 points), Brier 0.402 to 0.330, and from automating 34% of decisions at a 5% error
+budget to 48%, with no change on the public evaluation data. With 400 records the same gain was inside the noise,
+which is why the recipe sizes the dataset first. A hosted model cannot be recalibrated to your data; that is the
+whole argument.
 
 ## Layout
 
