@@ -61,6 +61,7 @@ def option_text(name: str, desc: JSONContent) -> str:
 
 MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December"
 _DATE = re.compile(rf"\b(?:{MONTHS}) \d{{1,2}}, \d{{4}}\b|\b\d{{4}}-\d{{2}}-\d{{2}}\b")
+_DATE_FACTS_SUFFIX = re.compile(r"(?:\n\ndate_facts: [^\n]*)+$")
 
 
 def date_facts(text: str) -> str:
@@ -81,9 +82,19 @@ def date_facts(text: str) -> str:
     return " ".join(facts)
 
 
-def with_date_facts(state):
+def _without_date_facts(state: JSONContent) -> JSONContent:
+    """Remove a prior top-level annotation so preprocessing is safe to apply more than once."""
+    if isinstance(state, dict): return {k: v for k, v in state.items() if k != "date_facts"}
+    if isinstance(state, list): return [v for v in state if not (isinstance(v, dict) and set(v) == {"date_facts"})]
+    if isinstance(state, str): return _DATE_FACTS_SUFFIX.sub("", state)
+    return state
+
+
+def with_date_facts(state: JSONContent) -> JSONContent:
     """State with a `date_facts` field (object states) or an appended paragraph (string states) when two or more absolute
-    dates appear. Opt-in preprocessing (KEV_DATE_FACTS=1 in kev.serve, --date_facts in kev.benchmark)."""
+    dates appear. Existing top-level annotations are replaced, making the opt-in preprocessing safe when both a client
+    and the server enable it (KEV_DATE_FACTS=1 in kev.serve, --date_facts in kev.benchmark)."""
+    state = _without_date_facts(state)
     facts = date_facts(render(state))
     if not facts: return state
     if isinstance(state, dict): return {**state, "date_facts": facts}

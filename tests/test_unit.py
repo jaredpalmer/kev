@@ -174,3 +174,15 @@ def test_option_isolation_mask_rule():
     assert m[7, 6] and m[5, 4]                        # option sees itself (causal within span)
     assert all(m[8, j] for j in range(9))             # decide sees everything in its question
     assert m[3, 4] == False                           # instruction never sees options (causal)
+
+
+def test_date_facts_preprocessing_is_idempotent():
+    from kev.api import with_date_facts
+    text = "The deadline was July 4, 2026. The report arrived July 6, 2026."
+    for state in (text, {"case": text}, [text]):
+        annotated = with_date_facts(state)
+        assert with_date_facts(annotated) == annotated
+
+    clean = with_date_facts({"case": text})
+    stale = {"case": text, "date_facts": "December 31, 2026 is 180 days after July 4, 2026."}
+    assert with_date_facts(stale) == clean
