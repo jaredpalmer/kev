@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "kev"
 version = "0.1.0"
@@ -48,3 +52,6 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["server: needs a running kev.serve instance (KEV_BASE_URL)"]
+
+[tool.setuptools]
+packages = ["kev"]
