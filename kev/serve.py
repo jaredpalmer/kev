@@ -14,8 +14,9 @@ from .encoding import rows_of
 from .evaluate import load
 from .inference import InferenceBusy, InferenceCancelled, InferenceTimeout, InferenceUnavailable, InferenceWorker
 
-# inference limits (training used 384/640); per-branch cap mirrors Jev's ~32k, bounded by the base model window
-INFER_MAX_STATE, INFER_MAX_BRANCH = 8192, 8192
+# inference limits (training used 384/640); serving accepts up to 16K tokens
+# for the state and for state plus one question branch.
+INFER_MAX_STATE, INFER_MAX_BRANCH = 16384, 16384
 
 @asynccontextmanager
 async def _lifespan(_app):
@@ -35,7 +36,7 @@ INFER_TIMEOUT_S = float(os.environ.get("KEV_INFER_TIMEOUT_S", "120"))
 INFER_BATCH_ROWS = int(os.environ.get("KEV_INFER_BATCH_ROWS", "8"))
 INFER_BATCH_WAIT_MS = float(os.environ.get("KEV_INFER_BATCH_WAIT_MS", "1"))
 INFER_BATCH_MAX_ROWS = int(os.environ.get("KEV_INFER_BATCH_MAX_ROWS", "32"))
-INFER_BATCH_MAX_TOKENS = int(os.environ.get("KEV_INFER_BATCH_MAX_TOKENS", "8192"))
+INFER_BATCH_MAX_TOKENS = int(os.environ.get("KEV_INFER_BATCH_MAX_TOKENS", "16384"))
 TEMPERATURE = float(os.environ.get("KEV_TEMPERATURE", "1.0"))               # opt-in: probabilities ^ (1/T), renormalised; 2.0 is the value fitted in-distribution for the Qwen3.5 family (scripts/temperature_groups.py)
 DATE_FACTS = os.environ.get("KEV_DATE_FACTS", "0") == "1"                  # opt-in: append day counts between absolute dates in the state (api.with_date_facts)   # below this the branch-only pass is not faster on MPS (per-op overhead dominates)
 

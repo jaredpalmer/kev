@@ -82,8 +82,8 @@ HTTP validation -> bounded inference queue -> worker encoding -> scheduler
   bodies and 422 for invalid token/shape limits.
 - Use strict encoding for this service: reject overlong states rather than
   silently truncate them. The current encoder counts a state delimiter and
-  enforces state plus each branch <= max_branch (currently 8192); max_state
-  and max_branch are not independent 8192-token allowances. Reject empty
+  enforces state plus each branch <= max_branch (currently 16384); max_state
+  and max_branch are not independent 16384-token allowances. Reject empty
   question/option lists and any job whose smallest execution unit cannot fit
   the configured working-memory budget.
 - Preserve FIFO age priority. A bounded scan can find compatible rows, but an
