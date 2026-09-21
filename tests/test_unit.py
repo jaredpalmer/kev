@@ -134,3 +134,15 @@ def test_soft_targets_and_date_facts():
     assert abs(question_loss(z, rec["questions"][0], "cpu", 0.0).item() - (-(torch.log_softmax(z, -1) / 3).sum()).item()) < 1e-6
     assert date_facts("Due July 4, 2026. Received June 26, 2026. Shipped 2026-07-01.") == "June 26, 2026 is 8 days before July 4, 2026. 2026-07-01 is 3 days before July 4, 2026. 2026-07-01 is 5 days after June 26, 2026."
     assert with_date_facts({"case": "one date: May 1, 2026"}) == {"case": "one date: May 1, 2026"}
+
+
+def test_date_facts_preprocessing_is_idempotent():
+    from kev.api import with_date_facts
+    text = "The deadline was July 4, 2026. The report arrived July 6, 2026."
+    for state in (text, {"case": text}, [text]):
+        annotated = with_date_facts(state)
+        assert with_date_facts(annotated) == annotated
+
+    clean = with_date_facts({"case": text})
+    stale = {"case": text, "date_facts": "December 31, 2026 is 180 days after July 4, 2026."}
+    assert with_date_facts(stale) == clean
