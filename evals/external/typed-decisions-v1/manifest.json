@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "external": {
+    "repo": "https://huggingface.co/datasets/LocalLLaMA/typed-decisions",
+    "revision": "ea9306458d6e9563628369a3d1e72e362fb381d2",
+    "license": "apache-2.0",
+    "file": "all/test-00000-of-00001.parquet",
+    "file_sha256": "4f294f218ea1da27f3efef936359389c62ea4d3973a41457732990f1d31b647c"
+  },
+  "base_revisions": {},
+  "dataset_revisions": {},
+  "holdout_sources": [],
+  "trainable_sources": [],
+  "eval_only_sources": [
+    "agent_trace_observability",
+    "customer_service",
+    "invoice_processing",
+    "security_incidents"
+  ],
+  "files": {
+    "development.jsonl": {
+      "sha256": "842b9a8c915981eb2c26a2fa84e383c408e69d02c6ce956dc7e31f6b733de231",
+      "records": 400
+    },
+    "train.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "records": 0
+    },
+    "calibration.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "records": 0
+    },
+    "test.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "records": 0
+    }
+  },
+  "eval_only": true,
+  "context": {
+    "max_state": 384,
+    "max_branch": 1024,
+    "max_packed": 2048,
+    "truncate": false
+  },
+  "protocol": {
+    "note": "Zero-shot only: this suite is never trained on. Gold is the mean of three teacher-sample distributions; a score measures agreement with that teacher, not correctness.",
+    "state": "raw JSON from the dataset, passed through verbatim (SystemOne shape)",
+    "overlong_records": [
+      "customer_service_000019",
+      "customer_service_000020",
+      "customer_service_000027",
+      "customer_service_000044",
+      "customer_service_000050",
+      "customer_service_000051",
+      "customer_service_000064",
+      "customer_service_000083"
+    ],
+    "overlong_policy": "records whose state exceeds the 384-token serving cap are counted as wrong, never truncated",
+    "reference_points": {
+      "uniform": 0.308,
+      "prior": 0.47,
+      "minilm_l6": 0.587,
+      "modernbert_base": 0.646,
+      "factor_ceiling": 0.704,
+      "jev_1_13_0_generalist": 0.727,
+      "teacher_self_agreement": 0.735
+    }
+  }
+}
