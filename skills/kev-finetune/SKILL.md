@@ -2,7 +2,7 @@
 name: kev-finetune
 description: Fine-tune a Kev decision model (open Jev-style System One model) on one workload with LLM-generated synthetic data, calibrate it, score it against the released checkpoint, and serve it as a TypeSafe-compatible endpoint on Modal. Use when someone wants Jev/TypeSafe-style noul, choice or score questions answered on their own domain, wants calibrated probabilities for a classifier or triage/routing task, or asks to fine-tune, evaluate, deploy or publish Kev.
 license: Apache-2.0
-compatibility: Requires Python 3.10+, uv, and a Modal account (`uvx modal setup`). Training uses one H100 (about $1.50 per Kev-4B run). Optional - an OpenAI-compatible chat endpoint for data generation and a Hugging Face token for publishing.
+compatibility: Requires Python 3.10+, uv, and a Modal account (`uvx modal setup`). Training uses one H100 (about $1 per Kev-4B run). Optional - an OpenAI-compatible chat endpoint for data generation and a Hugging Face token for publishing.
 metadata:
   author: jaredpalmer
   version: "1.0"
@@ -39,9 +39,10 @@ characters (384 tokens); Kev's training context drops longer records.
 
 Then ask two things before spending money:
 
-- **Which base?** Recommend `jaredpalmer/kev-4b` to start (about 20 minutes and $1.50 per run on an H100; the
-  balance of quality and iteration speed). `jaredpalmer/kev-0.8b` is for fast loops (~10 min), `jaredpalmer/kev-9b`
-  for the final model (~40 min). All three carry the same recipe, so a run transfers to a larger base unchanged.
+- **Which base?** Recommend `jaredpalmer/kev-4b` to start (about 15 minutes and $1 per run on an H100 for 400
+  records; the balance of quality and iteration speed). `jaredpalmer/kev-0.8b` is for fast loops (~8 min),
+  `jaredpalmer/kev-9b` for the final model (~30 min). All three carry the same recipe, so a run transfers to a larger
+  base unchanged.
 - **How to get the labelled data?** Three options, in order of preference:
   1. *Existing labels* (tickets with their routing, logs with outcomes): convert them to the JSONL format yourself.
   2. *An LLM writes them*: `scripts/generate_data.py` against OpenAI, Vercel AI Gateway, Ollama or any compatible
