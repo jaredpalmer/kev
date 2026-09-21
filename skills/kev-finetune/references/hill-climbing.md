@@ -25,7 +25,9 @@ Why this matters against Jev: a hosted model's probabilities cannot be re-fitted
 
 1. **Is the gain real?** `bootstrap` in `result.json` holds paired bootstrap deltas (fine-tuned minus baseline) for
    `acc`, `brier` and `ece` with 95% CIs, resampling development records. A CI that excludes zero is a real change on
-   this development set. With 60 development records the CI is wide; if it straddles zero, get more data before tuning knobs.
+   this development set. With 60 development records the CI is ±7 points and nothing is conclusive.
+   `python3 scripts/plan_size.py --from-result runs/<name>/result.json` converts the observed delta and CI into the
+   record count that would settle it, or tells you the gain is too small to chase with volume.
 2. **Did it forget?** `regression` scores both models on 300 public `decision-v7` development records (raw logits).
    Accept a drop of ~2 accuracy points; more means the delta drifted. Lower `--lr` (halve it), keep `--replay 2000`,
    do not add epochs.

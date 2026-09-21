@@ -172,6 +172,8 @@ def main():
     ap.add_argument("--calibration", type=float, default=0.15, help="fraction of states for the calibration partition (temperature fit); default 0.15")
     ap.add_argument("--development", type=float, default=0.15, help="fraction of states for the development partition (scoring); default 0.15")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--holdout", help="JSONL of real labelled records: they are split half/half into calibration and development and never trained on; "
+                                      "every record from DATA then goes to train (synthetic data trains, real data measures)")
     a = ap.parse_args()
     if not 0 < a.calibration + a.development < 1: ap.error("calibration + development fractions must be between 0 and 1")
 
@@ -189,11 +191,23 @@ def main():
     for w in warnings_for(records): print(f"warning: {w}")
 
     if not a.out: return 0
-    parts = split(records, {"calibration": a.calibration, "development": a.development}, a.seed)
+    if a.holdout:
+        real, real_problems = read_records(a.holdout)
+        for p in real_problems[:10]: print(f"invalid in holdout: {p}", file=sys.stderr)
+        real, _, _ = dedupe(real)
+        if len(real) < 40: print(f"warning: only {len(real)} real records; calibration and development will be noisy (aim for 100+ each)", file=sys.stderr)
+        real_parts = split(real, {"calibration": 0.5, "development": 0.5}, a.seed)
+        real_states = {state_key(r["state"]) for r in real}
+        train = [r for r in records if state_key(r["state"]) not in real_states]
+        parts = {"train": train, "calibration": real_parts["calibration"] + real_parts["train"], "development": real_parts["development"]}   # rounding leftovers join calibration
+        print(f"holdout: {len(real)} real records -> {len(parts['calibration'])} calibration + {len(parts['development'])} development; {len(train)} records from {a.data} -> train"
+              + (f" ({len(records) - len(train)} dropped for sharing a state with a real record)" if len(train) < len(records) else ""))
+    else:
+        parts = split(records, {"calibration": a.calibration, "development": a.development}, a.seed)
     if any(not v for v in parts.values()):
         print("a partition would be empty; you need more records (aim for 300+)", file=sys.stderr); return 1
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
-    summary = {"source": str(a.data), "seed": a.seed, "records": len(records), "invalid_lines": len(problems), "duplicates_dropped": dupes,
+    summary = {"source": str(a.data), "holdout": a.holdout, "seed": a.seed, "records": len(records), "invalid_lines": len(problems), "duplicates_dropped": dupes,
                "conflicting_states_dropped": conflicts, "partitions": {}}
     for name, rows in parts.items():
         with (out / f"{name}.jsonl").open("w", encoding="utf-8", newline="\n") as f:

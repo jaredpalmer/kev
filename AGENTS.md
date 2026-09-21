@@ -73,12 +73,15 @@ See README.md (deep dive) and docs/model-cards/ (one card per checkpoint: recipe
 
 ## Skills (.devin/skills)
 - `kev-verify`: how to prove a change has no regression (unit suites, weight-backed parity, worktree parity harness against main) and ship it as a stacked, reviewed, squash-merged PR.
-- `skills/kev-finetune` (published; `npx skills add jaredpalmer/kev@kev-finetune`): the user-facing fine-tuning skill. agentskills.io format (validate with
-  `uvx --from skills-ref agentskills validate skills/kev-finetune`). `scripts/kev_modal.py` is a self-contained Modal app (app `kev-finetune`, volumes
-  `kev-finetune-runs` + `kev-hf-cache`) whose image clones this repo at `KEV_REF` and pip-installs it, so it needs no local clone; bump `KEV_REF` after merging a
-  kev/ change the skill depends on. Launch-time settings go into the image env via `SETTINGS` (a Secret list that differs inside the container fails with
-  "Function has N dependencies but container got M"). `train` derives every architecture flag from the init checkpoint's `head.pt`; results are the skill's own
-  `result.json` shape (not a research trial's). Tests for the stdlib scripts: `tests/test_skill_scripts.py`.
+- `skills/kev-finetune` (published; `npx skills add jaredpalmer/kev@kev-finetune`): the user-facing fine-tuning skill (SKILL.md for agents, README.md is the
+  human cookbook). agentskills.io format (validate with `uvx --from skills-ref agentskills validate skills/kev-finetune`). Stdlib scripts: `extract_workload`
+  (find Jev/TypeSafe call sites + labelled files, draft the spec), `convert_data` (CSV/JSONL -> records), `generate_data` (OpenAI-compatible endpoint),
+  `plan_size` (paired McNemar sizing; `--from-result` post hoc), `split_data` (`--holdout` keeps real rows out of train). `scripts/kev_modal.py` is a
+  self-contained Modal app (app `kev-finetune`, volumes `kev-finetune-runs` + `kev-hf-cache`) whose image clones this repo at `KEV_REF` and pip-installs it, so
+  it needs no local clone; bump `KEV_REF` after merging a kev/ change the skill depends on. Launch-time settings go into the image env via `SETTINGS` (a Secret
+  list that differs inside the container fails with "Function has N dependencies but container got M"). `train` derives every architecture flag from the init
+  checkpoint's `head.pt`; results are the skill's own `result.json` shape (not a research trial's); `publish` is private by default; `teardown` removes runs /
+  the endpoint / the volumes. Tests for the stdlib scripts: `tests/test_skill_scripts.py`.
 - `thermonuclear-code-review`: how to apply the installed `thermo-nuclear-code-quality-review` standards to this repo; its table lists the canonical home of each shared rule.
 - `kev-modal-study` (.agents/skills): launching and pulling Modal studies.
 

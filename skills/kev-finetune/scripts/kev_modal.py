@@ -6,7 +6,8 @@
     modal run scripts/kev_modal.py::compare --a support-v1 --b support-v2                               # paired bootstrap on development
     modal run scripts/kev_modal.py::pull --name support-v1 [--checkpoint]                               # reports (and weights) to runs/<name>
     KEV_SERVE_RUN=support-v1 modal deploy scripts/kev_modal.py                                          # System One endpoint on a GPU
-    KEV_HF_SECRET=huggingface-secret modal run scripts/kev_modal.py::publish --name support-v1 --repo you/kev-4b-support
+    KEV_HF_SECRET=huggingface-secret modal run scripts/kev_modal.py::publish --name support-v1 --repo you/kev-4b-support   # optional, private by default
+    modal run scripts/kev_modal.py::teardown --run support-v1 --yes / --endpoint / --everything --yes                    # clean up
 
 The image clones github.com/jaredpalmer/kev at KEV_REF and installs it; every container runs the same kev.train /
 kev.benchmark / kev.serve code the released checkpoints were built and measured with. Trial outputs live on the Modal
@@ -552,8 +553,34 @@ def pull(name: str, checkpoint: bool = False):
 
 
 @app.local_entrypoint()
-def publish(name: str, repo: str, private: bool = False, message: str = "", card: str = ""):
-    """Upload /runs/<name>/checkpoint to the Hugging Face Hub as `repo` with a generated model card (--card to supply your own)."""
+def publish(name: str, repo: str, public: bool = False, message: str = "", card: str = ""):
+    """Optional: upload /runs/<name>/checkpoint to the Hugging Face Hub as `repo` (private unless --public) with a generated
+    model card (--card to supply your own). The volume + the Modal endpoint work without this."""
     if not hf_secret: raise SystemExit("set KEV_HF_SECRET=<modal secret name holding HF_TOKEN> (create one with: modal secret create huggingface-secret HF_TOKEN=hf_...)")
     text = Path(card).read_text(encoding="utf-8") if card else ""
-    print(run_publish.remote(name, repo, private, message, text))
+    print(run_publish.remote(name, repo, not public, message, text))
+
+
+def modal_cli(*args):
+    subprocess.run([sys.executable, "-m", "modal", *args], check=False)
+
+
+@app.local_entrypoint()
+def teardown(run: str = "", endpoint: bool = False, everything: bool = False, cache: bool = False, yes: bool = False):
+    """Remove what this skill created on Modal. --run <name>: delete one run (weights, reports, data) from the volume.
+    --endpoint: stop the deployed app (the URL stops answering; nothing else is deleted). --everything: stop the app and
+    delete the kev-finetune-runs volume; add --cache to also delete the shared kev-hf-cache (base weights, re-downloaded on
+    the next run). Deletions need --yes."""
+    if not (run or endpoint or everything): raise SystemExit("nothing to do: give --run <name>, --endpoint, or --everything [--cache]")
+    if (run or everything) and not yes: raise SystemExit("deleting data needs --yes")
+    if run:
+        for name in run.split(","):
+            runs.remove_file(f"/{name}", recursive=True); print(f"deleted /runs/{name} from kev-finetune-runs")
+    if endpoint or everything:
+        modal_cli("app", "stop", APP_NAME); print(f"stopped app {APP_NAME} (deployed endpoint is gone; `modal deploy` recreates it)")
+    if everything:
+        modal_cli("volume", "delete", "kev-finetune-runs", "--yes"); print("deleted volume kev-finetune-runs")
+        if cache: modal_cli("volume", "delete", "kev-hf-cache", "--yes"); print("deleted volume kev-hf-cache")
+        for secret in (os.environ.get("KEV_SERVE_SECRET"), os.environ.get("KEV_HF_SECRET")):
+            if secret: print(f"secret {secret} was left in place; remove it with: modal secret delete {secret}")
+        print("images are garbage-collected by Modal; nothing else remains")
