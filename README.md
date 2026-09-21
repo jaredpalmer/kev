@@ -18,7 +18,7 @@ Kev is a family of small decision models built on Qwen3.5 and based on the archi
 - 0.8B, 4B, and 9B models, with training code and evaluation data.
 - Yes/no (`noul`), multiple-choice (`choice`), and rating (`score`) questions in the same request.
 - Questions share the input text but can't read each other.
-- Runs on CUDA and Apple Silicon. The 4B and 9B models fit a 32 GB Mac using bf16; see [Serving Performance](#serving-performance) for what to expect on a Mac.
+- Runs on CUDA, ROCm, and Apple Silicon. The 4B and 9B models fit a 32 GB Mac using bf16; see [Serving Performance](#serving-performance) for what to expect on a Mac.
 - A web playground for trying your own inputs and checking how option order affects the answers. Or try Kev-4B and Kev-0.8B in the browser at [huggingface.co/spaces/jaredpalmer/kev](https://huggingface.co/spaces/jaredpalmer/kev), no install needed.
 
 ![Kev playground](docs/playground.png)
@@ -221,7 +221,7 @@ Asking questions together or separately produces probabilities within 4e-6 in th
 
 ## Serving Performance
 
-On CUDA, install `flash-linear-attention` for the Qwen3.5 models (the Modal image does this); a five-question request takes tens of milliseconds on an H100.
+On CUDA and ROCm, install `flash-linear-attention` for the Qwen3.5 models (the Modal image does this); a five-question request takes tens of milliseconds on an H100 and MI300X.
 
 On Apple Silicon there are no fast kernels for the DeltaNet layers, so PyTorch runs reference code. Median model time in bf16 on an M5, five questions with three options each on a ~230-token state:
 
