@@ -216,7 +216,7 @@ Asking questions together or separately produces probabilities within 4e-6 in th
 
 On CUDA, install `flash-linear-attention` for the Qwen3.5 models (the Modal image does this); a five-question request takes tens of milliseconds on an H100.
 
-On Apple Silicon there are no fast kernels for the DeltaNet layers, so PyTorch runs reference code. Median model time in bf16 on an M5, five questions with three options each on a ~230-token state:
+On Apple Silicon, the server uses the native MLX Qwen3.5 backend by default. This keeps the DeltaNet state and pointer readout on Metal; set `KEV_BACKEND=torch` to use the reference PyTorch path. Median model time in bf16 on an M5, five questions with three options each on a ~230-token state (the PyTorch figures below are the fallback baseline):
 
 | Model | Time | Previous generation on the same request |
 |---|---|---|
@@ -224,7 +224,9 @@ On Apple Silicon there are no fast kernels for the DeltaNet layers, so PyTorch r
 | Kev-4B | 779 ms | Kev-4B (Qwen3), `jaredpalmer/kev-4b@qwen3`: 174 ms |
 | Kev-9B | about 2 s | Kev-8B (Qwen3): about 300 ms |
 
-If you serve on a Mac and need low latency, use the Qwen3 models for now. An MLX backend for the Qwen3.5 models is the next planned change.
+Install with `uv sync --extra serve` to include the pinned MLX-LM runtime on Apple Silicon. The MLX path reuses exact state prefixes and batches question branches; its first request builds the cache and subsequent requests with the same state only run the branches.
+
+Benchmark the running MLX service without loading another model with `python scripts/bench_mlx.py --base-url http://127.0.0.1:8009`.
 
 For the attention-only models the server merges the LoRA weights in fp32 before casting, uses SDPA attention on Apple GPUs, pads MPS inputs to 64-token buckets, and caches the state prefix for repeated requests (four states of at least 384 tokens by default). With a repeated 772-token state, Kev-4B (Qwen3) answers in 242 ms instead of 861 ms.
 

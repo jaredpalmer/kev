@@ -60,7 +60,11 @@ def _probs(rec):
     cache = STATE["prefix_cache"]
     with STATE["lock"]:
         _sync(dev); t = time.time()
-        eligible = PREFIX_CACHE_SIZE and Ls >= PREFIX_MIN_TOKENS
+        # MLX's recurrent prefix pass is substantially cheaper than repeating
+        # the state once per question, even for short states. The old MPS
+        # threshold remains for the PyTorch fallback where cache setup can
+        # dominate short requests.
+        eligible = PREFIX_CACHE_SIZE and (Ls >= PREFIX_MIN_TOKENS or dev == "mlx")
         if eligible and key in cache:
             prefix = cache.pop(key)                       # pop + reinsert = LRU order
             ps = model.probs_with_prefix(enc, prefix); cache[key] = prefix
@@ -74,7 +78,7 @@ def _probs(rec):
             ps = model.probs(enc); hit = False
         _sync(dev); dt = time.time() - t
     if TEMPERATURE != 1.0:                      # opt-in calibration: same as scaling the pointer logits by 1/T (argmax unchanged)
-        ps = [(lambda q: q / q.sum())(p.clamp_min(1e-9) ** (1.0 / TEMPERATURE)) for p in ps]
+        ps = [(lambda q: q / q.sum())(torch.as_tensor(p).clamp_min(1e-9) ** (1.0 / TEMPERATURE)) for p in ps]
     return [p.tolist() for p in ps], {"tokens": len(enc["ids"]), "state_tokens": Ls, "latency_ms": round(dt * 1000, 1), "prefix_cache_hit": hit}
 
 
@@ -131,9 +135,10 @@ def models():
 @app.get("/api/info")
 def info():
     ev = f"{STATE['run']}/eval.json"
+    effective_min = 0 if STATE["dev"] == "mlx" else PREFIX_MIN_TOKENS
     return {"run": STATE["run"], "device": STATE["dev"], "base": STATE["base"], "lora": STATE["lora"],
             "none_option": NONE, "distractors": DISTRACTORS, "has_eval": os.path.exists(ev),
-            "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": PREFIX_MIN_TOKENS, "hits": STATE["prefix_hits"], "misses": STATE["prefix_misses"], "cached_states": len(STATE["prefix_cache"])}}
+            "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": effective_min, "hits": STATE["prefix_hits"], "misses": STATE["prefix_misses"], "cached_states": len(STATE["prefix_cache"])}}
 
 
 @app.get("/api/eval")
@@ -192,7 +197,21 @@ def main():
     dev = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     meta = torch.load(f"{run}/head.pt", map_location="cpu")
     if dev == "mps" and not os.environ.get("KEV_ATTN"): os.environ["KEV_ATTN"] = "sdpa"   # serving default on Apple GPUs (parity measured)
-    tok, model = load(run, dev)
+    default_backend = "mlx" if "qwen3.5" in str(meta["base"]).lower() else "auto"
+    backend = os.environ.get("KEV_BACKEND", default_backend)
+    if dev == "mps" and backend in ("auto", "mlx"):
+        try:
+            from .mlx_model import load_mlx
+            tok, model = load_mlx(run)
+            dev = "mlx"
+            print("using native MLX Qwen3.5 backend")
+        except Exception as e:
+            if backend == "mlx":
+                raise
+            print(f"MLX backend unavailable ({type(e).__name__}: {e}); using PyTorch")
+            tok, model = load(run, dev)
+    else:
+        tok, model = load(run, dev)
     STATE.update(run=label, tok=tok, model=model, dev=dev, base=meta["base"], lora=meta["lora"])
     print(f"serving {label} ({run}) on {dev} :{a.port}")
     import uvicorn

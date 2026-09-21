@@ -31,11 +31,20 @@ Issues = "https://github.com/jaredpalmer/kev/issues"
 "Model cards" = "https://github.com/jaredpalmer/kev/tree/main/docs/model-cards"
 
 [project.optional-dependencies]
+mlx = [
+    "mlx==0.32.2; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "mlx-lm; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
 serve = [
     "fastapi>=0.115",
+    "mlx==0.32.2; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "mlx-lm; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "typesafe-sdk>=0.6.0",
     "uvicorn>=0.30",
 ]
+
+[tool.uv.sources]
+mlx-lm = { git = "https://github.com/ml-explore/mlx-lm.git", rev = "a63e24c389382619eb6d9af656e3b46024be217a" }
 
 [dependency-groups]
 dev = [
