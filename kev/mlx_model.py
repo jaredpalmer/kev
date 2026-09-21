@@ -91,14 +91,22 @@ class MLXDecisionModel:
         return state_len, cache
 
     def _branches(self, enc, prefix):
+        return self._branches_many([enc], prefix)[0]
+
+    def _branches_many(self, encs, prefix):
         import mlx.core as mx
 
         state_len, cache = prefix
-        _, _, rows = rows_of(enc)
-        width = max(len(r["ids"]) for r in rows)
-        lengths = [len(r["ids"]) for r in rows]
-        padded = [r["ids"] + [self.pad_id] * (width - len(r["ids"])) for r in rows]
-        batch_cache = self._replicate_cache(cache, len(rows))
+        all_rows, ranges = [], []
+        for enc in encs:
+            _, _, rows = rows_of(enc)
+            start = len(all_rows)
+            all_rows.extend(rows)
+            ranges.append((start, len(all_rows)))
+        width = max(len(r["ids"]) for r in all_rows)
+        lengths = [len(r["ids"]) for r in all_rows]
+        padded = [r["ids"] + [self.pad_id] * (width - len(r["ids"])) for r in all_rows]
+        batch_cache = self._replicate_cache(cache, len(all_rows))
         for c in batch_cache:
             if c.__class__.__name__ == "ArraysCache":
                 c.prepare(lengths=lengths)
@@ -110,7 +118,8 @@ class MLXDecisionModel:
             for c in batch_cache:
                 if hasattr(c, "finalize"):
                     c.finalize()
-        return self._probs_from_hidden(h, rows)
+        probs = self._probs_from_hidden(h, all_rows)
+        return [probs[start:end] for start, end in ranges]
 
     def probs_and_prefix(self, enc):
         prefix = self.prefix(enc)
@@ -120,6 +129,15 @@ class MLXDecisionModel:
         if enc["seg"].count(0) != prefix[0]:
             raise ValueError("prefix does not match this record's state")
         return self._branches(enc, prefix)
+
+    def probs_and_prefix_batch(self, encs):
+        prefix = self.prefix(encs[0])
+        return self._branches_many(encs, prefix), prefix
+
+    def probs_with_prefix_batch(self, encs, prefix):
+        if any(enc["seg"].count(0) != prefix[0] for enc in encs):
+            raise ValueError("prefix does not match one or more records' state")
+        return self._branches_many(encs, prefix)
 
 
 def _load_base(path: Path):

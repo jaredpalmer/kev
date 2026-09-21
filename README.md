@@ -329,7 +329,7 @@ These commands use development data. Test data requires `--allow-test`. The benc
 - The current models are slow on Apple Silicon (see Serving Performance) and need `transformers >= 5.17`.
 - Changing option order can change an answer. Question isolation doesn't prevent this.
 - Training uses at most 384 state tokens and 1,024 tokens for the state plus one question. Serving allows 8,192 tokens for the state plus one question; longer context wasn't covered by training.
-- The server handles one request at a time. It caches repeated state text, but doesn't batch requests from different callers.
+- The server runs model execution on one bounded inference worker. HTTP callers wait in a bounded queue; MLX requests sharing an exact state can be combined into one branch batch, while different states remain separate. `KEV_INFER_QUEUE` sets queue capacity (default 64), `KEV_INFER_BATCH_ROWS` caps a batch (default 8), and `KEV_INFER_TIMEOUT_S` sets the request deadline (default 120 seconds). Queue overload returns HTTP 503 and expired work returns HTTP 504.
 
 ## Development
 

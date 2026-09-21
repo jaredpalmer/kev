@@ -66,7 +66,7 @@ def percentile(values: list[float], p: float) -> float:
 def summarize(rows: list[dict]) -> dict:
     wall = [r["wall_ms"] for r in rows]
     model = [r["model_ms"] for r in rows]
-    return {
+    result = {
         "n": len(rows),
         "wall_ms": {"p50": round(percentile(wall, 50), 2), "p95": round(percentile(wall, 95), 2), "max": round(max(wall), 2), "mean": round(statistics.mean(wall), 2)},
         "model_ms": {"p50": round(percentile(model, 50), 2), "p95": round(percentile(model, 95), 2), "max": round(max(model), 2), "mean": round(statistics.mean(model), 2)},
@@ -74,7 +74,13 @@ def summarize(rows: list[dict]) -> dict:
         "cache_misses": sum(int(not r["cache_hit"]) for r in rows),
         "state_tokens": sorted(set(r["state_tokens"] for r in rows)),
         "input_tokens": sorted(set(r["input_tokens"] for r in rows)),
+        "batch_requests": sorted(set(r["batch_requests"] for r in rows if r.get("batch_requests") is not None)),
     }
+    for name in ("queue_wait_ms", "worker_ms", "server_latency_ms"):
+        values = [r[name] for r in rows if r.get(name) is not None]
+        if values:
+            result[name] = {"p50": round(percentile(values, 50), 2), "p95": round(percentile(values, 95), 2), "max": round(max(values), 2), "mean": round(statistics.mean(values), 2)}
+    return result
 
 
 def run_serial(url: str, payloads: list[dict], warmup: int) -> dict:
@@ -83,14 +89,14 @@ def run_serial(url: str, payloads: list[dict], warmup: int) -> dict:
     rows = []
     for payload in payloads[warmup:]:
         result, wall = post(url, payload)
-        rows.append({"wall_ms": wall, "model_ms": result["latency_ms"], "cache_hit": result["prefix_cache_hit"], "state_tokens": result["state_tokens"], "input_tokens": result["tokens"]})
+        rows.append({"wall_ms": wall, "model_ms": result["latency_ms"], "queue_wait_ms": result.get("queue_wait_ms"), "worker_ms": result.get("worker_ms"), "server_latency_ms": result.get("server_latency_ms"), "batch_requests": result.get("batch_requests"), "cache_hit": result["prefix_cache_hit"], "state_tokens": result["state_tokens"], "input_tokens": result["tokens"]})
     return summarize(rows)
 
 
 def run_parallel(url: str, payload: dict, n: int, workers: int) -> dict:
     def one(_):
         result, wall = post(url, payload)
-        return {"wall_ms": wall, "model_ms": result["latency_ms"], "cache_hit": result["prefix_cache_hit"], "state_tokens": result["state_tokens"], "input_tokens": result["tokens"]}
+        return {"wall_ms": wall, "model_ms": result["latency_ms"], "queue_wait_ms": result.get("queue_wait_ms"), "worker_ms": result.get("worker_ms"), "server_latency_ms": result.get("server_latency_ms"), "batch_requests": result.get("batch_requests"), "cache_hit": result["prefix_cache_hit"], "state_tokens": result["state_tokens"], "input_tokens": result["tokens"]}
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         rows = list(pool.map(one, range(n)))

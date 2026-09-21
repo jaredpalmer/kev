@@ -2,7 +2,8 @@
 
 Run: uv run --extra serve python -m kev.serve --run runs/kev --port 8008
 """
-import argparse, json, os, random, re, threading, time
+import argparse, json, os, random, re, time
+from contextlib import asynccontextmanager
 import torch
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,16 +11,27 @@ from pydantic import BaseModel
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
 from .data import DISTRACTORS, NONE
 from .evaluate import load
-from .model import encode
+from .inference import InferenceBusy, InferenceTimeout, InferenceUnavailable, InferenceWorker
 
 # inference limits (training used 384/640); per-branch cap mirrors Jev's ~32k, bounded by the base model window
 INFER_MAX_STATE, INFER_MAX_BRANCH = 8192, 8192
 
-app = FastAPI(title="kev")
+@asynccontextmanager
+async def _lifespan(_app):
+    yield
+    worker = STATE.get("worker")
+    if worker is not None:
+        worker.stop(timeout_s=5.0)
+
+
+app = FastAPI(title="kev", lifespan=_lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-STATE = {"run": None, "tok": None, "model": None, "dev": None, "lock": threading.Lock(), "prefix_cache": {}, "prefix_hits": 0, "prefix_misses": 0}
+STATE = {"run": None, "tok": None, "model": None, "dev": None, "worker": None, "prefix_cache": {}, "prefix_hits": 0, "prefix_misses": 0, "prefix_coalesced": 0}
 PREFIX_CACHE_SIZE = int(os.environ.get("KEV_PREFIX_CACHE", "4"))          # states kept (KV + hidden); 0 disables
 PREFIX_MIN_TOKENS = int(os.environ.get("KEV_PREFIX_MIN_TOKENS", "384"))
+INFER_QUEUE_SIZE = int(os.environ.get("KEV_INFER_QUEUE", "64"))
+INFER_TIMEOUT_S = float(os.environ.get("KEV_INFER_TIMEOUT_S", "120"))
+INFER_BATCH_ROWS = int(os.environ.get("KEV_INFER_BATCH_ROWS", "8"))
 TEMPERATURE = float(os.environ.get("KEV_TEMPERATURE", "1.0"))               # opt-in: probabilities ^ (1/T), renormalised; 2.0 is the value fitted in-distribution for the Qwen3.5 family (scripts/temperature_groups.py)
 DATE_FACTS = os.environ.get("KEV_DATE_FACTS", "0") == "1"                  # opt-in: append day counts between absolute dates in the state (api.with_date_facts)   # below this the branch-only pass is not faster on MPS (per-op overhead dominates)
 
@@ -50,36 +62,107 @@ def _sync(dev):
     elif dev == "cuda": torch.cuda.synchronize()
 
 
-def _probs(rec):
+def _encode(rec):
+    tok, model = STATE["tok"], STATE["model"]
+    try:
+        return model.encode(tok, rec, max_state=INFER_MAX_STATE, max_branch=INFER_MAX_BRANCH, strict=True)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+def _batch_key(rec):
+    # Exact text is a conservative key: equal text always produces the same
+    # encoded state, while different text is never merged accidentally.
+    return (rec.get("state"), bool(rec.get("option_isolation")))
+
+
+def _probs_core_many(records, encs=None):
     """One forward pass; the state prefix (tokens up to the first question) is cached across requests, so a repeated state
     only pays for its question branches. Exactness: the state's activations do not depend on the branches."""
-    tok, model, dev = STATE["tok"], STATE["model"], STATE["dev"]
-    try: enc = model.encode(tok, rec, max_state=INFER_MAX_STATE, max_branch=INFER_MAX_BRANCH)
-    except ValueError as e: raise HTTPException(422, str(e))
-    Ls = enc["seg"].count(0); key = (tuple(enc["ids"][:Ls]), bool(enc.get("option_isolation")))
+    model, dev = STATE["model"], STATE["dev"]
+    encs = [_encode(rec) for rec in records] if encs is None else encs
+    Ls = encs[0]["seg"].count(0); key = (tuple(encs[0]["ids"][:Ls]), bool(encs[0].get("option_isolation")))
     cache = STATE["prefix_cache"]
-    with STATE["lock"]:
-        _sync(dev); t = time.time()
-        # MLX's recurrent prefix pass is substantially cheaper than repeating
-        # the state once per question, even for short states. The old MPS
-        # threshold remains for the PyTorch fallback where cache setup can
-        # dominate short requests.
-        eligible = PREFIX_CACHE_SIZE and (Ls >= PREFIX_MIN_TOKENS or dev == "mlx")
-        if eligible and key in cache:
-            prefix = cache.pop(key)                       # pop + reinsert = LRU order
-            ps = model.probs_with_prefix(enc, prefix); cache[key] = prefix
-            STATE["prefix_hits"] += 1; hit = True
-        elif eligible:
-            ps, prefix = model.probs_and_prefix(enc)      # one pass, and the state prefix is kept for next time
-            cache[key] = prefix
-            while len(cache) > PREFIX_CACHE_SIZE: cache.pop(next(iter(cache)))
-            STATE["prefix_misses"] += 1; hit = False
+    _sync(dev); t = time.monotonic()
+    # MLX's recurrent prefix pass is substantially cheaper than repeating
+    # the state once per question, even for short states. The old MPS
+    # threshold remains for the PyTorch fallback where cache setup can
+    # dominate short requests.
+    eligible = PREFIX_CACHE_SIZE and (Ls >= PREFIX_MIN_TOKENS or dev == "mlx")
+    if eligible and key in cache:
+        prefix = cache.pop(key)                       # pop + reinsert = LRU order
+        if len(encs) > 1 and hasattr(model, "probs_with_prefix_batch"):
+            pss = model.probs_with_prefix_batch(encs, prefix)
         else:
-            ps = model.probs(enc); hit = False
-        _sync(dev); dt = time.time() - t
-    if TEMPERATURE != 1.0:                      # opt-in calibration: same as scaling the pointer logits by 1/T (argmax unchanged)
-        ps = [(lambda q: q / q.sum())(torch.as_tensor(p).clamp_min(1e-9) ** (1.0 / TEMPERATURE)) for p in ps]
-    return [p.tolist() for p in ps], {"tokens": len(enc["ids"]), "state_tokens": Ls, "latency_ms": round(dt * 1000, 1), "prefix_cache_hit": hit}
+            pss = [model.probs_with_prefix(enc, prefix) for enc in encs]
+        cache[key] = prefix
+        STATE["prefix_hits"] += len(encs); hits = [True] * len(encs)
+    elif eligible:
+        if len(encs) > 1 and hasattr(model, "probs_and_prefix_batch"):
+            pss, prefix = model.probs_and_prefix_batch(encs)
+        else:
+            prefix = None
+            pss = []
+            for enc in encs:
+                ps, prefix = model.probs_and_prefix(enc)
+                pss.append(ps)
+        cache[key] = prefix
+        while len(cache) > PREFIX_CACHE_SIZE: cache.pop(next(iter(cache)))
+        STATE["prefix_misses"] += 1
+        STATE["prefix_coalesced"] = STATE.get("prefix_coalesced", 0) + max(0, len(encs) - 1)
+        hits = [False] * len(encs)
+    else:
+        pss = [model.probs(enc) for enc in encs]; hits = [False] * len(encs)
+    _sync(dev); dt = time.monotonic() - t
+    out = []
+    for enc, ps, hit in zip(encs, pss, hits):
+        if TEMPERATURE != 1.0:                  # opt-in calibration: pointer logit scaling (argmax unchanged)
+            ps = [(lambda q: q / q.sum())(torch.as_tensor(p).clamp_min(1e-9) ** (1.0 / TEMPERATURE)) for p in ps]
+        out.append(([p.tolist() for p in ps], {"tokens": len(enc["ids"]), "state_tokens": Ls, "latency_ms": round(dt * 1000, 1), "prefix_cache_hit": hit, "batch_requests": len(encs)}))
+    return out
+
+
+def _probs_core(rec):
+    return _probs_core_many([rec])[0]
+
+
+def _batch_jobs(jobs):
+    from .inference import BatchItem
+
+    encs, valid = [], []
+    outcomes = [None] * len(jobs)
+    for i, job in enumerate(jobs):
+        try:
+            encs.append(_encode(job.payload))
+            valid.append(i)
+        except Exception as exc:
+            outcomes[i] = BatchItem(error=exc)
+    if not valid:
+        return outcomes
+    try:
+        values = _probs_core_many([jobs[i].payload for i in valid], [encs[n] for n in range(len(encs))])
+    except Exception as exc:
+        for i in valid:
+            outcomes[i] = BatchItem(error=exc)
+        return outcomes
+    for i, value in zip(valid, values):
+        outcomes[i] = BatchItem(value=value)
+    return outcomes
+
+
+def _probs(rec):
+    worker = STATE.get("worker")
+    if worker is None:
+        raise HTTPException(503, "inference worker is not ready", headers={"Retry-After": "1"})
+    try:
+        return worker.run(lambda: _probs_core(rec), timeout_s=INFER_TIMEOUT_S,
+                          batch_key=_batch_key(rec), payload=rec)
+    except InferenceBusy as exc:
+        raise HTTPException(503, str(exc), headers={"Retry-After": "1"}) from exc
+    except InferenceTimeout as exc:
+        raise HTTPException(504, str(exc)) from exc
+    except InferenceUnavailable as exc:
+        raise HTTPException(503, str(exc), headers={"Retry-After": "1"}) from exc
 
 
 @app.post("/v1/systemone")
@@ -136,9 +219,10 @@ def models():
 def info():
     ev = f"{STATE['run']}/eval.json"
     effective_min = 0 if STATE["dev"] == "mlx" else PREFIX_MIN_TOKENS
+    worker = STATE.get("worker")
     return {"run": STATE["run"], "device": STATE["dev"], "base": STATE["base"], "lora": STATE["lora"],
             "none_option": NONE, "distractors": DISTRACTORS, "has_eval": os.path.exists(ev),
-            "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": effective_min, "hits": STATE["prefix_hits"], "misses": STATE["prefix_misses"], "cached_states": len(STATE["prefix_cache"])}}
+            "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": effective_min, "hits": STATE["prefix_hits"], "misses": STATE["prefix_misses"], "coalesced_misses": STATE["prefix_coalesced"], "cached_states": len(STATE["prefix_cache"]), "worker_state": worker.state if worker else "STOPPED", "queue_depth": worker.queue_depth if worker else 0, "queue_capacity": INFER_QUEUE_SIZE, "batch_rows": INFER_BATCH_ROWS}}
 
 
 @app.get("/api/eval")
@@ -212,7 +296,10 @@ def main():
             tok, model = load(run, dev)
     else:
         tok, model = load(run, dev)
-    STATE.update(run=label, tok=tok, model=model, dev=dev, base=meta["base"], lora=meta["lora"])
+    STATE.update(run=label, tok=tok, model=model, dev=dev, base=meta["base"], lora=meta["lora"],
+                 worker=InferenceWorker(max_queue=INFER_QUEUE_SIZE, request_timeout_s=INFER_TIMEOUT_S,
+                                        batch_fn=_batch_jobs if dev == "mlx" else None,
+                                        max_batch=INFER_BATCH_ROWS))
     print(f"serving {label} ({run}) on {dev} :{a.port}")
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=a.port)
