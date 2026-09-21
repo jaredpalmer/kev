@@ -1,0 +1,34 @@
+{
+  "name": "support-triage",
+  "domain": "Customer support tickets for an online shoe store. Customers write about late or lost deliveries, returns and exchanges, wrong sizes, duplicate or unexpected charges, refunds, discount codes and account access.",
+  "state": "The ticket exactly as the customer typed it: one to five sentences in the first person. Mix calm, confused and angry customers; some make typos or write in lowercase; a few mention two problems at once.",
+  "questions": {
+    "department": {
+      "type": "choice",
+      "instructions": "Which team should handle this ticket first?",
+      "criteria": {
+        "returns": "Exchanges, refunds for returned items, wrong or damaged items",
+        "shipping": "Delivery status, delays, lost packages, address changes",
+        "billing": "Charges, invoices, payment failures, duplicate charges, discount codes",
+        "account": "Login problems, password resets, email changes, closing the account"
+      }
+    },
+    "escalate": {
+      "type": "noul",
+      "instructions": "Does this ticket need urgent attention from a human within the hour?"
+    },
+    "frustration": {
+      "type": "score",
+      "instructions": "How frustrated is the customer?",
+      "criteria": ["Calm or neutral", "Annoyed", "Angry or threatening to leave"]
+    }
+  },
+  "guidance": "department is the team that must act first: a late delivery that also asks for a refund is shipping until the package is found. escalate is true only for threats to dispute a charge or go to the press, safety issues, orders needed for an event within 48 hours, or a customer who has already written more than once. frustration 2 requires explicit anger, insults, all caps, or a threat to leave; polite complaints are 0 or 1.",
+  "variety": [
+    "tone: polite, matter-of-fact, sarcastic, furious",
+    "length: one short line up to a full paragraph",
+    "detail: with and without order numbers, dates, product names",
+    "writing: clean prose, lowercase and typos, non-native English, one or two in Spanish or German",
+    "ambiguity: tickets that mention two departments but clearly need one first"
+  ]
+}

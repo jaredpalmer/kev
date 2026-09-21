@@ -60,7 +60,8 @@ def main():
         ev = read_json(f"{tmp}/eval.json") if os.path.exists(f"{tmp}/eval.json") else {}
         acc = ev.get("accuracy_calibration", {}).get("ALL", {})
         if os.path.exists(f"{tmp}/result.json"):
-            r = read_json(f"{tmp}/result.json"); acc = {"acc": r["clean"]["acc"], "ece": r["clean"]["ece"]}
+            clean = read_json(f"{tmp}/result.json").get("clean", {})   # research trials; other result files (kev-finetune runs) just skip the figures
+            acc = {"acc": clean.get("acc", float("nan")), "ece": clean.get("ece", float("nan"))}
         msg = a.message or f"Upload {run_name} (base {base}; acc {acc.get('acc', float('nan')):.3f}, ECE {acc.get('ece', float('nan')):.3f})"
         if a.revision: api.create_branch(a.repo, branch=a.revision, repo_type="model", exist_ok=True)
         info = api.upload_folder(folder_path=tmp, repo_id=a.repo, repo_type="model", commit_message=msg, revision=a.revision)

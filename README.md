@@ -289,6 +289,8 @@ Use `uv run python -m kev.train --help` for all training options. The released m
 
 On a Mac, run one training job at a time. Two jobs on the same Apple GPU are much slower. Use Modal for longer runs.
 
+If you work with a coding agent, the [`kev-finetune` skill](skills/kev-finetune/) does all of this on Modal without a local GPU: it turns a description of your questions into labelled data with any LLM, splits it, fine-tunes from a released checkpoint, fits the temperature on a held-out slice, scores the result against the baseline, and deploys a System One endpoint. Install it with `npx skills add jaredpalmer/kev@kev-finetune`.
+
 ### Modal
 
 Each trial gets its own H100. The study keeps running if you disconnect, and you can download the results when it finishes:
