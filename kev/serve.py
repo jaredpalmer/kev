@@ -17,9 +17,8 @@ from pydantic import BaseModel
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
 from .checkpoint import Checkpoint, LoadOptions, is_hub_id
 from .device import default_device, sync
+from .model import SERVE_MAX_BRANCH, SERVE_MAX_STATE
 
-# inference limits (training used 384/1024); per-branch cap mirrors Jev's ~32k, bounded by the base model window
-INFER_MAX_STATE, INFER_MAX_BRANCH = 8192, 8192
 PREFIX_CACHE_SIZE = int(os.environ.get("KEV_PREFIX_CACHE", "4"))          # states kept (KV + hidden); 0 disables
 PREFIX_MIN_TOKENS = os.environ.get("KEV_PREFIX_MIN_TOKENS")               # states shorter than this are not cached; default = the model's prefix_min_tokens (0 for hybrid backbones and MLX, 384 for attention-only torch models)
 DATE_FACTS = os.environ.get("KEV_DATE_FACTS", "0") == "1"
@@ -44,7 +43,7 @@ class Server:
     def probs(self, rec):
         """One forward pass. The state prefix (tokens up to the first question) is cached across requests, so a repeated
         state only pays for its question branches. Exact: the state's activations do not depend on the branches."""
-        try: enc = self.model.encode(self.tok, rec, max_state=INFER_MAX_STATE, max_branch=INFER_MAX_BRANCH)
+        try: enc = self.model.encode(self.tok, rec, max_state=SERVE_MAX_STATE, max_branch=SERVE_MAX_BRANCH)
         except ValueError as e: raise HTTPException(422, str(e))
         Ls = enc["seg"].count(0); key = (tuple(enc["ids"][:Ls]), bool(enc.get("option_isolation")))
         cache, hit = self.prefix_cache, False

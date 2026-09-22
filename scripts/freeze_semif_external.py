@@ -19,13 +19,12 @@ import json
 import subprocess
 from pathlib import Path
 
-from kev.serve import INFER_MAX_BRANCH, INFER_MAX_STATE
-from kev.suite import CONTEXT, digest, read_jsonl, record_digest, write_json, write_jsonl
+from kev.suite import CONTEXT, SERVING_CONTEXT, digest, read_jsonl, record_digest, write_json, write_jsonl
 
 SOURCES = {
     "wanli": {"source": "wanli", "rows": 256, "context": CONTEXT,
               "protocol": "SemIf reports balanced accuracy on the 256 (direct Qwen3.5-4B logits 0.637); we report accuracy plus everything kev.benchmark reports"},
-    "typesafe": {"source": "typesafe", "rows": 102, "context": {**CONTEXT, "max_state": INFER_MAX_STATE, "max_branch": INFER_MAX_BRANCH, "max_packed": INFER_MAX_STATE + INFER_MAX_BRANCH},
+    "typesafe": {"source": "typesafe", "rows": 102, "context": SERVING_CONTEXT,
                  "protocol": "SemIf reports equal-case modal agreement with the reference argmax (direct 0.845, published Jev 0.883) and total-variation distance to the "
                              "reference distribution (0.177, 0.127) over the 20 cases; scripts/compare_typesafe.py computes both from a kev.benchmark output. "
                              "Records over the serving context are rejected by kev.benchmark; the headline is over answered rows with the rejected count stated, and the all-rows figure (rejected = wrong) alongside"},

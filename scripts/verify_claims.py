@@ -3,9 +3,9 @@
 
 docs/claims.json lists claim records: {"printed": exact string in the docs, "in": text files where it must literally
 appear, "source": JSON/JSONL under the repo, "select": key/value filter for JSONL rows (must match exactly one row),
-"path": key path with "/" between keys (keys themselves may contain dots: models/Kev-0.8B/temperature), or a list of
-paths with "derive": "macro_mean"; "derive": "over_requested" rescales an accuracy over evaluated questions to all
-requested questions, counting rejected ones wrong; optional "scale" multiplier}.
+"path": the list of keys to walk (keys may contain any character: ["models", "Kev-0.8B", "temperature"]), or "paths":
+a list of such lists with "derive": "macro_mean"; "derive": "over_requested" rescales an accuracy over evaluated
+questions to all requested questions, counting rejected ones wrong; optional "scale" multiplier}.
 
 A claim passes when the printed string occurs in every `in` file and the source value, scaled and formatted to the
 printed precision, equals the printed digits. The text check is presence, not position: it proves the number is
@@ -20,8 +20,8 @@ from kev.suite import read_json, read_jsonl
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _dig(obj, path):
-    for key in path.split("/"):
+def _dig(obj, keys):
+    for key in keys:
         obj = obj[key]
     return obj
 
@@ -29,7 +29,7 @@ def _dig(obj, path):
 def _value(claim, source):
     derive = claim.get("derive")
     if derive == "macro_mean":
-        values = [_dig(source, p) for p in claim["path"]]
+        values = [_dig(source, p) for p in claim["paths"]]
         return sum(values) / len(values)
     value = _dig(source, claim["path"])
     if derive == "over_requested":
@@ -43,7 +43,7 @@ def verify(root, claims=None):
     failures = []
     texts, sources = {}, {}
     for claim in read_json(claims or root / "docs/claims.json"):
-        label = f"{claim['printed']} <- {claim['source']}:{claim['path']}"
+        label = f"{claim['printed']} <- {claim['source']}:{'/'.join(claim['path']) if 'path' in claim else claim['paths']}"
         for name in claim["in"]:
             if name not in texts:
                 texts[name] = (root / name).read_text(encoding="utf-8")

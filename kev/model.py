@@ -11,6 +11,8 @@ SPECIAL = ["<|fim_prefix|>", "<|fim_middle|>", "<|box_start|>", "<|box_end|>", "
 # training context: state tokens, tokens per question branch, and the whole packed record. Frozen suites are admitted with
 # this rule (kev.suite) and training applies it to records built on the fly, so train and eval see the same population.
 MAX_STATE, MAX_BRANCH, MAX_PACKED = 384, 1024, 2048
+# serving context (kev.serve): per-branch cap mirrors Jev's ~32k, bounded by the base model window; longer than training, so untested there
+SERVE_MAX_STATE, SERVE_MAX_BRANCH = 8192, 8192
 
 
 def load_tokenizer(name, revision=None):
