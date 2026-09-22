@@ -38,6 +38,31 @@ KEV_BASE_URL=http://127.0.0.1:8009 uv run --extra serve python -m pytest tests/t
 Space changes: `python3 -m py_compile space/app.py`; the Space vendors `kev/{model,api,checkpoint}.py` via
 `scripts/publish_space.sh`, so any change to those needs a republish. Playground: `cd playground && npm run lint && npx tsc --noEmit -p .`.
 
+### Browser end-to-end checks
+
+- If there is no local checkpoint, `--run jaredpalmer/kev-0.6b` provides a small public CPU fallback.
+  This verifies serving integration, not parity with the released Qwen3.5 family.
+- Start the playground with `cd playground && npm run dev -- -p 3001`; it proxies `/kev/*` to :8009.
+  Wait for the server's Uvicorn ready log before loading the page, since model metadata is fetched once on mount.
+- At `/`, click **Support triage**, then **Run**: expect six answer cards covering Choice, Noul, and Score.
+  The header displays the base and checkpoint run, not the API model alias. Inspect `/v1/models` separately
+  when testing the model-card contract.
+- The Questions textarea is `#questions`; it accepts JSON directly, so API edge cases can be tested through
+  the real UI without changing TypeScript types or mocking requests. Capture the POST response as well as pixels.
+- At `/chess`, use **Model vs model**, **New game**, then **Step** for a bounded one-move test.
+  Expect a legal move, populated move/evaluation panels, and Black to move. Avoid **Play** for a one-request test.
+- `KEV_API_KEY` is read at server startup. Restart with a throwaway local key to verify rejection without a bearer
+  header and acceptance with the correct header. The playground has no key input and will show 401 in this mode.
+  Restore the open server afterward. `/openapi.json` remains accessible without a key.
+- If desktop tools cannot connect to a display, use real headless Chromium via an isolated Playwright environment
+  when approved; save full-page screenshots and network responses. Do not substitute mocked frontend responses.
+  A full-page capture can include a sticky footer over a card; also capture a scrolled viewport when needed.
+
+#### Devin Secrets Needed
+
+None for local testing with public checkpoints and a throwaway local API key. Private checkpoints require
+`HF_TOKEN`; hosted protected endpoints require their configured API key rather than the local test value.
+
 ## 4. Parity harness against main
 
 Run the *old* code from a worktree and the new code from the checkout on the same inputs, then compare bytes.
