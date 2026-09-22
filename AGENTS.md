@@ -10,7 +10,8 @@ Title Case sections, API tables, Authors + License); model cards are formal.
 
 ## Commands
 - Env: `uv sync` (add `--extra serve` for FastAPI + the TypeSafe SDK; on Apple Silicon it also pulls `mlx-lm` for the MLX backend, `--extra mlx` alone for library use). `kev` is a real package (setuptools, installed
-  editable by `uv sync` since #14), Python >= 3.12, `transformers>=5.17,<6`, `peft>=0.21`, `torch>=2.6,<2.9`. The dev
+  editable by `uv sync` since #14), Python 3.12 or 3.13 (`requires-python = ">=3.12,<3.14"`; 3.14 has no wheels for the pinned torch, `.python-version` selects 3.13,
+  `uv sync --extra serve --python 3.13` overrides explicitly), `transformers>=5.17,<6`, `peft>=0.21`, `torch>=2.6,<2.9`. The dev
   group carries pytest, matplotlib and `modal==1.5.5`.
 - Train: `uv run python -m kev.train --suite evals/v7/decision-v7 --base Qwen/Qwen3.5-4B-Base --base_revision <sha> --epochs 2
   --lr 5e-5 --batch 4 --accum 2 --dtype bf16 --checkpointing 1 --p_none_pair 0.25 --device cuda --out runs/kev-4b`
