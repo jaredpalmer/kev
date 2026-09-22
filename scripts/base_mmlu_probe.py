@@ -27,6 +27,7 @@ def main():
     ap.add_argument("--prompt", choices=["plain", "semif"], default="plain",
                     help="semif: SemIf's readout (github.com/TheoLeeCJ/SemIf core.direct_messages): chat template, system instruction, JSON {evidence, criterion, options} payload, letter logits; for instruct models")
     ap.add_argument("--split", default="development")
+    ap.add_argument("--all_questions", action="store_true", help="score every question of a record, not only the first (teacher passes over training records)")
     ap.add_argument("--revision", default=None, help="pin the Hub revision (recorded in the report)")
     ap.add_argument("--adapter", default=None, help="diagnostic: merge this Kev LoRA checkpoint into the base, then read letter logits through the base lm_head. "
                                                    "Separates 'the adapted backbone forgot X' from 'the pointer readout cannot express X'.")
@@ -48,28 +49,28 @@ def main():
     rows = []   # benchmark-compatible rows so the run can be compared with paired bootstraps
     with torch.no_grad():
         for r in records:
-            qid, q = next(iter(r["questions"].items()))
-            if q["type"] == "noul": q = {**q, "criteria": {"false": "No", "true": "Yes"}, "label": str(bool(q["label"])).lower()}
-            elif q["type"] == "score": q = {**q, "criteria": {str(i): c for i, c in enumerate(q["criteria"])}, "label": str(q["label"])}
-            keys = list(q["criteria"])
-            state = r["state"] if isinstance(r["state"], str) else json.dumps(r["state"]) if not isinstance(r["state"], dict) else " ".join(f"{k}: {v}" for k, v in r["state"].items())
-            if a.prompt == "semif":
-                payload = {"evidence": r["state"], "criterion": q["instructions"], "options": [{"letter": letters[i], "description": q["criteria"][k] or k} for i, k in enumerate(keys)]}
-                prompt = tok.apply_chat_template([{"role": "system", "content": SEMIF_SYSTEM}, {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-                                                 tokenize=False, add_generation_prompt=True, enable_thinking=False)
-                ids = tok(prompt, return_tensors="pt", add_special_tokens=False).to(a.device)
-            else:
-                prompt = f"{state}\n{q['instructions']}\n" + "\n".join(f"{letters[i]}. {q['criteria'][k]}" for i, k in enumerate(keys)) + "\nAnswer:"
-                ids = tok(prompt, return_tensors="pt").to(a.device)
-            logits = model(**ids).logits[0, -1].float()
-            probs = torch.softmax(logits[letter_ids[: len(keys)]], -1).tolist()
-            pred = int(max(range(len(keys)), key=probs.__getitem__))
-            src = r["_meta"]["source"]
-            hits[src] = hits.get(src, 0) + int(keys[pred] == q["label"]); n[src] = n.get(src, 0) + 1
-            m = r["_meta"]
-            rows.append({"id": m["id"], "group": m["group_id"], "question": qid, "source": src, "task": r["questions"][qid]["src"], "type": r["questions"][qid]["type"],
-                         "variant": m["variant"], "keys": keys, "label": keys.index(q["label"]), "pair_id": m.get("pair_id"), "sibling": m.get("sibling"), "parent": m["id"],
-                         "p": probs, "raw_probability_sum": 1.0, "zero_count": 0})
+            for qid, q in (r["questions"].items() if a.all_questions else [next(iter(r["questions"].items()))]):
+                if q["type"] == "noul": q = {**q, "criteria": {"false": "No", "true": "Yes"}, "label": str(bool(q["label"])).lower()}
+                elif q["type"] == "score": q = {**q, "criteria": {str(i): c for i, c in enumerate(q["criteria"])}, "label": str(q["label"])}
+                keys = list(q["criteria"])
+                state = r["state"] if isinstance(r["state"], str) else json.dumps(r["state"]) if not isinstance(r["state"], dict) else " ".join(f"{k}: {v}" for k, v in r["state"].items())
+                if a.prompt == "semif":
+                    payload = {"evidence": r["state"], "criterion": q["instructions"], "options": [{"letter": letters[i], "description": q["criteria"][k] or k} for i, k in enumerate(keys)]}
+                    prompt = tok.apply_chat_template([{"role": "system", "content": SEMIF_SYSTEM}, {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+                                                     tokenize=False, add_generation_prompt=True, enable_thinking=False)
+                    ids = tok(prompt, return_tensors="pt", add_special_tokens=False).to(a.device)
+                else:
+                    prompt = f"{state}\n{q['instructions']}\n" + "\n".join(f"{letters[i]}. {q['criteria'][k]}" for i, k in enumerate(keys)) + "\nAnswer:"
+                    ids = tok(prompt, return_tensors="pt").to(a.device)
+                logits = model(**ids).logits[0, -1].float()
+                probs = torch.softmax(logits[letter_ids[: len(keys)]], -1).tolist()
+                pred = int(max(range(len(keys)), key=probs.__getitem__))
+                src = r["_meta"]["source"]
+                hits[src] = hits.get(src, 0) + int(keys[pred] == q["label"]); n[src] = n.get(src, 0) + 1
+                m = r["_meta"]
+                rows.append({"id": m["id"], "group": m["group_id"], "question": qid, "source": src, "task": r["questions"][qid]["src"], "type": r["questions"][qid]["type"],
+                             "variant": m["variant"], "keys": keys, "label": keys.index(q["label"]), "pair_id": m.get("pair_id"), "sibling": m.get("sibling"), "parent": m["id"],
+                             "p": probs, "raw_probability_sum": 1.0, "zero_count": 0})
     summary = {"base": a.base, "readout": "zero-shot next-token letter logits" + (" (SemIf prompt, chat template)" if a.prompt == "semif" else ""), "suite": a.suite, "split": a.split, "revision": a.revision, "adapter": a.adapter,
                "sources": {k: {"n": n[k], "acc": round(hits[k] / n[k], 3)} for k in n}}   # namespaced: a source called "unknowable" must not shadow the report's unknowable block
     if a.out:
