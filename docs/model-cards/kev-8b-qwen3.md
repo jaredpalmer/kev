@@ -51,7 +51,7 @@ model-index:
 
 Kev-8B is a **decision model**: one document (the *state*) and a set of typed questions in, a probability distribution per question out, in one forward pass. No text generation. It is a LoRA adapter (r=16) plus a pointer head on `Qwen/Qwen3-8B-Base` (revision `49e3418f`), serving TypeSafe's public `/v1/systemone` contract.
 
-**The most accurate kev.** The best checkpoint of any size under a frozen, checksummed protocol: best in-distribution accuracy, best out-of-domain accuracy (0.796 on transfer-v4 dev, six points from Jev), best held-out rule reasoning of any Kev at 8B. Same recipe at two seeds: 0.796 / 0.774; this checkpoint is the seed selected on the development partition.
+**The most accurate Kev.** The best checkpoint of any size under a frozen, checksummed protocol: best in-distribution accuracy, best out-of-domain accuracy (0.796 on transfer-v4 dev, six points from Jev), best held-out rule reasoning of any Kev at 8B. Same recipe at two seeds: 0.796 / 0.774; this checkpoint is the seed selected on the development partition.
 
 - Hub: `jaredpalmer/kev-8b` (this repo; trial `v7-final/00-trial-0`)
 - Code, suites, every trial with hashes and paired bootstraps: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — `PLAN.md`, `runs/leaderboard.md`
