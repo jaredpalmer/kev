@@ -9,10 +9,13 @@ What it may change: the allowlisted trial parameters in kev.experiment (optimize
 augmentation rates, loss weights, architecture switches). What it may never change: the evaluator, the frozen suites,
 the gates, or the locked test. Every trial still goes through kev.experiment.execute_trial with full provenance.
 
-Score: transfer development macro accuracy (out-of-domain), among trials that pass the correctness gates and do not
-regress in-distribution accuracy by more than 2 pp against the incumbent; ties broken by transfer Brier, then dev NLL.
-Selection happens on development partitions only. A round's winner becomes the incumbent for the next round's
-mutations; a config is never re-run with the same seed.
+Score: transfer development accuracy (out-of-domain), among trials that pass the correctness gates; ties broken by
+transfer Brier, then dev NLL. Selection happens on development partitions only. A round's best trial replaces the
+incumbent only through next_incumbent(): a replication of the incumbent's config joins it; another config needs a
+positive record-clustered paired-bootstrap delta on per-task macro transfer accuracy against the incumbent's best seed
+with a 95% lower bound >= -1 pp (PLAN.md round 4, item 4.3). The decision and its interval are written to the round
+ledger runs/autoresearch.jsonl (leaderboard.jsonl is regenerated from result.json files on every refresh), whose latest
+`incumbent_after` is the champion the next round mutates. A config is never re-run with the same seed.
 
 Budget: before each round, `modal billing summary` is read; the loop stops when metered spend since `--spend-start`
 exceeds `--spend-cap`. Per-round admission bounds still apply in modal_app.admit_study.
@@ -123,23 +126,90 @@ def score(row):
     return (row["transfer_acc"], -(row["transfer_brier"] or 1), -(row["dev_nll"] or 9))
 
 
-def incumbent(rows, base, suite_hash, transfer_hash):
-    """Best eligible trial for a backbone. Prefer configs with >=2 seeds by mean score; otherwise the best single seed."""
-    by_cfg = defaultdict(list)
-    for r in rows:
-        if r["base"] == base and eligible(r, suite_hash, transfer_hash): by_cfg[r["config_sha256"]].append(r)
-    if not by_cfg: return None
-    def agg(group):
-        n = len(group)
-        return (len({r["seed"] for r in group}) >= 2, sum(r["transfer_acc"] for r in group) / n, -sum(r["transfer_brier"] for r in group) / n)
-    best = max(by_cfg.values(), key=agg)
-    return {"config": best[0]["config"], "config_sha256": best[0]["config_sha256"], "seeds": sorted({r["seed"] for r in best}), "suite": best[0]["study"],
-            "transfer_acc": sum(r["transfer_acc"] for r in best) / len(best), "dev_acc": sum(r["dev_acc"] for r in best) / len(best),
-            "trials": [f"{r['study']}/{r['trial']}" for r in best]}
+def trial_id(row):
+    return f"{row['study']}/{row['trial']}"
 
 
 def strip_seed(cfg):
     return {k: v for k, v in cfg.items() if k != "seed"}
+
+
+def recipe(row):
+    """A trial's recipe identity: its config without the seed (config_sha256 hashes the seed too, so seeds of one
+    recipe never share it)."""
+    return config_digest(strip_seed(row["config"]))
+
+
+def as_incumbent(group):
+    """Incumbent summary of one config's eligible trials (seeds averaged)."""
+    return {"config": group[0]["config"], "recipe": recipe(group[0]), "seeds": sorted({r["seed"] for r in group}),
+            "transfer_acc": sum(r["transfer_acc"] for r in group) / len(group), "dev_acc": sum(r["dev_acc"] for r in group) / len(group),
+            "trials": [trial_id(r) for r in group]}
+
+
+def ledger():
+    path = ROOT / "runs/autoresearch.jsonl"
+    return read_jsonl(path) if path.exists() else []
+
+
+def incumbent(rows, base, suite_hash, transfer_hash, history=()):
+    """The backbone's champion: the latest ledger round's `incumbent_after` (only the latest is authoritative; champions
+    change only through next_incumbent), plus any later eligible replications of the same config. If that champion's
+    trials are no longer all eligible (other suites, pulled elsewhere), or there is no ledger entry, the loop is seeded
+    with the best eligible config, preferring >= 2 seeds by mean transfer accuracy, then the best single seed."""
+    pool = [r for r in rows if r["base"] == base and eligible(r, suite_hash, transfer_hash)]
+    by_trial = {trial_id(r): r for r in pool}
+    latest = next((e["incumbent_after"] for e in reversed(history) if e["base"] == base and e.get("incumbent_after")), None)
+    if latest and all(t in by_trial for t in latest["trials"]):
+        champion = recipe(by_trial[latest["trials"][0]])
+        return as_incumbent([r for r in pool if recipe(r) == champion])
+    by_cfg = defaultdict(list)
+    for r in pool: by_cfg[recipe(r)].append(r)
+    if not by_cfg: return None
+    def agg(group):
+        n = len(group)
+        return (len({r["seed"] for r in group}) >= 2, sum(r["transfer_acc"] for r in group) / n, -sum(r["transfer_brier"] for r in group) / n)
+    return as_incumbent(max(by_cfg.values(), key=agg))
+
+
+NONINFERIORITY = 0.01   # PLAN.md round 4, item 4.3: a challenger may be at most 1 pp worse at the paired CI's lower bound
+
+
+def transfer_rows(trial):
+    return read_json(ROOT / "runs" / trial / "transfer/rows.json")
+
+
+def challenge(champion, challenger, rows, samples=1000):
+    """Whether `challenger` (a leaderboard row of another config) replaces `champion` (an incumbent summary): the
+    record-clustered paired bootstrap of per-task macro transfer accuracy (the aggregation compare() and kev.compare
+    print) against the champion's best seed must have a positive point estimate and a 95% lower bound >= -NONINFERIORITY.
+    A one-seed point-estimate lead on ~650 questions is mostly noise. A pair that cannot be bootstrapped (missing or
+    mismatched transfer rows) is recorded as not accepted rather than raised: the round's spend is already metered."""
+    by_trial = {trial_id(r): r for r in rows}
+    reference = max(champion["trials"], key=lambda t: by_trial[t]["transfer_acc"])
+    decision = {"candidate": trial_id(challenger), "reference": reference, "aggregation": "macro", "noninferiority": NONINFERIORITY}
+    try:
+        b = paired_bootstrap(transfer_rows(decision["candidate"]), transfer_rows(reference), samples=samples, metric="acc", aggregation="macro")
+    except (ValueError, OSError) as error:
+        return {**decision, "accepted": False, "error": f"{type(error).__name__}: {error}"}
+    delta, ci = b["macro_acc_delta"], b["ci95"]
+    return {**decision, "delta": delta, "ci95": ci, "accepted": delta > 0 and ci[0] >= -NONINFERIORITY}
+
+
+def next_incumbent(champion, best, rows):
+    """(incumbent after a round, the challenge record or None). A replication of the champion's own config joins it
+    (seeds are averaged; a config does not challenge itself); another config must win challenge()."""
+    if best is None:
+        return champion, None
+    if champion is None:
+        return as_incumbent([best]), None
+    if recipe(best) == champion["recipe"]:
+        by_trial = {trial_id(r): r for r in rows}
+        return as_incumbent([by_trial[t] for t in champion["trials"]] + [best]), None
+    decision = challenge(champion, best, rows)
+    return (as_incumbent([best]) if decision["accepted"] else champion), decision
+
+
 
 
 def propose(rows, base, n, seed, suite_manifest, incumbent_cfg=None, rng_seed=0):
@@ -188,7 +258,8 @@ def leaderboard_md(rows, incumbents):
 def refresh_leaderboard():
     rows = collect()
     dv4, tv4 = digest(ROOT / SUITE / "manifest.json"), digest(ROOT / TRANSFER / "manifest.json")
-    incumbents = {b: incumbent(rows, b, dv4, tv4) for b in BASE_DEFAULTS}
+    history = ledger()
+    incumbents = {b: incumbent(rows, b, dv4, tv4, history) for b in BASE_DEFAULTS}
     write_jsonl(ROOT / "runs/leaderboard.jsonl", rows)
     (ROOT / "runs/leaderboard.md").write_text(leaderboard_md(rows, incumbents), encoding=ENCODING)
     return rows, incumbents, dv4, tv4
@@ -224,12 +295,14 @@ def run_round(base, n, name, seeds, spend_start, spend_cap, timeout=None):
     log = ROOT / "runs" / f"{name}.log"
     with log.open("w", encoding=ENCODING) as f:
         rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=ROOT).returncode
-    rows, incumbents, _, _ = refresh_leaderboard()
+    rows, _, _, _ = refresh_leaderboard()
     new = [r for r in rows if r["study"] == name]
     best = max((r for r in new if eligible(r, dv4, tv4)), key=score, default=None)
+    after, decision = next_incumbent(inc, best, rows)
     summary = {"round": name, "base": base, "trials": len(plan), "completed": len(new), "rc": rc,
                "best": best and {"trial": best["trial"], "transfer_acc": best["transfer_acc"], "dev_acc": best["dev_acc"], "knobs": strip_seed(best["config"])},
-               "incumbent_after": incumbents.get(base) and {k: incumbents[base][k] for k in ("transfer_acc", "dev_acc", "seeds", "trials")},
+               "challenge": decision,
+               "incumbent_after": after and {k: after[k] for k in ("transfer_acc", "dev_acc", "seeds", "trials")},
                "spend_since_start": None if (s := metered_spend()) is None else round(s - spend_start, 2), "at": datetime.now(timezone.utc).isoformat(timespec="minutes")}
     (ROOT / "runs/autoresearch.jsonl").open("a", encoding=ENCODING).write(json.dumps(summary) + "\n")
     print(json.dumps(summary, indent=1), flush=True)
@@ -242,10 +315,11 @@ def plan_section():
     lines = ["Maintained by `kev.autoresearch`; full table in [`runs/leaderboard.md`](runs/leaderboard.md). Selection uses development partitions only.", ""]
     for b, inc in incumbents.items():
         lines.append(f"- **{b.split('/')[-1]}** incumbent (v4 suites): transfer {inc['transfer_acc']:.3f}, dev {inc['dev_acc']:.3f}, seeds {inc['seeds']}, knobs `{json.dumps(knobs(inc['config']))}`" if inc else f"- **{b.split('/')[-1]}**: no eligible trial yet")
-    lines += ["", "| round | base | trials | best transfer | best knobs | incumbent after | spend |", "|---|---|---|---|---|---|---|"]
+    lines += ["", "| round | base | trials | best transfer | best knobs | challenge (macro delta, 95% CI) | incumbent after | spend |", "|---|---|---|---|---|---|---|---|"]
     for e in log:
-        b = e["best"] or {}; ia = e["incumbent_after"] or {}
-        lines.append(f"| {e['round']} | {e['base'].split('/')[-1]} | {e['completed']}/{e['trials']} | {b.get('transfer_acc', float('nan')):.3f} | `{json.dumps(knobs(b.get('knobs') or {}))}` | {ia.get('transfer_acc', float('nan')):.3f} | ${e['spend_since_start']} |")
+        b = e["best"] or {}; ia = e["incumbent_after"] or {}; c = e.get("challenge")
+        verdict = "" if not c else c.get("error") or f"{c['delta']:+.3f} [{c['ci95'][0]:+.3f}, {c['ci95'][1]:+.3f}] {'accepted' if c['accepted'] else 'kept'}"
+        lines.append(f"| {e['round']} | {e['base'].split('/')[-1]} | {e['completed']}/{e['trials']} | {b.get('transfer_acc', float('nan')):.3f} | `{json.dumps(knobs(b.get('knobs') or {}))}` | {verdict} | {ia.get('transfer_acc', float('nan')):.3f} | ${e['spend_since_start']} |")
     return "\n".join(lines)
 
 
@@ -274,7 +348,7 @@ def release_check(study):
     held-out-pair screen) - a single seed clearing the bar is not enough. Prints the verdict per config."""
     rows = [r for r in collect() if r["study"] == study]
     by_cfg = defaultdict(list)
-    for r in rows: by_cfg[config_digest(strip_seed(r["config"]))].append(r)
+    for r in rows: by_cfg[recipe(r)].append(r)
     verdicts = {}
     for h, group in by_cfg.items():
         seeds = sorted(r["seed"] for r in group)
