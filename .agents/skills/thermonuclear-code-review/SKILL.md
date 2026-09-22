@@ -39,6 +39,7 @@ standards to *this* repository.
 | predictors (local checkpoint, remote System One endpoint, Jev) | `kev/predictors.py` |
 | rows from predictions, `summarize`, `evaluate_records` | `kev/benchmark.py` |
 | research gates and thresholds | `kev.experiment.GATES`, `gate_report` |
+| published README/model-card numbers -> committed reports | `docs/claims.json` + `scripts/verify_claims.py` |
 
 When a helper becomes canonical, add it here and add a rule to `tests/test_conventions.py`.
 

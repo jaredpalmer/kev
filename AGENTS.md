@@ -104,6 +104,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   (`runs/smoke-hl/00-trial-0/checkpoint` + a Qwen2.5-0.5B / Qwen3.5-0.8B-Base download, ~2.5 min, local only): `tests/test_model.py`; `tests/test_mlx.py` (Apple Silicon, ~30 s) for the MLX backend.
   `test_conventions.py` is a table of "one canonical home" rules (head.pt via `kev.checkpoint`, `KEV_*` via `LoadOptions.from_env`,
   option keys via `api.question_keys`, context via `model.fits`/`MAX_PACKED`, device via `kev.device`, ...); add a row when a new helper becomes canonical.
+  It also asserts every published README/model-card number in `docs/claims.json` traces to a committed report (`scripts/verify_claims.py`).
 - API tests (server must be up): `KEV_BASE_URL=http://127.0.0.1:8009 uv run --extra serve python -m pytest tests/test_api.py -q`
 - CI (.github/workflows/ci.yml) runs the unit job above and a `playground` job: `npm ci && npm run lint && npx next typegen && npx tsc --noEmit -p .`.
 

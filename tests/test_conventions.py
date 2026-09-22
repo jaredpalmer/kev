@@ -39,6 +39,12 @@ def sources():
         yield from (p for p in ([path] if path.is_file() else sorted(path.rglob("*.py"))) if "__pycache__" not in p.parts and p != Path(__file__))
 
 
+def test_published_claims_trace_to_committed_evidence():
+    from scripts.verify_claims import verify
+
+    assert verify(ROOT) == []
+
+
 @pytest.mark.parametrize("what,pattern,allowed", RULES, ids=[r[0][:60] for r in RULES])
 def test_single_home(what, pattern, allowed):
     regex = re.compile(pattern)
