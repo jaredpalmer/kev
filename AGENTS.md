@@ -32,7 +32,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   --suite evals/v4/transfer-v4 --out runs/<name>`; `--remote <url>` scores any System One endpoint, `--data x.jsonl` your
   own labelled rows, `--date_facts` the opt-in preprocessing, `--allow-test` is the only way to read a locked test.
   Writes `rows.json` (per question, with logits) + `report.json` (accuracy, ECE/Brier/NLL, selective coverage and AURC,
-  permutation, isolation). `kev.evaluate` is the legacy prototype eval (`runs/kev`, `eval.json`) and is not used for
+  permutation, isolation). `kev.calibrate --rows <rows.json>` reports what one temperature fitted on those rows would do (raw / shipped / workload in-sample / workload group-disjoint OOF, paired bootstrap vs shipped; report only, writes `calibration.json` next to the rows); external-suite `rows.json` are committed for this. `kev.evaluate` is the legacy prototype eval (`runs/kev`, `eval.json`) and is not used for
   releases. `kev.compare --candidate <dir> --reference <dir>` pairs two result dirs (record-clustered bootstrap).
   `kev.jev --suite ... --out ...` scores Jev through Vercel AI Gateway (AI SDK `experimental_evaluate`, node worker in
   `playground/scripts/jev-evaluate.mjs`; needs `AI_GATEWAY_API_KEY` or `--provision-scope`; budget-capped).

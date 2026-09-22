@@ -1,0 +1,118 @@
+{
+  "n": 256,
+  "shipped_temperature": [
+    2.1435469250725863
+  ],
+  "workload_temperature": 3.908639873736983,
+  "fold_temperatures": [
+    4.0,
+    4.0,
+    3.6468899542328663,
+    3.908639873736983,
+    3.908639873736983
+  ],
+  "arms": {
+    "raw": {
+      "n": 256,
+      "acc": 0.6953125,
+      "ece": 0.25185245422053476,
+      "brier": 0.5361847657319717,
+      "nll": 1.48710047401208,
+      "mean_conf": 0.9432567608303644,
+      "confident_error_rate": 0.19140625,
+      "coverage_at_5pct_error": 0.046875,
+      "aurc": 0.1855266955532133
+    },
+    "shipped": {
+      "n": 256,
+      "acc": 0.6953125,
+      "ece": 0.16566779115245683,
+      "brier": 0.4642358712811593,
+      "nll": 0.8413458244477737,
+      "mean_conf": 0.8521035998184747,
+      "confident_error_rate": 0.109375,
+      "coverage_at_5pct_error": 0.046875,
+      "aurc": 0.18529953683959366
+    },
+    "workload": {
+      "n": 256,
+      "acc": 0.6953125,
+      "ece": 0.04275047208285002,
+      "brier": 0.422164289129226,
+      "nll": 0.7199957218075427,
+      "mean_conf": 0.7172712788347695,
+      "confident_error_rate": 0.015625,
+      "coverage_at_5pct_error": 0.046875,
+      "aurc": 0.18503495500419095
+    },
+    "workload_oof": {
+      "n": 256,
+      "acc": 0.6953125,
+      "ece": 0.05248505480235695,
+      "brier": 0.42424935183007106,
+      "nll": 0.7237543190775176,
+      "mean_conf": 0.7183980970055373,
+      "confident_error_rate": 0.015625,
+      "coverage_at_5pct_error": 0.0078125,
+      "aurc": 0.19569544484754342
+    }
+  },
+  "oof_vs_shipped": {
+    "ece": {
+      "micro_ece_delta": -0.11318273635009993,
+      "ci95": [
+        -0.141927492140083,
+        -0.027364242670259612
+      ],
+      "samples": 1000,
+      "groups": 256,
+      "aggregation": "micro",
+      "unit": "source-stratified original record; sibling questions stay together",
+      "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+    },
+    "brier": {
+      "micro_brier_delta": -0.03998651945108822,
+      "ci95": [
+        -0.06383638480174968,
+        -0.015372491211641259
+      ],
+      "samples": 1000,
+      "groups": 256,
+      "aggregation": "micro",
+      "unit": "source-stratified original record; sibling questions stay together",
+      "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+    },
+    "coverage_at_5pct_error": {
+      "micro_coverage_at_5pct_error_delta": -0.0390625,
+      "ci95": [
+        -0.11728515625,
+        0.0390625
+      ],
+      "samples": 1000,
+      "groups": 256,
+      "aggregation": "micro",
+      "unit": "source-stratified original record; sibling questions stay together",
+      "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+    },
+    "aurc": {
+      "micro_aurc_delta": 0.010395908007949761,
+      "ci95": [
+        -0.0034831275255952933,
+        0.027176050228765954
+      ],
+      "samples": 1000,
+      "groups": 256,
+      "aggregation": "micro",
+      "unit": "source-stratified original record; sibling questions stay together",
+      "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+    }
+  },
+  "fit": {
+    "aggregation": "micro",
+    "points": 121
+  },
+  "folds": 5,
+  "seed": 0,
+  "note": "argmax and accuracy are temperature-invariant; workload is in-sample, workload_oof is the held-out estimate",
+  "rows": "runs/kev-4b-wanli-v1/rows.json"
+}

@@ -12,11 +12,9 @@ import argparse, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kev.metrics import cross_validated_temperature, fit_temperature, metrics  # noqa: E402
+from kev.metrics import TEMPERATURE_FIT as FIT, cross_validated_temperature, fit_temperature, metrics  # noqa: E402
 from kev.checkpoint import read_meta, write_meta  # noqa: E402
 from kev.suite import read_json  # noqa: E402
-
-FIT = {"aggregation": "micro", "points": 121}   # min mean NLL over a 121-point log grid on 0.25..4: how every released temperature was fitted
 
 
 def main():

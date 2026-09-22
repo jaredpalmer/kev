@@ -194,14 +194,33 @@ def tempered_row(row, temperature):
             "inference_temperature": temperature}
 
 
+def raw_row(row):
+    """The row as the checkpoint would have returned it at T=1: undoes the recorded inference_temperature (served logits
+    are z / T, so z = logits * T), which is what fit_temperature requires. A row served raw is returned unchanged."""
+    temperature = row.get("inference_temperature", 1.0)
+    _check_temperature(temperature)
+    if temperature == 1.0:
+        return row
+    if "logits" not in row:
+        raise ValueError("cannot restore raw logits from a row that recorded none")
+    z = np.asarray(row["logits"], dtype=float) * temperature
+    p = np.exp(z - z.max())
+    return {**row, "p": (p / p.sum()).tolist(), "logits": z.tolist(), "inference_temperature": 1.0}
+
+
 def scored_rows(rows):
     """The rows metrics are computed on: clean variants of knowable records."""
     return [row for row in rows if row["variant"] == "clean" and row["source"] != "unknowable"]
 
 
+# how every released temperature was fitted (scripts/calibrate_checkpoint.py) and how kev.calibrate fits a workload's:
+# min mean NLL over a 121-point log grid on 0.25..4, every question weighted equally
+TEMPERATURE_FIT = {"aggregation": "micro", "points": 121}
+
+
 def fit_temperature(rows, aggregation="macro", points=81):
     """Temperature minimizing the (micro or per-task macro) mean NLL over a `points`-point log grid on 0.25..4.
-    scripts/calibrate_checkpoint.py fits the released checkpoints with points=121."""
+    Released checkpoints and workload fits use **TEMPERATURE_FIT."""
     if aggregation not in ("micro", "macro"):
         raise ValueError("invalid calibration aggregation")
     clean = scored_rows(rows)
@@ -247,13 +266,12 @@ def grouped_folds(rows, folds, seed):
     return np.asarray([fold_of[(row["source"], row["group"])] for row in rows])
 
 
-def cross_validated_temperature(rows, folds=5, seed=0, samples=1000, **fit_kwargs):
-    """Out-of-fold calibration report: each fold's temperature is fit on the other folds (fit_temperature(**fit_kwargs))
-    and applied to its held-out rows, which are then scored like any calibrated prediction. The bootstrap resamples
-    source-stratified groups (the unit paired_bootstrap uses) and reports raw vs out-of-fold ECE with a 95% interval on
-    the paired delta; `separated` is True when that interval excludes zero."""
-    if folds < 2 or samples < 1:
-        raise ValueError("folds must be >= 2 and samples >= 1")
+def out_of_fold_rows(rows, folds=5, seed=0, **fit_kwargs):
+    """Each fold's temperature is fit on the other folds (fit_temperature(**fit_kwargs), raw rows required) and applied
+    to its held-out rows, so the result scores like any calibrated prediction. Returns (scored rows in input order,
+    the per-fold temperatures)."""
+    if folds < 2:
+        raise ValueError("folds must be >= 2")
     clean = scored_rows(rows)
     fold_id = grouped_folds(clean, folds, seed)
     temperatures, oof = [], list(clean)
@@ -263,6 +281,17 @@ def cross_validated_temperature(rows, folds=5, seed=0, samples=1000, **fit_kwarg
         temperatures.append(temperature)
         for i in np.flatnonzero(held):
             oof[i] = tempered_row(clean[i], temperature)
+    return oof, temperatures
+
+
+def cross_validated_temperature(rows, folds=5, seed=0, samples=1000, **fit_kwargs):
+    """Out-of-fold calibration report: out_of_fold_rows scored against the raw rows. The bootstrap resamples
+    source-stratified groups (the unit paired_bootstrap uses) and reports raw vs out-of-fold ECE with a 95% interval on
+    the paired delta; `separated` is True when that interval excludes zero."""
+    if samples < 1:
+        raise ValueError("samples must be >= 1")
+    clean = scored_rows(rows)
+    oof, temperatures = out_of_fold_rows(clean, folds, seed, **fit_kwargs)
     keys = ("n", "ece", "brier", "nll", "confident_error_rate", "coverage_at_5pct_error")
     raw, out_of_fold = metrics(clean), metrics(oof)
     correct = np.asarray([np.argmax(row["p"]) == row["label"] for row in clean])   # argmax is temperature-invariant
