@@ -14,6 +14,19 @@ MAX_STATE, MAX_BRANCH, MAX_PACKED = 384, 1024, 2048
 # serving context (kev.serve): per-branch cap mirrors Jev's ~32k, bounded by the base model window; longer than training, so untested there
 SERVE_MAX_STATE, SERVE_MAX_BRANCH = 8192, 8192
 SERVE_MAX_PACKED = SERVE_MAX_STATE + SERVE_MAX_BRANCH   # one row at most: a packed request longer than this runs in the row form (the block-causal mask is L x L)
+# the longest state a checkpoint may be trained on (kev.train --max_state) and still leave every question its training
+# branch budget when served: serving's row limit is SERVE_MAX_BRANCH = state + branch
+MAX_TRAIN_STATE = SERVE_MAX_BRANCH - (MAX_BRANCH - MAX_STATE)
+
+
+def training_context(max_state=MAX_STATE):
+    """The encoder limits for training with the state limit lifted to `max_state`: the row (state + one branch) and
+    packed limits grow by the same amount, so every question keeps its token budget. training_context() is the default
+    training context (kev.suite.CONTEXT without `truncate`)."""
+    if not MAX_STATE <= max_state <= MAX_TRAIN_STATE:
+        raise ValueError(f"max_state must be in [{MAX_STATE}, {MAX_TRAIN_STATE}]")
+    extra = max_state - MAX_STATE
+    return {"max_state": max_state, "max_branch": MAX_BRANCH + extra, "max_packed": MAX_PACKED + extra}
 
 
 def rows_per_pass(rows, prefix_len=0, budget=SERVE_MAX_PACKED):

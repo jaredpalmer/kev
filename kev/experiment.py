@@ -30,7 +30,7 @@ from kev.benchmark import evaluate_records
 from kev.checkpoint import LoadOptions
 from kev.device import default_device, empty_cache
 from kev.metrics import fit_temperature, paired_bootstrap
-from kev.model import MAX_STATE, SERVE_MAX_STATE
+from kev.model import MAX_STATE, MAX_TRAIN_STATE
 from kev.predictors import LocalPredictor
 from kev.suite import ENCODING, digest, load_split, read_json, read_manifest, record_digest, validate_training, write_json
 
@@ -56,8 +56,8 @@ def validated_trial(value, manifest):
         raise ValueError("data must be a .jsonl under evals/ (shipped with the image, hashed in provenance)")
     if "replay" in result and (not isinstance(result["replay"], int) or not 0 <= result["replay"] <= 20000 or "data" not in result):
         raise ValueError("replay is an int <= 20000 and needs data")
-    if "max_state" in result and (isinstance(result["max_state"], bool) or not isinstance(result["max_state"], int) or not MAX_STATE <= result["max_state"] <= SERVE_MAX_STATE):
-        raise ValueError(f"max_state is an int in [{MAX_STATE}, {SERVE_MAX_STATE}] (state tokens per training record; optional, kev.model.MAX_STATE when absent)")
+    if "max_state" in result and (isinstance(result["max_state"], bool) or not isinstance(result["max_state"], int) or not MAX_STATE <= result["max_state"] <= MAX_TRAIN_STATE):
+        raise ValueError(f"max_state is an int in [{MAX_STATE}, {MAX_TRAIN_STATE}] (state tokens per training record; optional, kev.model.MAX_STATE when absent)")
     if "init_from" in result and not re.fullmatch(r"(/runs/[\w./-]+|[\w-]+/[\w.-]+(@[\w.-]+)?)", str(result["init_from"])):
         raise ValueError("init_from must be a checkpoint path on the runs volume or a Hub id (optionally @revision); the trainer records its adapter and head hashes in provenance")
     if result.get("base") not in manifest["base_revisions"]:

@@ -902,17 +902,28 @@ def test_incumbent_is_the_ledger_champion_until_challenged():
 
 
 def test_max_state_lifts_row_and_packed_limits_together():
-    import argparse
     from kev.experiment import validated_trial
-    from kev.model import MAX_BRANCH, MAX_PACKED, MAX_STATE
-    from kev.train import context
-    assert context(argparse.Namespace(max_state=MAX_STATE)) == {"max_state": MAX_STATE, "max_branch": MAX_BRANCH, "max_packed": MAX_PACKED}
+    from kev.model import MAX_BRANCH, MAX_PACKED, MAX_STATE, MAX_TRAIN_STATE, SERVE_MAX_BRANCH, training_context
+    from kev.suite import CONTEXT
+    assert training_context() == {k: v for k, v in CONTEXT.items() if k != "truncate"} == {"max_state": MAX_STATE, "max_branch": MAX_BRANCH, "max_packed": MAX_PACKED}
     long = 12 * MAX_STATE                                                              # the 4.12 delta's state limit
-    lifted = context(argparse.Namespace(max_state=long))
+    lifted = training_context(long)
     assert lifted["max_branch"] - MAX_BRANCH == lifted["max_packed"] - MAX_PACKED == long - MAX_STATE
+    assert training_context(MAX_TRAIN_STATE)["max_branch"] == SERVE_MAX_BRANCH          # the served row limit still fits a training branch
+    with pytest.raises(ValueError):
+        training_context(MAX_TRAIN_STATE + 1)
     manifest = {"base_revisions": {"model": "pinned"}}
     assert validated_trial({"base": "model", "max_state": long}, manifest)["max_state"] == long
     assert "max_state" not in validated_trial({"base": "model"}, manifest)          # optional: existing recipe digests are unchanged
-    for bad in (MAX_STATE - 1, 100 * MAX_STATE, float(long), True):
+    for bad in (MAX_STATE - 1, MAX_TRAIN_STATE + 1, float(long), True):
         with pytest.raises(ValueError, match="max_state"):
             validated_trial({"base": "model", "max_state": bad}, manifest)
+
+
+def test_none_pair_leaves_soft_target_questions_alone():
+    import random
+    from kev.data import none_pair
+    q = {"type": "choice", "criteria": {"a": None, "b": None, "c": None}, "label": "a", "src": "s"}
+    req = {"state": "x", "questions": {"q": q}}
+    assert len(none_pair(req, random.Random(0))) == 2
+    assert none_pair({"state": "x", "questions": {"q": {**q, "target": {"a": 0.5, "b": 0.5}}}}, random.Random(0)) == []

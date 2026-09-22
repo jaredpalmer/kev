@@ -12,14 +12,18 @@ Writes
                        the serving context
     manifest.json      sha256 per file, seed, lengths, tokenizer, and the context the development partition is scored in
 
-Sources: every trainable decision-v7 source; neighbours never share the primary's id. Records outside the 8,192-token
-serving state are not produced.
+Sources: every trainable decision-v7 source; neighbours never share the primary's id. Lengths are targeted in tokens of
+the JSON serialisation (longstate-v1 was built that way and is kept byte-identical); the model sees kev.api.render's
+text, so the manifest also reports rendered-state token counts per length (`rendered_state_tokens`), and every record is
+checked against the serving context with kev.model.fits.
 """
 import argparse, copy, hashlib, json, random, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kev.model import SERVE_MAX_STATE, load_tokenizer  # noqa: E402
+from kev.api import render  # noqa: E402
+from kev.data import materialize  # noqa: E402
+from kev.model import SERVE_MAX_STATE, fits, load_tokenizer  # noqa: E402
 from kev.suite import SERVING_CONTEXT, digest, load_split, read_manifest, record_digest, write_json, write_jsonl  # noqa: E402
 
 SUITE = "evals/v7/decision-v7"
@@ -102,10 +106,16 @@ def main():
     train_control = [parents[r["_meta"]["parent_id"]] for r in train]
     write_jsonl(out / "train.jsonl", train); write_jsonl(out / "train_control.jsonl", train_control); write_jsonl(out / "development.jsonl", dev)
     tokens = lambda rows, length: sorted(r["_meta"]["state_tokens"] for r in rows if r["_meta"].get("length") == length)
+    rendered = lambda rows, length: sorted(len(tok.encode(render(r["state"]), add_special_tokens=False)) for r in rows if r["_meta"].get("length") == length)
+    quantiles = lambda xs: {"min": xs[0], "median": xs[len(xs) // 2], "max": xs[-1]}
+    serving = {k: v for k, v in SERVING_CONTEXT.items() if k != "truncate"}
+    if not all(fits(materialize(r), tok, **serving) for r in dev):
+        raise SystemExit("a development record exceeds the serving context")
     write_json(out / "manifest.json", {
         "version": "longstate-v1", "parent": SUITE, "parent_manifest_sha256": digest(Path(SUITE) / "manifest.json"), "seed": a.seed,
         "tokenizer": {"model": TOKENIZER[0], "revision": TOKENIZER[1]}, "lengths": list(LENGTHS),
         "state_tokens": {str(L): {"train_median": (t := tokens(train, L))[len(t) // 2], "dev_median": (d := tokens(dev, L))[len(d) // 2]} for L in LENGTHS},
+        "rendered_state_tokens": {str(L): {"train": quantiles(rendered(train, L)), "development": quantiles(rendered(dev, L))} for L in LENGTHS},
         "eval_only": True, "context": SERVING_CONTEXT, "holdout_sources": [], "base_revisions": read_manifest(SUITE)["base_revisions"],
         "files": {name: {"sha256": digest(out / name), "records": len(rows)} for name, rows in (("train.jsonl", train), ("train_control.jsonl", train_control), ("development.jsonl", dev))},
         "protocol": "development = decision-v7/development primaries buried at each length + the same primaries unburied (longstate_control); "

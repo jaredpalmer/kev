@@ -54,7 +54,7 @@ def main():
     write_jsonl(out / "soft.jsonl", soft); write_jsonl(out / "hard.jsonl", hard)
     teacher_report = read_json(Path(a.teacher) / "report.json")
     manifest = {"suite": SUITE, "suite_manifest_sha256": digest(Path(SUITE) / "manifest.json"), "partition": "train",
-                "teacher": {"base": teacher_report.get("base") or teacher_report.get("run"), "revision": teacher_report.get("revision"), "readout": teacher_report.get("readout"),
+                "teacher": {"base": teacher_report.get("base") or teacher_report.get("run"), "revision": teacher_report.get("revision"), "readout": teacher_report.get("readout") or "kev.benchmark served probabilities",
                             "rows_sha256": digest(Path(a.teacher) / "rows.json")},
                 "rule": {"select": a.select, "threshold": a.threshold if a.select == "ambiguous" else None, "lam": a.lam,
                          "ambiguous": "teacher top option != label and teacher top probability >= threshold",
