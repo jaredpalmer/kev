@@ -64,6 +64,109 @@ def test_validation_rejects(bad):
         SystemOneRequest.model_validate({"state": "x", "model": "m", "questions": bad})
 
 
+@pytest.mark.parametrize("n_perm", [-1, 0, 65, 1000000])
+def test_permute_rejects_invalid_counts(n_perm, monkeypatch):
+    from fastapi.testclient import TestClient
+    from kev import serve
+
+    def unexpected_server():
+        pytest.fail("Invalid permutation counts must be rejected before inference")
+
+    monkeypatch.setattr(serve, "server", unexpected_server)
+    with TestClient(serve.app) as client:
+        response = client.post("/v1/systemone/permute", json={
+            "request": {"state": "s", "questions": {
+                "q": {"type": "choice", "instructions": "Pick", "criteria": {"a": None, "b": None}}}},
+            "question": "q", "n_perm": n_perm})
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "n_perm"]
+
+
+@pytest.mark.parametrize("n_perm, expected_runs", [(1, 1), (64, 64), (None, 6)])
+def test_permute_valid_counts(n_perm, expected_runs, monkeypatch):
+    from types import SimpleNamespace
+    from fastapi.testclient import TestClient
+    from kev import serve
+
+    calls = []
+
+    def answer(req):
+        calls.append(req)
+        return {"answers": {"q": {"probabilities": {"a": 0.75, "b": 0.25}, "choice": "a"}},
+                "latency_ms": 1.0}
+
+    monkeypatch.setattr(serve, "server", lambda: SimpleNamespace(answer=answer))
+    payload = {"request": {"state": "s", "questions": {
+        "q": {"type": "choice", "instructions": "Pick", "criteria": {"a": None, "b": None}}}},
+        "question": "q"}
+    if n_perm is not None:
+        payload["n_perm"] = n_perm
+    with TestClient(serve.app) as client:
+        response = client.post("/v1/systemone/permute", json=payload)
+    assert response.status_code == 200
+    result = response.json()
+    assert len(calls) == len(result["runs"]) == expected_runs
+    assert result["argmax_stable"] is True
+    assert result["spread"] == {"a": 0.0, "b": 0.0}
+    assert result["runs"][0]["order"] == ["a", "b"]
+
+
+@pytest.mark.parametrize("cache_size", [0, 4])
+def test_server_rejects_oversized_packed_request(cache_size, monkeypatch):
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from kev import serve
+
+    class Tokenizer:
+        def __call__(self, text, **kwargs):
+            return SimpleNamespace(input_ids=[10] * len(text))
+
+        def convert_tokens_to_ids(self, token):
+            return SPECIAL.index(token)
+
+    tok = Tokenizer()
+    question = {"instr": "i" * 100, "options": ["a", "b"], "label": 0}
+    rec = {"state": "s" * 400, "questions": [question] * 80}
+    # Every branch fits on its own; their combined allocation exceeds the serving limit.
+    encode(tok, {**rec, "questions": [question]}, max_state=serve.INFER_MAX_STATE,
+           max_branch=serve.INFER_MAX_BRANCH)
+    monkeypatch.setattr(serve, "PREFIX_CACHE_SIZE", cache_size)
+    server = serve.Server(None, tok, SimpleNamespace(encode=encode), "cpu")
+    with pytest.raises(HTTPException, match="packed tokens") as error:
+        server.probs(rec)
+    assert error.value.status_code == 422
+    assert server.prefix_cache == {}
+    assert server.prefix_hits == server.prefix_misses == 0
+
+
+@pytest.mark.parametrize("extra_tokens", [0, 1])
+def test_server_packed_limit_boundary(extra_tokens):
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from kev import serve
+
+    size = serve.INFER_MAX_PACKED + extra_tokens
+    enc = {"ids": [0] * size, "seg": [0] + [1] * (size - 1)}
+    calls = []
+
+    def probs(encoded):
+        calls.append(encoded)
+        return [torch.tensor([0.25, 0.75])]
+
+    model = SimpleNamespace(encode=lambda *args, **kwargs: enc, probs=probs)
+    server = serve.Server(None, None, model, "cpu")
+    if extra_tokens:
+        with pytest.raises(HTTPException) as error:
+            server.probs({})
+        assert error.value.status_code == 422
+        assert calls == []
+    else:
+        result, usage = server.probs({})
+        assert result == [[0.25, 0.75]]
+        assert usage["tokens"] == size
+        assert calls == [enc]
+
+
 def test_branch_mask_rule():
     seg = [0, 0, 1, 1, 2, 2]
     m = branch_mask(seg, "cpu")[0, 0]

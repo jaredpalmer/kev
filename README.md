@@ -194,10 +194,12 @@ Objects and arrays are converted to labeled text. Delimiter-like strings in user
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/v1/models` | Loaded model and checkpoint information |
-| `POST` | `/v1/systemone/permute` | Run one Choice question with different option orders |
+| `POST` | `/v1/systemone/permute` | Run one Choice question with different option orders (`n_perm`: 1–64, default 6) |
 | `POST` | `/v1/systemone/separate` | Run each question in its own forward pass |
 
 The server binds to `127.0.0.1` and has no authentication. Keep it local unless you add authentication yourself.
+
+Each inference pass accepts at most 8,192 packed tokens across the state and all question branches, including delimiters. Larger requests return `422` before model inference. Split large question sets into smaller requests or use `/v1/systemone/separate`, which applies the limit to each question's pass.
 
 ## How It Works
 

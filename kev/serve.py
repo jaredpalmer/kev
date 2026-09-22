@@ -11,13 +11,14 @@ import argparse, os, random, threading, time
 from dataclasses import dataclass, field, replace
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
 from .checkpoint import Checkpoint, LoadOptions, is_hub_id
 from .device import default_device, sync
 
 # inference limits (training used 384/1024); per-branch cap mirrors Jev's ~32k, bounded by the base model window
 INFER_MAX_STATE, INFER_MAX_BRANCH = 8192, 8192
+INFER_MAX_PACKED = 8192  # bound total inference memory across all question branches
 PREFIX_CACHE_SIZE = int(os.environ.get("KEV_PREFIX_CACHE", "4"))          # states kept (KV + hidden); 0 disables
 PREFIX_MIN_TOKENS = int(os.environ.get("KEV_PREFIX_MIN_TOKENS", "384"))   # below this the branch-only pass is not faster on MPS (per-op overhead dominates)
 DATE_FACTS = os.environ.get("KEV_DATE_FACTS", "0") == "1"
@@ -40,6 +41,8 @@ class Server:
         state only pays for its question branches. Exact: the state's activations do not depend on the branches."""
         try: enc = self.model.encode(self.tok, rec, max_state=INFER_MAX_STATE, max_branch=INFER_MAX_BRANCH)
         except ValueError as e: raise HTTPException(422, str(e))
+        if len(enc["ids"]) > INFER_MAX_PACKED:
+            raise HTTPException(422, f"request exceeds {INFER_MAX_PACKED} packed tokens: {len(enc['ids'])}")
         Ls = enc["seg"].count(0); key = (tuple(enc["ids"][:Ls]), bool(enc.get("option_isolation")))
         cache, hit = self.prefix_cache, False
         with self.lock:
@@ -89,7 +92,7 @@ def systemone(req: SystemOneRequest):
 class PermuteSystemOne(BaseModel):
     request: SystemOneRequest
     question: str
-    n_perm: int = 6
+    n_perm: int = Field(default=6, ge=1, le=64)
     seed: int = 0
 
 
