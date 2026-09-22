@@ -238,8 +238,7 @@ def regression_sample(n_groups, seed):
 def run_validate(name, init_from):
     from kev.checkpoint import Checkpoint
     from kev.model import load_tokenizer
-    runs.reload()
-    ck = Checkpoint(init_from)
+    ck = Checkpoint(resolve_checkpoint(init_from))
     tok = load_tokenizer(ck.meta.base, revision=ck.meta.base_revision)
     return {"base": ck.meta.base, "partitions": check_partitions(Path(RUNS) / name / "data", tok)}
 
@@ -259,7 +258,8 @@ def run_train(name, config, baseline=True, regression=300):
     if (out / "checkpoint").exists() or (out / "result.json").exists():
         raise FileExistsError(f"/runs/{name} already holds a run; choose a new name")
     started = time.time()
-    init = Checkpoint(config["init_from"])
+    init_from = resolve_checkpoint(config["init_from"])   # a run name on the volume -> its checkpoint; a Hub id stays as given
+    init = Checkpoint(init_from)
     meta, args = init.meta, init.meta.extra["args"]   # the init checkpoint's own training args are the recipe: batch/accum/checkpointing fit its size, lr is its delta lr
     cfg = {"lr": min(args["lr"], MAX_DELTA_LR), **{k: args[k] for k in ("batch", "accum", "checkpointing")},
            **{k: config[k] for k in ("lr", "batch", "accum") if config.get(k)},   # 0 = keep the checkpoint's value
@@ -273,7 +273,7 @@ def run_train(name, config, baseline=True, regression=300):
         if c["over_limit"]: print(f"warning: {c['over_limit']} {part} records exceed Kev's training context and will be dropped (state limit {c['state_tokens']['limit']} tokens)", flush=True)
 
     run = str(out / "checkpoint")
-    cmd = [sys.executable, "-m", "kev.train", "--data", str(out / "data/train.jsonl"), "--init_from", config["init_from"], "--out", run, "--device", "cuda", "--dtype", "bf16",
+    cmd = [sys.executable, "-m", "kev.train", "--data", str(out / "data/train.jsonl"), "--init_from", init_from, "--out", run, "--device", "cuda", "--dtype", "bf16",
            "--base", meta.base, "--lora", meta.lora, "--head_dim", meta.head_dim, "--lora_targets", args["lora_targets"],
            "--option_isolation", int(meta.option_isolation), "--special_embeddings", int(meta.special_embeddings), "--weights_dtype", meta.weights_dtype,
            "--epochs", cfg["epochs"], "--lr", cfg["lr"], "--batch", cfg["batch"], "--accum", cfg["accum"], "--checkpointing", cfg["checkpointing"],
@@ -298,7 +298,7 @@ def run_train(name, config, baseline=True, regression=300):
 
     if baseline:
         stage(f"scoring the baseline {config['init_from']} on the same records")
-        b_report, b_rows, b_T = score_checkpoint(config["init_from"], development, out / "baseline", calibration)
+        b_report, b_rows, b_T = score_checkpoint(init_from, development, out / "baseline", calibration)
         result["baseline"] = {"run": config["init_from"], "development": summary_block(b_report, b_rows, b_T)}
         result["bootstrap"] = {metric: paired_bootstrap(tempered(rows, T), tempered(b_rows, b_T), metric=metric, aggregation="micro") for metric in ("acc", "brier", "ece")}
         write_json(out / "result.json", result); runs.commit()
@@ -308,7 +308,7 @@ def run_train(name, config, baseline=True, regression=300):
         _, r_rows, _ = score_checkpoint(run, sample, out / "regression/finetuned")
         result["regression"] = {"n": len(sample), "suite": "evals/v7/decision-v7", "finetuned": metrics([r for r in r_rows if r["variant"] == "clean"])}
         if baseline:
-            _, rb_rows, _ = score_checkpoint(config["init_from"], sample, out / "regression/baseline")
+            _, rb_rows, _ = score_checkpoint(init_from, sample, out / "regression/baseline")
             result["regression"]["baseline"] = metrics([r for r in rb_rows if r["variant"] == "clean"])
     result["wall_seconds"] = round(time.time() - started); result["gpu"] = torch.cuda.get_device_name(0)
     write_json(out / "result.json", result); runs.commit(); hf_cache.commit()
