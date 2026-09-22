@@ -142,6 +142,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="evals/round3")
     ap.add_argument("--seed", type=int, default=2026092103)
+    ap.add_argument("--tag", default="r3", help="suite names: decision-<tag>, transfer-<tag>")
+    ap.add_argument("--panel_only", action="store_true", help="freeze only transfer-<tag> (a fresh evaluation panel); skip the decision-<tag> training suite")
     a = ap.parse_args()
     out = ROOT / a.out
     if out.exists():
@@ -177,12 +179,12 @@ def main():
               "context": pm["context"], "code_sha256": digest(Path(__file__)),
               "evaluation_policy": "Old development items for search/regression only. Fresh test predictions remain sealed until a candidate is selected in writing.",
               "pretraining_overlap": "unknown; disjointness is from recorded local training/evaluation states, not foundation-model pretraining"}
-    train_manifest = freeze_suite(out / "decision-r3", decision, {**common, "trainable_sources": allowed,
+    train_manifest = {"files": "not frozen (--panel_only)"} if a.panel_only else freeze_suite(out / f"decision-{a.tag}", decision, {**common, "trainable_sources": allowed,
                                 "eval_only_sources": pm["eval_only_sources"], "holdout_sources": [],
                                 "dataset_revisions": pm["dataset_revisions"], "training_parent_sha256": digest(parents[0] / "manifest.json"),
                                 "delta_sha256": digest(ROOT / "evals/night2/dates_unknowable.jsonl"),
                                 "replay_ids": [r["_meta"]["id"] for r in replay]})
-    test_manifest = freeze_suite(out / "transfer-r3", transfer, {**common, "trainable_sources": [], "eval_only": True,
+    test_manifest = freeze_suite(out / f"transfer-{a.tag}", transfer, {**common, "trainable_sources": [], "eval_only": True,
                                "eval_only_sources": list(PUBLIC) + ["legacy_holdout", "composition_holdout", "unknowable", "unknowable_control"],
                                "holdout_sources": list(PUBLIC) + ["legacy_holdout", "composition_holdout"],
                                "dataset_revisions": revisions, "reservation_sha256": reservation_hash,
