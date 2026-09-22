@@ -122,7 +122,7 @@ class RotationAveraged:
         field = "logits" if all("logits" in p for p in preds) else "probabilities"
         out = {"probabilities": {}, "latency_ms": sum(p["latency_ms"] for p in preds), "rotations": len(preds)}
         if field == "logits":
-            out["logits"] = {}; out["inference_temperature"] = preds[0]["inference_temperature"]
+            out["logits"] = {}; out["inference_temperature"] = preds[0].get("inference_temperature", 1.0)
         for qid in record["questions"]:
             keys = list(preds[0]["probabilities"][qid])
             if field == "logits":
