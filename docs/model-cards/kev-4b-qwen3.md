@@ -48,7 +48,7 @@ model-index:
 
 Kev-4B is a **decision model**: one document (the *state*) and a set of typed questions in, a probability distribution per question out, in one forward pass. No text generation. It is a LoRA adapter (r=16) plus a pointer head on `Qwen/Qwen3-4B-Base`, serving TypeSafe's public `/v1/systemone` contract.
 
-**The recommended kev.** The best 4B checkpoint under a frozen, checksummed protocol after ~40 controlled 4B trials, and the first Kev within seven points of Jev out of domain on the same items. Same recipe run at three seeds: transfer 0.773 / **0.790** / 0.770; this checkpoint is the seed selected on the development partition (never on the locked test).
+**The recommended Kev.** The best 4B checkpoint under a frozen, checksummed protocol after ~40 controlled 4B trials, and the first Kev within seven points of Jev out of domain on the same items. Same recipe run at three seeds: transfer 0.773 / **0.790** / 0.770; this checkpoint is the seed selected on the development partition (never on the locked test).
 
 - Hub: `jaredpalmer/kev-4b`, revision tag `qwen3` (trial `v7-rc3/01-trial-1`); the repo's main revision now holds the Qwen3.5 checkpoint
 - Code, suites, every trial with hashes and paired bootstraps: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — `PLAN.md`, `runs/leaderboard.md`
