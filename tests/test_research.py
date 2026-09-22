@@ -649,3 +649,25 @@ def test_frozen_suites_load_under_any_locale(tmp_path):
     assert out.stdout.strip().endswith(record["state"]) and "UTF-8" not in out.stdout.split()[0].upper(), out.stdout
     attributes = (pathlib.Path(__file__).resolve().parents[1] / ".gitattributes").read_text(encoding="utf-8")
     assert "*.jsonl text eol=lf" in attributes and "*.json text eol=lf" in attributes
+def test_frozen_state_flags_follow_the_trainer_rules():
+    from kev.experiment import validated_trial
+    manifest = {"base_revisions": {"model": "pinned"}}
+    frozen = {"base": "model", "state_mode": "frozen", "state_cache": 1, "cache_dtype": "bf16", "cache_device": "device", "cache_max_gb": 40, "branch_chunk": 8}
+    ok = validated_trial(frozen, manifest)
+    assert ok["state_grad"] == 1 and ok["cache_max_gb"] == 40
+    assert "cache_max_gb" not in validated_trial({"base": "model"}, manifest)   # optional: the trainer keeps its own default
+    assert validated_trial({**frozen, "dtype": "bf16"}, manifest)["cache_dtype"] == "bf16"   # bf16 run, bf16 cache: fine
+    assert validated_trial({**frozen, "dtype": "bf16", "cache_dtype": "int8"}, manifest)["cache_dtype"] == "int8"
+    for bad in ({"state_cache": 1},                                             # cache without a frozen state
+                {"cache_dtype": "bf16"},                                        # cache settings without a cache
+                {"state_mode": "frozen", "checkpointing": 1},                   # checkpointing drops the K/V
+                {"branch_chunk": 8, "checkpointing": 1},
+                {"branch_chunk": 8, "perm_kl": 0.1},
+                {"state_grad": 0, "batch": 2},                                  # the detached-state arm is one record per forward
+                {"state_mode": "frozen", "state_grad": 0},
+                {"state_mode": "frozen", "state_cache": 1, "cache_max_gb": -1},
+                {"state_mode": "frozen", "state_cache": 1, "cache_dtype": "fp8"},
+                {"state_mode": "frozen", "state_cache": 1, "dtype": "bf16"},                  # bf16 run with the default fp32 cache
+                {"state_mode": "frozen", "state_cache": 1, "dtype": "bf16", "cache_dtype": "fp32"}):
+        with pytest.raises(ValueError):
+            validated_trial({"base": "model", **bad}, manifest)

@@ -37,18 +37,23 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULTS = {"epochs": 1, "seed": 0, "lr": 0.0002, "lora": 16, "accum": 8, "batch": 1,
             "perm_kl": 0.0, "perm_frac": 0.3, "ord_w": 0.0,
             "p_none": 0.1, "p_none_distract": 0.12, "p_distract": 0.15, "p_none_pair": 0.0, "synthetic_repeat": 1, "public_frac": 1.0, "head_lr": 0.0, "weight_decay": 0.01, "anchor_w": 0.0,
-            "label_smoothing": 0.0, "brier_w": 0.0, "focal_gamma": 0.0}
+            "label_smoothing": 0.0, "brier_w": 0.0, "focal_gamma": 0.0,
+            "state_cache": 0, "branch_chunk": 0, "lora_layers": 0, "state_grad": 1}
 RANGES = {"epochs": (1, 5), "seed": (0, 10000), "lr": (1e-6, 0.001), "lora": (1, 64), "accum": (1, 64), "batch": (1, 64),
           "perm_kl": (0, 2), "perm_frac": (0, 1), "ord_w": (0, 2),
           "label_smoothing": (0, 0.2), "brier_w": (0, 2), "focal_gamma": (0, 4),
-          "p_none": (0, 0.4), "p_none_distract": (0, 0.4), "p_distract": (0, 0.4), "p_none_pair": (0, 1), "synthetic_repeat": (1, 6), "public_frac": (0.05, 1.0), "head_lr": (0, 0.01), "weight_decay": (0, 0.3), "anchor_w": (0, 5)}
+          "p_none": (0, 0.4), "p_none_distract": (0, 0.4), "p_distract": (0, 0.4), "p_none_pair": (0, 1), "synthetic_repeat": (1, 6), "public_frac": (0.05, 1.0), "head_lr": (0, 0.01), "weight_decay": (0, 0.3), "anchor_w": (0, 5),
+          "state_cache": (0, 1), "branch_chunk": (0, 64), "lora_layers": (0, 128), "state_grad": (0, 1)}
 CHOICES = {"dtype": ("fp32", "bf16"), "checkpointing": (0, 1), "option_isolation": (0, 1), "special_embeddings": (0, 1), "head_dim": (128, 256, 512, 1024),
-           "lora_targets": ("all", "dense", "attn", "qv"), "weights_dtype": ("fp32", "bf16")}
-CHOICE_DEFAULTS = {"dtype": "fp32", "checkpointing": 0, "option_isolation": 0, "special_embeddings": 0, "head_dim": 256, "lora_targets": "all", "weights_dtype": "fp32"}   # kev.train's defaults for the categorical knobs
+           "lora_targets": ("all", "dense", "attn", "qv"), "weights_dtype": ("fp32", "bf16"),
+           "state_mode": ("adapted", "frozen"), "cache_dtype": ("fp32", "bf16", "int8"), "cache_device": ("cpu", "device", "disk")}
+CHOICE_DEFAULTS = {"dtype": "fp32", "checkpointing": 0, "option_isolation": 0, "special_embeddings": 0, "head_dim": 256, "lora_targets": "all", "weights_dtype": "fp32",
+                   "state_mode": "adapted", "cache_dtype": "fp32", "cache_device": "cpu"}   # kev.train's defaults for the categorical knobs
+OPTIONAL_RANGES = {"cache_max_gb": (0, 4096)}   # sent to the trainer only when the trial sets it (the trainer's default is a quarter of the tier)
 
 
 def validated_trial(value, manifest):
-    if not isinstance(value, dict) or set(value) - (DEFAULTS.keys() | CHOICES.keys() | {"base", "train_sources", "base_revision", "anchor", "anchor_sources", "init_from", "data", "replay"}):
+    if not isinstance(value, dict) or set(value) - (DEFAULTS.keys() | CHOICES.keys() | OPTIONAL_RANGES.keys() | {"base", "train_sources", "base_revision", "anchor", "anchor_sources", "init_from", "data", "replay"}):
         raise ValueError("trial may change only the allowlisted training parameters and base")
     result = {**DEFAULTS, **value}
     if "data" in result and not re.fullmatch(r"evals/[\w./-]+\.jsonl", str(result["data"])):
@@ -82,10 +87,27 @@ def validated_trial(value, manifest):
     for key, allowed in CHOICES.items():
         if key in result and result[key] not in allowed:
             raise ValueError(f"invalid {key}")
+    for key, (lo, hi) in OPTIONAL_RANGES.items():
+        if key in result and (isinstance(result[key], bool) or not isinstance(result[key], (int, float)) or not lo <= result[key] <= hi):
+            raise ValueError(f"invalid {key}")
     if sum(result[k] for k in ("p_none", "p_none_distract", "p_distract")) > 1:
         raise ValueError("augmentation probabilities sum to more than one")
     if sum(result[k] > 0 for k in ("label_smoothing", "brier_w", "focal_gamma")) > 1:
         raise ValueError("a trial may change only one loss modifier")
+    # the trainer's own rules for the frozen-state, branch-chunk and ladder flags, checked here so a study fails at plan time
+    frozen = result.get("state_mode", "adapted") == "frozen"
+    if result["state_cache"] and not frozen:
+        raise ValueError("state_cache needs state_mode frozen")
+    if not result["state_cache"] and any(k in result for k in ("cache_dtype", "cache_device", "cache_max_gb")):
+        raise ValueError("cache_dtype, cache_device and cache_max_gb need state_cache 1")
+    if result["state_cache"] and result.get("dtype") == "bf16" and result.get("cache_dtype", "fp32") == "fp32":
+        raise ValueError("a bf16 run must cache in bf16 or int8 (a fp32 cache would store upcast bf16 values and record fp32 for evaluation)")
+    if result.get("checkpointing") and (frozen or result["branch_chunk"]):
+        raise ValueError("checkpointing drops the state K/V in training; frozen or branch-chunked trials use branch_chunk instead")
+    if result["branch_chunk"] and result["perm_kl"] > 0:
+        raise ValueError("branch_chunk does not support perm_kl")
+    if not result["state_grad"] and (frozen or result["branch_chunk"] or result["batch"] != 1):
+        raise ValueError("state_grad 0 needs state_mode adapted, branch_chunk 0 and batch 1")
     return result
 
 

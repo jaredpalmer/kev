@@ -50,10 +50,15 @@ class Meta:
     special_embeddings: bool = False
     weights_dtype: str = "fp32"
     temperature: float = 1.0
+    state_mode: str = "adapted"          # frozen: the state ran through the base weights in training (kev.cached_state); evaluation and serving do the same
+    state_kv_dtype: str | None = None    # frozen: the dtype the training cache stored the state K/V in (fp32 / bf16 / int8), so inference rounds the same way
+    lora_layers: int = 0                 # LoRA in the top M layers only (0 = all); adapter_config.json carries the layer list, this is the recipe's record
+    state_grad: bool = True              # adapted mode: False = the state's keys and values were detached in training (the forward is unchanged)
     holdout: list = field(default_factory=list)
     extra: dict = field(default_factory=dict)
 
-    KNOWN = ("base", "head", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings", "weights_dtype", "temperature", "holdout")
+    KNOWN = ("base", "head", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings", "weights_dtype", "temperature",
+             "state_mode", "state_kv_dtype", "lora_layers", "state_grad", "holdout")
 
     @classmethod
     def from_dict(cls, d):
@@ -124,9 +129,11 @@ class Checkpoint:
             # the same way and keep the fp32 adapter unmerged rather than folding it into bf16 weights.
             dtype, merge = torch.bfloat16, False
         merge = merge and not self.adapter_config().get("trainable_token_indices")   # token-trained adapters stay unmerged
+        if meta.state_mode == "frozen": merge = False   # the state runs with the adapter off, the branches with it on: the LoRA must stay switchable
         tok = load_tokenizer(meta.base, revision=meta.base_revision)
         m = DecisionModel(meta.base, tok, device, lora=None, revision=meta.base_revision, head_dim=meta.head_dim,
-                          option_isolation=meta.option_isolation, dtype=torch.float32 if merge else dtype, attn=opts.attn)
+                          option_isolation=meta.option_isolation, dtype=torch.float32 if merge else dtype, attn=opts.attn,
+                          state_mode=meta.state_mode, state_kv_dtype={"fp32": torch.float32, "bf16": torch.bfloat16, "int8": "int8"}.get(meta.state_kv_dtype))
         m.lm = PeftModel.from_pretrained(m.lm, self.path, torch_device=str(device)).to(device)   # trainable token embeddings, if any, live in the adapter
         if opts.lora_scale != 1:
             for module in m.lm.modules():
@@ -139,7 +146,7 @@ class Checkpoint:
         m.head.temperature = meta.temperature if opts.temperature is None else opts.temperature
         return tok, m
 
-    COMPAT_FIELDS = ("base", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings")
+    COMPAT_FIELDS = ("base", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings", "state_mode", "lora_layers")
 
     def warm_start(self, model, ours):
         """Delta training: load this checkpoint's adapter and pointer head into `model` (a fresh DecisionModel built with

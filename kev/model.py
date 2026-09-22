@@ -146,8 +146,21 @@ class PointerHead(nn.Module):
 
 
 class DecisionModel(nn.Module):
-    def __init__(self, name, tok, device, lora=None, revision=None, attn=None, head_dim=256, option_isolation=False, special_embeddings=False, lora_targets="all", dtype=torch.float32):
+    def __init__(self, name, tok, device, lora=None, revision=None, attn=None, head_dim=256, option_isolation=False, special_embeddings=False, lora_targets="all", dtype=torch.float32, state_mode="adapted", state_kv_dtype=None, lora_layers=0, state_grad=True):
+        """state_mode: "adapted" = one packed forward with the block-causal mask (state and branches through the adapter);
+        "frozen" = the state runs once through the base weights and only the branches see the adapter (kev.cached_state).
+        state_kv_dtype (frozen): round the state K/V to this dtype (a torch dtype, or "int8" = quantize-dequantize through
+        kev.cached_state) before the branches see it, the dtype the training cache stored it in (train.py --cache_dtype),
+        so evaluation runs the trained function; None = as computed.
+        lora_layers: LoRA in the top this-many transformer layers only (0 = all); saved in adapter_config.json, so a
+        checkpoint reloads through PeftModel.from_pretrained without it.
+        state_grad=False (adapted mode, training): the state tokens run through the adapter but every layer's state keys
+        and values are detached (forward hooks on k_proj/v_proj), so no gradient reaches the state's computation; the
+        forward function is unchanged, so evaluation needs nothing. hidden_batch then takes one record per call."""
         super().__init__()
+        if state_mode not in ("adapted", "frozen"):
+            raise ValueError(f"unknown state_mode {state_mode!r}")
+        self.state_mode, self.state_kv_dtype = state_mode, state_kv_dtype
         # backbone only (no vocab head): we never generate text.
         # eager on MPS/CPU (known-good with our float 4D mask); SDPA on CUDA (accepts arbitrary additive masks).
         attn = attn or ("sdpa" if str(device).startswith("cuda") else "eager")
@@ -160,10 +173,16 @@ class DecisionModel(nn.Module):
         cfg = self.lm.config
         self.hybrid = "linear_attention" in set(getattr(cfg, "layer_types", None) or [])
         if self.hybrid and option_isolation: raise ValueError("option_isolation needs the packed mask; not available on hybrid backbones")
+        if self.hybrid and state_mode == "frozen": raise ValueError("state_mode frozen caches per-layer attention K/V; not available on hybrid (DeltaNet) backbones")
         self.option_isolation = option_isolation
         if lora:
             from peft import LoraConfig, get_peft_model
             extra = {"trainable_token_indices": {"embed_tokens": [tok.convert_tokens_to_ids(t) for t in SPECIAL]}} if special_embeddings else {}
+            L = self.lm.config.num_hidden_layers
+            if not 0 <= lora_layers <= L:
+                raise ValueError(f"lora_layers must be in 0..{L}, got {lora_layers}")
+            if lora_layers:   # layers_pattern: the bare backbone names its blocks "layers.N.", which peft's default pattern (a prefix is required) misses
+                extra.update(layers_to_transform=list(range(L - lora_layers, L)), layers_pattern="layers")
             targets = {"all": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
                        "dense": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],   # "all" minus the DeltaNet projections on hybrids (retention ablation)
                        "attn": ["q_proj", "k_proj", "v_proj", "o_proj"], "qv": ["q_proj", "v_proj"]}[lora_targets]
@@ -173,14 +192,31 @@ class DecisionModel(nn.Module):
             cfg = LoraConfig(task_type="FEATURE_EXTRACTION", r=lora, lora_alpha=2 * lora, lora_dropout=0.05, target_modules=targets, **extra)
             self.lm = get_peft_model(self.lm, cfg)
         self.head = PointerHead(self.lm.config.hidden_size, dp=head_dim)
+        self.state_grad, self.current_state_len = state_grad, None
+        if not state_grad:
+            for n, m in self.lm.named_modules():
+                if n.endswith((".k_proj", ".v_proj")): m.register_forward_hook(self._detach_state)
         self.device = device
         self.to(device)
+
+    def _detach_state(self, module, args, out):
+        """Forward hook on every k_proj/v_proj (state_grad=False): the keys/values of the first current_state_len positions
+        leave the graph. A no-op outside hidden_batch (current_state_len is None), e.g. in kev.cached_state passes."""
+        S = self.current_state_len
+        return None if S is None else torch.cat([out[:, :S].detach(), out[:, S:]], dim=1)
 
     def encode(self, tok, rec, **kw):
         """encode() with this model's option-isolation setting; use this from serving/eval code."""
         return encode(tok, rec, option_isolation=self.option_isolation, **kw)
 
     def hidden(self, enc):
+        """[L, d] hidden states of one record. Frozen mode: base-model state rows, then the branch rows computed against the
+        base state K/V with the adapter on (readout positions match the packed layout)."""
+        if self.state_mode == "frozen":
+            from .cached_state import state_forward, branch_hidden, state_len, kv_dtype
+            h_state, kv = state_forward(self, enc["ids"][: state_len(enc)], adapter=False, grad=False)
+            if self.state_kv_dtype is not None: kv = kv_dtype(kv, self.state_kv_dtype)
+            return torch.cat([h_state, branch_hidden(self, enc, kv)[0]])
         return self.hidden_batch([enc])[0, : len(enc["ids"])]
 
     SHAPE_BUCKET = int(os.environ.get("KEV_SHAPE_BUCKET", "64"))   # MPS: pad the sequence to a multiple of this (per-shape kernel warm-up); 1 disables
@@ -206,7 +242,11 @@ class DecisionModel(nn.Module):
             raise ValueError("cannot mix option-isolated and plain encodings in one batch")
         lm_dtype = next(self.lm.parameters()).dtype
         mask = branch_mask_batch([e["seg"] for e in encs], self.device, dtype=lm_dtype, opts=[e["opt"] for e in encs] if isolate else None, length=ids.shape[1])
-        return self.lm(input_ids=ids, position_ids=pos, attention_mask=mask).last_hidden_state.float()   # head stays fp32
+        if not self.state_grad:
+            if len(encs) > 1: raise ValueError("state_grad=False takes one record per forward (its state length is the detached span)")
+            self.current_state_len = encs[0]["seg"].count(0)
+        try: return self.lm(input_ids=ids, position_ids=pos, attention_mask=mask).last_hidden_state.float()   # head stays fp32
+        finally: self.current_state_len = None
 
     def _readout(self, h, enc):
         return [self.head(h[d], h[torch.tensor(oi, device=self.device)]) for d, oi in zip(enc["decide_idx"], enc["opt_idx"])]
@@ -228,20 +268,35 @@ class DecisionModel(nn.Module):
             out[b].append(self.head(h[i, d], h[i, torch.tensor(oi, device=self.device)]))
         return out
 
-    def forward(self, enc):
-        """Returns list of logits tensors, one per question."""
-        return self.forward_batch([enc])[0]
+    def forward(self, enc, cache=None):
+        """Returns list of logits tensors, one per question. cache: frozen mode only, this record's base state K/V."""
+        return self.forward_batch([enc], None if cache is None else [cache])[0]
 
-    def forward_batch(self, encs):
-        """List (per record) of lists (per question) of logits, from one padded forward pass. Hybrid backbones take the
-        row form; attention-only ones the packed block-causal mask (the two agree, tests/test_model.py::test_rows_match_packed)."""
+    def forward_batch(self, encs, caches=None):
+        """List (per record) of lists (per question) of logits. Frozen state mode: one branch pass per record over its base
+        state K/V, taken from caches[b] when given (kev.cached_state.StateCache entries, any dtype) and otherwise computed
+        on the spot. Otherwise one padded forward pass: hybrid backbones take the row form; attention-only ones the packed
+        block-causal mask (the two agree, tests/test_model.py::test_rows_match_packed)."""
+        if self.state_mode == "frozen":
+            from .cached_state import branch_logits
+            out = []
+            for b, e in enumerate(encs):
+                kv = caches[b] if caches is not None and caches[b] is not None else self.state_kv(e)
+                out.append(branch_logits(self, e, kv))
+            return out
         if self.hybrid: return self.forward_rows_batch(encs)
         hs = self.hidden_batch(encs)
         return [self._readout(hs[b], e) for b, e in enumerate(encs)]
 
+    def state_kv(self, enc):
+        """Frozen mode: this record's base state K/V (rounded to state_kv_dtype when set), as forward_batch computes it."""
+        from .cached_state import state_kv, state_len, kv_dtype
+        kv = state_kv(self, enc["ids"][: state_len(enc)], adapter=False, grad=False)
+        return kv if self.state_kv_dtype is None else kv_dtype(kv, self.state_kv_dtype)
+
     @torch.no_grad()
-    def probs(self, enc):
-        return [F.softmax(z, -1).cpu() for z in self.forward(enc)]
+    def probs(self, enc, cache=None):
+        return [F.softmax(z, -1).cpu() for z in self.forward(enc, cache)]
 
     # --- state-prefix reuse (serving): the state is encoded once, question branches attend to its cached keys/values.
     # Exact by construction: branch tokens never attend to each other across questions (block-causal mask) and the state
@@ -259,8 +314,14 @@ class DecisionModel(nn.Module):
 
     @torch.no_grad()
     def prefix(self, enc):
-        """Run the state tokens only. Returns (n_state_tokens, kv cache, state hidden states [Ls, d])."""
+        """Run the state tokens only. Returns (n_state_tokens, kv cache, state hidden states [Ls, d]). Frozen state mode:
+        through the base weights (adapter off), the K/V rounded to state_kv_dtype, exactly what the branches trained on."""
         Ls = enc["seg"].count(0)
+        if self.state_mode == "frozen":
+            from .cached_state import cache_from_kv, kv_dtype, state_forward
+            h_state, kv = state_forward(self, enc["ids"][:Ls], adapter=False, grad=False)
+            if self.state_kv_dtype is not None: kv = kv_dtype(kv, self.state_kv_dtype)
+            return Ls, cache_from_kv(self, kv), h_state
         ids = torch.tensor([enc["ids"][:Ls]], device=self.device); pos = torch.tensor([enc["pos"][:Ls]], device=self.device)
         # the cache must know the layer types (hybrid backbones keep recurrent + conv states per DeltaNet layer)
         out = self.lm(input_ids=ids, position_ids=pos, past_key_values=DynamicCache(config=self.lm.config), use_cache=True)
@@ -271,11 +332,11 @@ class DecisionModel(nn.Module):
         """One full pass that also returns the state prefix (KV cropped to the state, state hidden states): a cache miss
         costs a single forward pass, not two."""
         Ls = enc["seg"].count(0)
-        if self.hybrid:
-            # recurrent layers cannot be cropped back to the state, so a hybrid miss is a state pass (kept as the prefix)
-            # plus the branch rows
-            Ls, cache, h_state = self.prefix(enc)
-            return self._branch_rows_from_prefix(enc, cache), (Ls, cache, h_state)
+        if self.hybrid or self.state_mode == "frozen":
+            # recurrent layers cannot be cropped back to the state, and a frozen state runs through the base weights while
+            # the branches run through the adapter: a miss is a state pass (kept as the prefix) plus the branch pass
+            prefix = self.prefix(enc)
+            return self.probs_with_prefix(enc, prefix), prefix
         ids = torch.tensor([enc["ids"]], device=self.device); pos = torch.tensor([enc["pos"]], device=self.device)
         dt = next(self.lm.parameters()).dtype
         mask = branch_mask_batch([enc["seg"]], self.device, dtype=dt, opts=[enc["opt"]] if enc.get("option_isolation") else None)

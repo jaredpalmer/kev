@@ -10,7 +10,7 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 cp space/app.py space/presets.py space/requirements.txt space/README.md "$STAGE/"
 mkdir -p "$STAGE/kev"
-cp kev/__init__.py kev/model.py kev/api.py kev/checkpoint.py "$STAGE/kev/"
+cp kev/__init__.py kev/model.py kev/api.py kev/checkpoint.py kev/cached_state.py "$STAGE/kev/"
 python3 -m py_compile "$STAGE/app.py" "$STAGE/presets.py"
 hf upload "$REPO" "$STAGE" . --type space --commit-message "$MSG" --exclude "**/__pycache__/**"
 echo "https://huggingface.co/spaces/$REPO"

@@ -39,6 +39,7 @@ def compute_bound(gpu, timeout, trials):
 ROOT = Path(__file__).resolve().parent
 RUNS_MOUNT, HF_MOUNT = "/runs", "/hf"
 GPU = os.environ.get("KEV_GPU", "H100")   # H100 needs a payment method on the workspace; KEV_GPU=T4 for the free tier
+CACHE_ROOT = "/tmp/kev-state-cache"   # a disk-tier state cache lives on the container's own disk, never on the runs volume (it would be committed and pulled)
 
 def worker_environment(app_name, gpu, secret_name=None):
     env = {"HF_HOME": HF_MOUNT, "HF_HUB_DISABLE_PROGRESS_BARS": "1", "TOKENIZERS_PARALLELISM": "false", "PYTHONUNBUFFERED": "1",
@@ -98,6 +99,8 @@ def run_trial(study, index, label, config, suite, expected_sources, git_commit, 
     out = Path(RUNS_MOUNT) / study / f"{index:02d}-{label}"
     if out.exists():
         raise FileExistsError(f"refusing to overwrite remote trial: {out}")
+    if config and config.get("state_cache") and config.get("cache_device") == "disk":   # keep the K/V files off the volume; passed outside the
+        os.environ["KEV_CACHE_DIR"] = f"{CACHE_ROOT}/{study}/{index:02d}-{label}"        # config so provenance keeps the plan's allowlisted keys
     print(f"[{label}] {torch.cuda.get_device_name(0)} torch {torch.__version__} config={json.dumps(config)}", flush=True)
     try:
         report, _ = execute_trial(config or {}, Path("/root") / suite, out, expected_sources, "cuda", existing, Path("/root") / transfer if transfer else None)

@@ -10,6 +10,19 @@ See README.md (deep dive) and docs/model-cards/ (one card per checkpoint: recipe
 - Train: `uv run python -m kev.train --n_per_source 1500 --epochs 2 --out runs/kev` (~1h45m on M5 32GB)
   - `--holdout mnli,sst5` excludes sources (out-of-source eval); `--perm_kl/--perm_frac` permutation-consistency KL;
     `--ord_w` ordinal term for Score. Only one training process at a time: two on MPS slow each other ~10x.
+  - `--state_mode frozen [--state_cache 1 --cache_dtype bf16 --cache_max_gb G --cache_device cpu|device|disk --cache_dir DIR]`: state through the base
+    weights once (K/V kept across epochs/variants; ~230 KB fp32 per state token, ~61 GB for decision-v3 train, so the projected size is printed and
+    refused above the default cap of a quarter of physical memory, or of the free disk space with `--cache_device disk`: one `.pt` per record under
+    `--cache_dir`, default `<out>/state_cache`, kept after training and reusable by a later run of the same base and cache dtype), only branches
+    adapted; state_mode and the cache dtype are recorded in head.pt (`Meta`) and honored by every loader: the adapter stays unmerged and the serving prefix cache runs the state through the base weights.
+    `--branch_chunk N`: branches N questions at a time against the state K/V, backward per chunk (activation memory = state + one chunk; adapted
+    mode: gradient-exact, the K/V gradients are pushed back through the state graph; frozen mode: against the cached base K/V, nothing to push
+    back, so it is the one-pass frozen step in N-question pieces); not with `--perm_kl` or `--checkpointing`. `scripts/exp_equivalence.py` checks
+    both mechanisms against the packed forward; timings land in training_metrics.json.
+  - Ladder flags between adapted and frozen: `--lora_layers M` (LoRA in the top M layers only; peft `layers_to_transform`, so the checkpoint reloads
+    from adapter_config.json as usual) and `--state_grad 0` (adapted mode, `--batch 1`, no `--branch_chunk`: the state runs through the adapter but
+    every layer's state K/V are detached, so no gradient reaches the state; the forward is unchanged, so evaluate/benchmark need nothing). Both are
+    recorded in head.pt and training_config.json.
 - Eval:  `uv run python -m kev.evaluate --run runs/kev --n_per_source 150 --baseline --baseline_instruct Qwen/Qwen2.5-0.5B-Instruct`
   -> `runs/kev/eval.json` (acc/ECE/NLL per source, temperature scaling, permutation, IIA, isolation, packed-vs-separate, held-out sources)
 - Smoke: `--n_per_source 40 --accum 4 --out runs/smoke` (~1 min)
@@ -88,7 +101,8 @@ See README.md (deep dive) and docs/model-cards/ (one card per checkpoint: recipe
 ## Layout
 - `kev/data.py`      dataset -> typed records, permutation / none-of-the-above / distractor augmentation
 - `kev/suite.py`     frozen suites: digest/manifest/load_split (Hub mirror), CONTEXT + admission, `validate_training` (trainable/eval-only policy), `semantic_hash`, freeze CLI
-- `kev/model.py`     encode(), branch_mask(), PointerHead, DecisionModel
+- `kev/model.py`     encode(), branch_mask(), PointerHead, DecisionModel (`state_mode`: adapted = packed forward; frozen = base state K/V + adapted branches; the prefix cache honours it)
+- `kev/cached_state.py` state K/V reuse: state_kv/branch_logits (frozen state mode), chunked_loss_backward / frozen_loss_backward (branch chunks: adapted, gradient-exact / frozen), StateCache
 - `kev/train.py`     LoRA fine-tune: `training_requests` (suite / built / --data+--replay, context filter, policy checks, mix ablations),
                      `encode_batch` + `batch_loss` (CE, anchor KL, permutation KL), `main` orchestration. Grad accumulation over small padded batches.
 - `kev/checkpoint.py` Checkpoint (resolve run dir or Hub id, `head.pt` schema = `Meta`, load with `LoadOptions`, `warm_start` for deltas)

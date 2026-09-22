@@ -4,20 +4,28 @@ fly from the public sources, or your own JSONL), with the pointer head trained f
     uv run python -m kev.train --suite evals/v7/decision-v7 --out runs/<name>          # what studies run
     uv run python -m kev.train --n_per_source 40 --accum 4 --out runs/smoke               # ~1 min smoke test
     uv run python -m kev.train --data mine.jsonl --init_from jaredpalmer/kev-4b --lr 2e-5 --out runs/mine   # delta
+    uv run python -m kev.train --suite evals/v3/decision-v3 --state_mode frozen --state_cache 1 --cache_dtype bf16 \
+        --branch_chunk 8 --out runs/frozen   # the state through the base weights once, its K/V cached across epochs
 
 Batch size is small (variable-length records with custom masks) and gradients are accumulated over --accum micro-batches.
+
+Frozen state mode (--state_mode frozen): the state tokens run through the base weights with the adapter off and only the
+question branches see the LoRA (kev.cached_state). The state's K/V never change during training, so --state_cache keeps
+them across epochs and augmentation variants (host RAM, the device, or disk); --branch_chunk runs the branches a few
+questions at a time against the K/V with a backward per chunk, so activation memory is the state plus one chunk.
 """
-import argparse, contextlib, json, math, random, resource, sys, time
+import argparse, contextlib, hashlib, json, math, os, random, resource, shutil, sys, time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 import torch
 import torch.nn.functional as F
 from .checkpoint import Checkpoint, Meta, write_meta
-from .device import allocated_bytes, default_device, empty_cache
+from .cached_state import StateCache, chunked_loss_backward, frozen_loss_backward, kv_bytes_per_token, state_kv, state_len
+from .device import allocated_bytes, default_device, empty_cache, sync
 from .data import EVAL_ONLY, build, augment, load_records, materialize, none_pair, source_seed
 from .suite import SYNTHETIC_SOURCES, digest, load_split, read_json, read_manifest, validate_training, write_json
-from .model import MAX_BRANCH, MAX_PACKED, MAX_STATE, DecisionModel, fits, load_tokenizer
+from .model import MAX_BRANCH, MAX_PACKED, MAX_STATE, DecisionModel, fits, load_tokenizer, user_tokens
 
 
 # --- losses -----------------------------------------------------------------------------------------------------------
@@ -75,6 +83,77 @@ def permutation_kl(z1, z2, perm, dev):
 def accumulation_records(n, batch, accum, microbatch):
     start = (microbatch // accum) * accum * batch
     return min(accum * batch, n - start)
+
+
+# --- frozen state: base K/V of the state, cached ------------------------------------------------------------------------
+
+def state_key(req, rec):
+    """StateCache key of a materialized record: its source id plus a hash of the rendered state text."""
+    return f"{req['_meta']['id']}:{hashlib.sha1(rec['state'].encode()).hexdigest()[:16]}"
+
+
+def frozen_kv(model, enc, key, cache, stats):
+    """Base state K/V of one encoded record (frozen state mode): from the StateCache when it holds the key, otherwise a timed
+    base pass over the state tokens, stored when a cache is given. stats counts the seconds ("state") and tokens
+    ("state_tokens") of the passes actually run."""
+    kv = cache.get(key) if cache is not None else None
+    if kv is None:
+        t = time.perf_counter(); S = state_len(enc)
+        kv = state_kv(model, enc["ids"][:S], adapter=False, grad=False)
+        sync(model.device); stats["state"] += time.perf_counter() - t; stats["state_tokens"] += S
+        if cache is not None: kv = cache.put(key, kv)
+    return kv
+
+
+def cache_projection(tok, reqs, per_token):
+    """(distinct records, state tokens, bytes) a full-epoch StateCache would hold: one entry per source record (the state
+    text is the same across epochs and augmentation variants), per_token bytes per state token."""
+    tokens = {r["_meta"]["id"]: min(len(user_tokens(tok, materialize(r)["state"])) + 1, MAX_STATE) for r in reqs}
+    n = sum(tokens.values())
+    return len(tokens), n, n * per_token
+
+
+def physical_memory_bytes():
+    """RAM available to this process: the machine's, capped by the container's cgroup limit when there is one (inside a
+    container sysconf reports the host's RAM, so the default cache cap would otherwise exceed what the container may use)."""
+    total = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    for limit in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            text = Path(limit).read_text(encoding="utf-8").strip()
+            if text.isdigit(): total = min(total, int(text))
+        except OSError:
+            pass
+    return total
+
+
+def tier_free_bytes(cache_device, cache_dir, dev):
+    """Free bytes of the tier a state cache would live on: the disk under cache_dir, the training device's memory (free HBM
+    on cuda; the driver's recommended working set minus the current allocation on mps), or host RAM for the cpu tier."""
+    if cache_device == "disk":
+        return shutil.disk_usage(cache_dir).free
+    if cache_device == "device" and dev == "cuda":
+        return torch.cuda.mem_get_info()[0]
+    if cache_device == "device" and dev == "mps":
+        return max(torch.mps.recommended_max_memory() - allocated_bytes(dev), 0)
+    return physical_memory_bytes()
+
+
+def build_state_cache(a, tok, model, reqs, dev):
+    """The StateCache of a --state_cache run, sized against the tier it lives on: the projected full-epoch size is printed,
+    refused above the default cap (a quarter of what the tier has free) and merely warned about above an explicit cap."""
+    cache_dtype = {"fp32": torch.float32, "bf16": torch.bfloat16, "int8": "int8"}[a.cache_dtype]
+    disk = a.cache_device == "disk"
+    budget = tier_free_bytes(a.cache_device, a.cache_dir, dev)
+    cap = int((budget / 4 if a.cache_max_gb is None else a.cache_max_gb * 2**30))
+    n_rec, n_tok, projected = cache_projection(tok, reqs, kv_bytes_per_token(model, cache_dtype))
+    print(f"state cache: {n_rec} records, {n_tok} state tokens -> {projected/2**30:.2f} GB {a.cache_dtype} on {a.cache_device}{f' ({a.cache_dir})' if disk else ''} "
+          f"(cap {'unlimited' if cap == 0 else f'{cap/2**30:.2f} GB'})", flush=True)
+    if cap and projected > cap:
+        if a.cache_max_gb is None:
+            raise ValueError(f"projected state cache {projected/2**30:.2f} GB exceeds a quarter of {'the free disk space' if disk else 'physical memory'}; "
+                             "pass --cache_dtype bf16, an explicit --cache_max_gb (partial cache), or --state_cache 0")
+        print("state cache: cap below one epoch; entries are evicted oldest-first, so only within-batch reuse is expected", flush=True)
+    return StateCache(cache_dtype, {"cpu": "cpu", "device": dev, "disk": "disk"}[a.cache_device], cap, a.cache_dir if disk else None)
 
 
 # --- data -------------------------------------------------------------------------------------------------------------
@@ -137,10 +216,17 @@ class Variant:
     request_id: str
     source: str
     permuted: tuple | None = None   # (encoding under the other order, perms from permuted_copy)
+    key: str = ""                   # StateCache key (frozen state mode): the source record and its rendered state
 
     @property
     def tokens(self):
         return len(self.enc["ids"]) + (len(self.permuted[0]["ids"]) if self.permuted else 0)
+
+    def forward_tokens(self, frozen=False):
+        """Tokens the forward passes run: in frozen state mode the branches only (state tokens are counted by frozen_kv,
+        on a cache miss); the permuted copy shares its source record's state."""
+        skip = state_len(self.enc) if frozen else 0
+        return len(self.enc["ids"]) - skip + (len(self.permuted[0]["ids"]) - skip if self.permuted else 0)
 
 
 def encode_batch(model, tok, a, chunk, epoch):
@@ -157,21 +243,22 @@ def encode_batch(model, tok, a, chunk, epoch):
             enc = model.encode(tok, rec, strict=True)
             if len(enc["ids"]) > MAX_PACKED:
                 raise ValueError(f"training request exceeds {MAX_PACKED} packed tokens")
-            out.append(Variant(rec, enc, req["_meta"]["id"], req["_meta"]["source"]))
+            out.append(Variant(rec, enc, req["_meta"]["id"], req["_meta"]["source"], key=state_key(req, rec)))
         if a.perm_kl > 0 and item_rng.random() < a.perm_frac and any(q["qtype"] == "choice" and len(q["options"]) >= 3 for q in rec["questions"]):
             rec2, perms = permuted_copy(rec, item_rng)
             out[-1].permuted = (model.encode(tok, rec2, strict=True), perms)
     return out
 
 
-def batch_loss(model, a, batch, dev, anchors, anchor_sources, autocast):
+def batch_loss(model, a, batch, dev, anchors, anchor_sources, autocast, caches=None):
     """Forward the variants and sum the loss terms: mean question loss per variant, the anchor KL per anchored variant,
-    the permutation KL per permuted variant. Returns (loss, terms) with the summed term values for logging."""
+    the permutation KL per permuted variant. Returns (loss, terms) with the summed term values for logging.
+    caches (frozen state mode): each variant's base state K/V, in batch order; a permuted copy shares its source's."""
     terms = Counter()
     permuted = [v for v in batch if v.permuted]
     with autocast:
-        logits_b = model.forward_batch([v.enc for v in batch])
-        logits2_b = model.forward_batch([v.permuted[0] for v in permuted]) if permuted else []
+        logits_b = model.forward_batch([v.enc for v in batch], caches)
+        logits2_b = model.forward_batch([v.permuted[0] for v in permuted], None if caches is None else [caches[batch.index(v)] for v in permuted]) if permuted else []
     loss = 0.0
     for v, logits in zip(batch, logits_b):
         ce = sum(question_loss(z.float(), q, dev, a.ord_w, a.label_smoothing, a.brier_w, a.focal_gamma)
@@ -188,6 +275,40 @@ def batch_loss(model, a, batch, dev, anchors, anchor_sources, autocast):
     if not torch.isfinite(loss):
         raise ValueError("non-finite training loss")
     return loss, terms
+
+
+def record_loss_fn(v, a, dev, anchors, anchor_sources, terms):
+    """Per-question loss of one variant for the chunked backward: its question loss / Q plus the anchor KL / (anchored
+    questions), the same terms batch_loss sums, accumulated into `terms` as the chunks run."""
+    qs = v.rec["questions"]
+    targets = anchors[v.request_id] if anchors and v.request_id in anchors and (anchor_sources is None or v.source in anchor_sources) else {}
+    n_anchor = sum(1 for q in qs if targets.get(q["qid"]) is not None and set(targets[q["qid"]]) == set(q["keys"]))
+    if n_anchor: terms["anchor_n"] += 1
+    def fn(z, qi):
+        q = qs[qi]; z = z.float()
+        loss = question_loss(z, q, dev, a.ord_w, a.label_smoothing, a.brier_w, a.focal_gamma) / len(qs); terms["ce"] += loss.item()
+        kl = anchor_loss(z, q, targets.get(q["qid"]), dev) if n_anchor else None
+        if kl is not None:
+            kl = kl / n_anchor; loss = loss + a.anchor_w * kl; terms["anchor"] += kl.item()
+        return loss
+    return fn
+
+
+def chunked_batch_backward(model, a, batch, dev, anchors, anchor_sources, autocast, cache, stats, scale):
+    """--branch_chunk: every variant's question branches run `branch_chunk` at a time against its state K/V and each chunk's
+    loss (times `scale`) is backpropagated right away, so at most one chunk's activations are alive. Adapted mode: the K/V
+    gradients are pushed back through the state graph (gradient-exact, scripts/exp_equivalence.py). Frozen mode: against
+    the cached base K/V, nothing to push back. Returns the summed loss terms for logging."""
+    terms = Counter()
+    for v in batch:
+        fn = record_loss_fn(v, a, dev, anchors, anchor_sources, terms)
+        kw = dict(scale=scale, times=stats, forward_ctx=autocast)
+        if a.state_mode == "frozen":
+            with autocast: kv = frozen_kv(model, v.enc, v.key, cache, stats)   # cache hit or a timed base pass, as in the one-pass path
+            frozen_loss_backward(model, v.enc, kv, fn, a.branch_chunk, **kw)
+        else:
+            chunked_loss_backward(model, v.enc, fn, a.branch_chunk, **kw)
+    return terms
 
 
 # --- run --------------------------------------------------------------------------------------------------------------
@@ -217,8 +338,27 @@ def parse_args():
     ap.add_argument("--weights_dtype", choices=["fp32", "bf16"], default="fp32", help="dtype of the frozen backbone weights. bf16 halves memory and is required by the fused MoE experts "
                                                                                         "(torch._grouped_mm wants bf16); LoRA and head stay fp32 (peft upcasts adapters). The checkpoint records it and is loaded the same way.")
     ap.add_argument("--checkpointing", type=int, choices=[0, 1], default=0)
+    ap.add_argument("--state_mode", choices=["adapted", "frozen"], default="adapted", help="frozen = the state runs once through the base weights (its K/V cached), only the question branches see the adapter")
+    ap.add_argument("--state_cache", type=int, choices=[0, 1], default=0, help="frozen mode: keep each record's base state K/V in memory across epochs and augmentation variants "
+                    "(2 x layers x kv_heads x head_dim x itemsize per state token: ~230 KB fp32 for Qwen3-0.6B; the projected full-epoch size is printed before training)")
+    ap.add_argument("--cache_dtype", choices=["fp32", "bf16", "int8"], default="fp32", help="storage dtype of the state K/V cache (bf16 halves it, int8 quarters it: int8 codes "
+                    "plus one fp16 scale per layer, head and token; the branches then train against rounded K/V from the first step, which is recorded in head.pt so "
+                    "evaluation rounds the same way)")
+    ap.add_argument("--cache_max_gb", type=float, default=None, help="cap on the state K/V cache, oldest entries evicted (default: a quarter of what the tier has free: host RAM, "
+                    "the device's free memory, or the disk; the run is refused when the projected size exceeds it; 0 = unlimited). A cap below one epoch only serves reuse within a batch "
+                    "(none-pair siblings, permuted copies)")
+    ap.add_argument("--cache_device", choices=["cpu", "device", "disk"], default="cpu", help="where the state K/V cache lives: host memory (entries are moved to the training device on use), "
+                    "the training device, or disk (one file per record under --cache_dir, loaded on use; the default cap is a quarter of the free disk space)")
+    ap.add_argument("--cache_dir", default="", help="--cache_device disk: directory of the state K/V files (default <out>/state_cache). Kept after training; a later run of "
+                    "the same base and --cache_dtype can point at it and reuse its entries")
+    ap.add_argument("--lora_layers", type=int, default=0, help="LoRA in the top M transformer layers only (0 = all layers); reloads from adapter_config.json")
+    ap.add_argument("--state_grad", type=int, choices=[0, 1], default=1, help="adapted mode: 0 = the state tokens still run through the adapter but their keys/values are detached in every "
+                    "layer, so no gradient flows into the state (same forward as 1; needs --batch 1 and no --branch_chunk)")
+    ap.add_argument("--branch_chunk", type=int, default=0, help="run the question branches this many at a time against the state K/V, backward per chunk (adapted mode: gradient-exact, "
+                    "the K/V gradients are pushed back through the state; frozen mode: against the cached base K/V, nothing to push back); 0 = all branches in one pass")
     ap.add_argument("--option_isolation", type=int, choices=[0, 1], default=0, help="option spans are isolated sub-branches with shared positions (exact permutation invariance)")
-    ap.add_argument("--special_embeddings", type=int, choices=[0, 1], default=0, help="also train the embeddings of the 5 delimiter tokens")
+    ap.add_argument("--special_embeddings", type=int, choices=[0, 1], default=0, help="also train the embeddings of the 5 delimiter tokens (frozen state mode: the state runs "
+                    "with the adapter off, so <state> keeps its base embedding and only the 4 branch delimiters train)")
     ap.add_argument("--head_dim", type=int, default=256, help="pointer head dimension")
     ap.add_argument("--lora_targets", choices=["all", "dense", "attn", "qv"], default="all", help="LoRA module set; fewer modules = less drift from the base; dense = all minus the DeltaNet projections on hybrid bases")
     ap.add_argument("--base_revision", default="", help="pin the base commit when the suite manifest does not pin this base")
@@ -252,6 +392,24 @@ def parse_args():
         ap.error("--anchor and --anchor_w > 0 go together")
     if a.replay and not (a.data and a.suite):
         ap.error("--replay needs both --data and --suite")
+    if a.branch_chunk < 0 or (a.cache_max_gb is not None and a.cache_max_gb < 0):
+        ap.error("--branch_chunk and --cache_max_gb must be non-negative")
+    if a.branch_chunk and a.perm_kl > 0:
+        ap.error("--branch_chunk does not support --perm_kl (the permuted copy's logits must be alive with the original's)")
+    if a.checkpointing and (a.branch_chunk or a.state_mode == "frozen"):
+        ap.error("--checkpointing drops the state K/V cache in training mode; not with --branch_chunk or --state_mode frozen")
+    if a.state_cache and a.state_mode != "frozen":
+        ap.error("--state_cache applies to --state_mode frozen only")
+    if a.state_cache and a.cache_device == "disk" and not a.cache_dir and os.environ.get("KEV_CACHE_DIR"):
+        a.cache_dir = os.environ["KEV_CACHE_DIR"]   # set by modal_app.run_trial so the trial config stays the plan's (recorded below as used)
+    if a.cache_dir and a.cache_device != "disk":
+        ap.error("--cache_dir applies to --cache_device disk only")
+    if a.state_cache and a.dtype == "bf16" and a.cache_dtype == "fp32":
+        ap.error("a bf16 run must use --cache_dtype bf16 or int8: a fp32 cache would store upcast bf16 K/V and record fp32 for evaluation")
+    if a.lora_layers < 0:
+        ap.error("--lora_layers must be non-negative")
+    if not a.state_grad and (a.state_mode != "adapted" or a.branch_chunk or a.batch != 1):
+        ap.error("--state_grad 0 needs --state_mode adapted, --branch_chunk 0 and --batch 1")
     if Path(a.out).exists():
         ap.error("refusing to overwrite an existing run")
     return a
@@ -271,6 +429,10 @@ def pinned_revision(a, manifest):
 def main():
     a = parse_args()
     out_dir = Path(a.out); out_dir.mkdir(parents=True)
+    if a.state_cache and a.cache_device == "disk":   # resolved here so training_config.json records the directory actually used
+        a.cache_dir = str(Path(a.cache_dir) if a.cache_dir else out_dir / "state_cache"); Path(a.cache_dir).mkdir(parents=True, exist_ok=True)
+    frozen = a.state_mode == "frozen"
+    state_kv_dtype = a.cache_dtype if a.state_cache else None   # frozen mode: the dtype the branches saw the state K/V in
     torch.manual_seed(a.seed); rng = random.Random(a.seed)
     dev = a.device or default_device()
     if dev == "cuda":
@@ -286,13 +448,15 @@ def main():
     tok = load_tokenizer(a.base, revision=revision)
     model = DecisionModel(a.base, tok, dev, lora=a.lora, revision=revision, head_dim=a.head_dim, lora_targets=a.lora_targets,
                           option_isolation=bool(a.option_isolation), special_embeddings=bool(a.special_embeddings),
-                          dtype=torch.bfloat16 if a.weights_dtype == "bf16" else torch.float32)
+                          dtype=torch.bfloat16 if a.weights_dtype == "bf16" else torch.float32,
+                          state_mode=a.state_mode, lora_layers=a.lora_layers, state_grad=bool(a.state_grad))
     if a.checkpointing:
         model.lm.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.lm.config.use_cache = False
     # what this run will save as head.pt; also the architecture a warm start must match
     meta = Meta(base=a.base, base_revision=revision, lora=a.lora, head_dim=a.head_dim, option_isolation=bool(a.option_isolation),
-                special_embeddings=bool(a.special_embeddings), weights_dtype=a.weights_dtype, holdout=holdout)
+                special_embeddings=bool(a.special_embeddings), weights_dtype=a.weights_dtype, holdout=holdout,
+                state_mode=a.state_mode, state_kv_dtype=state_kv_dtype, lora_layers=a.lora_layers, state_grad=bool(a.state_grad))
     init_source = None
     if a.init_from:
         # delta mode (PR #9, Radexito): start from an already trained adapter + pointer head instead of the base model, so a
@@ -304,7 +468,8 @@ def main():
     reqs = training_requests(a, tok, manifest, holdout)
     suite_hash = digest(Path(a.suite) / "manifest.json") if manifest else None
     write_json(out_dir / "training_config.json", {"args": vars(a), "suite_sha256": suite_hash, "base_revision": revision, "init_source": init_source,
-                                                "ordinal_objective": "ranked_probability_score", "holdout": holdout})
+                                                "ordinal_objective": "ranked_probability_score", "holdout": holdout, "state_mode": a.state_mode,
+                                                "state_kv_dtype": state_kv_dtype, "lora_layers": a.lora_layers, "state_grad": bool(a.state_grad)})
     print(f"{len(reqs)} training requests (holdout={holdout}), questions by type "
           f"{dict(Counter(q['qtype'] for r in reqs for q in materialize(r)['questions']))}")
 
@@ -315,17 +480,27 @@ def main():
     micro_per_epoch = math.ceil(len(reqs) / a.batch)
     steps = a.epochs * math.ceil(micro_per_epoch / a.accum)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=[a.lr, a.head_lr or a.lr], total_steps=max(steps, 1), pct_start=0.1)
+    cache = build_state_cache(a, tok, model, reqs, dev) if a.state_cache else None
+    stats = Counter()   # seconds in state passes ("state") vs branch passes ("branch") and state tokens run ("state_tokens"); the packed forward is one pass
     model.train(); t0 = time.time(); run = Counter(); step = seen = tokens_seen = peak_mem = 0
     for ep in range(a.epochs):
         rng.shuffle(reqs)
         for mb in range(micro_per_epoch):
             chunk = reqs[mb * a.batch : (mb + 1) * a.batch]
             batch = encode_batch(model, tok, a, chunk, ep)
-            loss, terms = batch_loss(model, a, batch, dev, anchors, anchor_sources, autocast)
             # weight by source records in the accumulation group so none-pair siblings do not inflate a record's share
             group_records = accumulation_records(len(reqs), a.batch, a.accum, mb) * (len(batch) / len(chunk))
-            (loss / group_records).backward()
-            run += terms; run["n"] += len(batch); seen += len(batch); tokens_seen += sum(v.tokens for v in batch)
+            if a.branch_chunk:
+                terms = chunked_batch_backward(model, a, batch, dev, anchors, anchor_sources, autocast, cache, stats, 1 / group_records)
+            else:
+                caches = None
+                if frozen:
+                    with autocast: caches = [frozen_kv(model, v.enc, v.key, cache, stats) for v in batch]   # hits, or timed base passes
+                    t_branch = time.perf_counter()
+                loss, terms = batch_loss(model, a, batch, dev, anchors, anchor_sources, autocast, caches)
+                (loss / group_records).backward()
+                if frozen: sync(dev); stats["branch"] += time.perf_counter() - t_branch
+            run += terms; run["n"] += len(batch); seen += len(batch); tokens_seen += sum(v.forward_tokens(frozen) for v in batch)
             peak_mem = max(peak_mem, allocated_bytes(dev))
             if (mb + 1) % a.accum == 0 or mb + 1 == micro_per_epoch:
                 torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), 1.0)
@@ -341,8 +516,12 @@ def main():
     tok.save_pretrained(a.out)
     write_json(out_dir / "training_metrics.json", {"wall_seconds": time.time() - t0, "records_seen": seen,
                "requested_records": a.epochs * len(reqs), "truncated_records": 0, "rejected_records": 0,
-               "optimizer_steps": step, "forward_tokens": tokens_seen,
+               "optimizer_steps": step, "forward_tokens": tokens_seen + stats["state_tokens"], "state_tokens_computed": stats["state_tokens"] if frozen else None,
                "peak_device_bytes": peak_mem, "device": dev, "dtype": a.dtype, "batch": a.batch,
+               # the activation peak alone: a device-tier cache is resident in the same allocator, so its bytes are subtracted here
+               "peak_device_bytes_without_cache": peak_mem - (cache.bytes if cache is not None and a.cache_device == "device" else 0),
+               "state_mode": a.state_mode, "branch_chunk": a.branch_chunk, "state_seconds": stats["state"], "branch_seconds": stats["branch"],
+               "state_cache": cache.stats() if cache is not None else None,
                "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)})
     print("saved", a.out, flush=True)
 
