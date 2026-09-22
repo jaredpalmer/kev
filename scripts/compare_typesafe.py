@@ -12,7 +12,11 @@ agreement 0 and TVD 1.
 import argparse
 from pathlib import Path
 
+from kev.data import materialize
+from kev.model import MAX_STATE, SERVE_MAX_STATE, load_tokenizer, user_tokens
 from kev.suite import load_split, read_json, write_json
+
+LENGTH_BUCKETS = ((0, MAX_STATE), (MAX_STATE, 2048), (2048, SERVE_MAX_STATE))   # inside the training context / longer / much longer
 
 
 def case_means(scores, records):
@@ -32,13 +36,25 @@ def score(p, target):
     return float(modal == max(target, key=target.get)), sum(abs(p[k] - target[k]) for k in target) / 2
 
 
-def score_run(directory, records):
+def accuracy_by_state_length(rows, records, tok):
+    """Plain accuracy of the answered rows bucketed by the state's token count: where Kev's documents are longer than
+    anything in its training context, this is what separates the length effect from the task."""
+    tokens = {r["_meta"]["id"]: len(user_tokens(tok, materialize(r)["state"])) for r in records}
+    out = {}
+    for lo, hi in LENGTH_BUCKETS:
+        hits = [int(max(range(len(row["p"])), key=row["p"].__getitem__) == row["label"]) for row in rows if lo <= tokens[row["id"]] < hi]
+        out[f"{lo}-{hi}"] = {"rows": len(hits), "acc": sum(hits) / len(hits) if hits else None}
+    return out
+
+
+def score_run(directory, records, tok=None):
     targets = {r["_meta"]["id"]: r["_meta"]["target"] for r in records}
-    scores = {}
-    for row in read_json(Path(directory) / "rows.json"):
-        scores[row["id"]] = score(dict(zip(row["keys"], row["p"])), targets[row["id"]])
+    rows = read_json(Path(directory) / "rows.json")
+    scores = {row["id"]: score(dict(zip(row["keys"], row["p"])), targets[row["id"]]) for row in rows}
     answered = [r for r in records if r["_meta"]["id"] in scores]
-    return {"evaluated": case_means(scores, answered), "all_rows": case_means(scores, records)}
+    out = {"evaluated": case_means(scores, answered), "all_rows": case_means(scores, records)}
+    if tok is not None: out["accuracy_by_state_tokens"] = accuracy_by_state_length(rows, records, tok)
+    return out
 
 
 def score_published(records):
@@ -55,15 +71,19 @@ def main():
     ap.add_argument("--suite", default="evals/external/typesafe-v1")
     ap.add_argument("--run", action="append", default=[], help="kev.benchmark output directory (repeatable)")
     ap.add_argument("--out", help="write the comparison as JSON")
+    ap.add_argument("--tokenizer", help="base tokenizer (e.g. Qwen/Qwen3.5-4B-Base): also report accuracy by state length")
     a = ap.parse_args()
     records = load_split(a.suite, "development")
-    result = {"suite": a.suite, "published": score_published(records), "runs": {run: score_run(run, records) for run in a.run}}
+    tok = load_tokenizer(a.tokenizer) if a.tokenizer else None
+    result = {"suite": a.suite, "published": score_published(records), "runs": {run: score_run(run, records, tok) for run in a.run}}
     for name, r in list(result["published"].items()) + list(result["runs"].items()):
         head, every = r["evaluated"], r["all_rows"]
         print(f"{name:40s} agreement {head['equal_case_modal_agreement']:.3f}  tvd {head['equal_case_total_variation']:.3f}"
               f"  ({head['rows']}/{every['rows']} rows answered; all rows {every['equal_case_modal_agreement']:.3f} / {every['equal_case_total_variation']:.3f})")
+        for bucket, b in r.get("accuracy_by_state_tokens", {}).items():
+            print(f"{'':40s}   state {bucket} tokens: {b['rows']} rows, acc {b['acc']:.2f}" if b["rows"] else f"{'':40s}   state {bucket} tokens: 0 rows")
     if a.out:
-        write_json(a.out, result)
+        Path(a.out).parent.mkdir(parents=True, exist_ok=True); write_json(a.out, result)
 
 
 if __name__ == "__main__":
