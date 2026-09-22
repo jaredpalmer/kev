@@ -215,14 +215,15 @@ def recorded(row):
 
 
 def served_at(rows, temperature):
-    """The scored rows as a predictor at `temperature` would have returned them (recorded temperatures compose)."""
-    return [tempered_row(recorded(r), temperature) for r in scored_rows(rows)]
+    """The scored rows as a predictor at `temperature` would have returned them, whatever temperature they were saved at
+    (raw logits are restored first, so a Hub checkpoint's served rows and a trial's raw rows are treated alike)."""
+    return [tempered_row(raw_row(recorded(r)), temperature) for r in scored_rows(rows)]
 
 
 def served(fit_rows, eval_rows, **fit_kwargs):
     """(temperature fitted on `fit_rows`' raw logits, `eval_rows` served at it): how a checkpoint is calibrated and read
     everywhere a comparison is served-vs-served. fit_kwargs override TEMPERATURE_FIT key by key."""
-    temperature = fit_temperature([raw_row(recorded(r)) for r in scored_rows(fit_rows)], **{**TEMPERATURE_FIT, **fit_kwargs})
+    temperature = fit_temperature(served_at(fit_rows, 1.0), **{**TEMPERATURE_FIT, **fit_kwargs})
     return temperature, served_at(eval_rows, temperature)
 
 

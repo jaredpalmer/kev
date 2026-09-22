@@ -944,6 +944,7 @@ def test_served_fits_on_raw_rows_and_cluster_resamples_keep_groups_together():
     assert temperature == fit_temperature(raw, **TEMPERATURE_FIT)                      # None = recorded raw
     assert out == [tempered_row(r, temperature) for r in raw] == served_at(rows, temperature)
     assert served(out, rows)[0] == temperature                                         # fitting on served rows restores raw logits first
+    assert np.allclose([r["p"] for r in served_at(out, temperature)], [r["p"] for r in out])   # re-serving served rows does not temper twice
     for idx in cluster_resamples(rows, 20, 0):
         drawn = [rows[i]["group"] for i in idx]
         assert all(drawn.count(g) % 2 == 0 for g in set(drawn))                        # both questions of a record move together
