@@ -18,12 +18,14 @@ from kev.api import question_keys
 from kev.checkpoint import Checkpoint, LoadOptions
 from kev.data import api_request, materialize
 from kev.device import sync
-from kev.model import MAX_PACKED
+from kev.suite import CONTEXT
 
 
 class LocalPredictor:
-    def __init__(self, run, device, opts=LoadOptions()):
-        """opts.temperature=None scores with the temperature the checkpoint carries; 1.0 scores raw logits."""
+    def __init__(self, run, device, opts=LoadOptions(), context=CONTEXT):
+        """opts.temperature=None scores with the temperature the checkpoint carries; 1.0 scores raw logits. context: the
+        max_state / max_branch / max_packed a record must encode within (a suite manifest's `context`; the training
+        context by default, the serving limits for external suites frozen without admission)."""
         if opts.temperature is not None and not (math.isfinite(opts.temperature) and opts.temperature > 0):
             raise ValueError("temperature must be finite and positive")
         checkpoint = Checkpoint(run)
@@ -35,12 +37,13 @@ class LocalPredictor:
         self.tok, self.model = checkpoint.load(device, opts)
         self.temperature = self.model.head.temperature
         self.device = device
+        self.context = context
 
     @torch.no_grad()
     def __call__(self, record):
-        enc = self.model.encode(self.tok, materialize(record), strict=True)
-        if len(enc["ids"]) > MAX_PACKED:
-            raise ValueError(f"packed request exceeds frozen {MAX_PACKED}-token limit")
+        enc = self.model.encode(self.tok, materialize(record), max_state=self.context["max_state"], max_branch=self.context["max_branch"], strict=True)
+        if len(enc["ids"]) > self.context["max_packed"]:
+            raise ValueError(f"packed request exceeds the {self.context['max_packed']}-token limit")
         sync(self.device)
         start = time.perf_counter()
         logits = self.model.forward(enc)

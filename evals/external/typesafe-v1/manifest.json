@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "external": {
+    "repo": "https://github.com/TheoLeeCJ/SemIf",
+    "commit": "1f2dea3e25379f9dfc98cb83c324f00ab5deda37",
+    "license": "MIT",
+    "selection": "benchmarks/manifests/source-selection.jsonl",
+    "files": {
+      "source-selection.jsonl": "81d98a4195971e1fe046673928730b7112a6a7677baf046505761f2504b424c7",
+      "typesafe102.jsonl": "3eabe11c02e90308d03e857bc614874e7369b390d15f0e456a6049bbc932ba17"
+    },
+    "upstream": [
+      {
+        "snapshot_sha256": "2235cec10a6b542f366eed79fe32aa23206c36175b046b6f41444d03d66b2e7c",
+        "workflow": "invoice_processing"
+      },
+      {
+        "snapshot_sha256": "45183cdb34fbb74c3168daa7a5616816aa9a7a9976bd4d33623c61b1a9190313",
+        "workflow": "customer_service"
+      },
+      {
+        "snapshot_sha256": "78b431fb4e76f11a91767211d0984028a0b8f6fd08efedd8311f7d298baa99af",
+        "workflow": "agent_trace_observability"
+      },
+      {
+        "snapshot_sha256": "9ac20dd4c2d293b296ae76e8b9c5ea69b3b80a3f267530f741a667a8fb5fad61",
+        "workflow": "security_incidents"
+      }
+    ]
+  },
+  "base_revisions": {},
+  "dataset_revisions": {},
+  "holdout_sources": [],
+  "trainable_sources": [],
+  "eval_only_sources": [
+    "typesafe"
+  ],
+  "context": {
+    "max_state": 8192,
+    "max_branch": 8192,
+    "max_packed": 16384,
+    "truncate": false
+  },
+  "files": {
+    "development.jsonl": {
+      "sha256": "877ed7cd473e3973d29f0bb0ff2a597192955e477f2127794df358b6ba795879",
+      "records": 102
+    },
+    "train.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "records": 0
+    },
+    "calibration.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "records": 0
+    },
+    "test.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "records": 0
+    }
+  },
+  "eval_only": true,
+  "tasks": [
+    "typesafe_agent_trace_observability",
+    "typesafe_customer_service",
+    "typesafe_invoice_processing",
+    "typesafe_security_incidents"
+  ],
+  "protocol": {
+    "note": "SemIf reports equal-case modal agreement with the reference argmax (direct 0.845, published Jev 0.883) and total-variation distance to the reference distribution (0.177, 0.127) over the 20 cases; scripts/compare_typesafe.py computes both from a kev.benchmark output. Records over the serving context are rejected by kev.benchmark; the headline is over answered rows with the rejected count stated, and the all-rows figure (rejected = wrong) alongside"
+  }
+}

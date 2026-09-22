@@ -21,7 +21,7 @@ from kev.data import api_request, load_records
 from kev.device import default_device
 from kev.metrics import EPSILON, grouped_metrics, metrics, unknowable_report
 from kev.predictors import LocalPredictor, RemotePredictor
-from kev.suite import ENCODING, digest, load_split, read_manifest, record_digest, write_json
+from kev.suite import CONTEXT, ENCODING, digest, load_split, read_manifest, record_digest, write_json
 
 
 def labels(q):
@@ -100,9 +100,9 @@ def summarize(rows, temperature=1.0, heldout_sources=()):
 
 
 def evaluate_records(records, predictor, directory, temperature=1.0, heldout_sources=(), skip_overlong=False):
-    """skip_overlong: for external data that was not frozen to Kev's context, records the model cannot encode (kev.model
-    MAX_STATE / MAX_PACKED) are counted in coverage["rejected_records"] and listed in rejected.json instead of aborting.
-    Frozen suites never need this; reports must state that rejected records count as wrong in any headline number."""
+    """skip_overlong: for external data that was not admitted to a context (--data, or an eval-only suite frozen as published),
+    records the predictor cannot encode are counted in coverage["rejected_records"] and listed in rejected.json instead of
+    aborting. Admitted suites never trigger it; reports must state how rejected records enter any headline number."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=False)
     coverage = {"requested_records": len(records), "requested_questions": sum(len(r["questions"]) for r in records),
@@ -158,14 +158,17 @@ def main():
     if bool(a.suite) == bool(a.data): ap.error("give exactly one of --suite or --data")
     if a.data:
         records, heldout, split, source_hash = load_records(a.data), [], "custom", digest(Path(a.data))
+        context, skip_overlong = CONTEXT, True
     else:
         split = "test" if a.allow_test else "development"
         records = load_split(a.suite, split, allow_test=a.allow_test)
-        heldout = read_manifest(a.suite)["holdout_sources"]; source_hash = digest(Path(a.suite) / "manifest.json")
+        manifest = read_manifest(a.suite)
+        heldout = manifest["holdout_sources"]; source_hash = digest(Path(a.suite) / "manifest.json")
+        context, skip_overlong = manifest.get("context", CONTEXT), bool(manifest.get("eval_only"))
     if a.date_facts:
         records = [{**r, "state": with_date_facts(r["state"])} for r in records]
-    predictor = RemotePredictor(a.remote, a.remote_model, os.environ.get("KEV_REMOTE_API_KEY", "local")) if a.remote else LocalPredictor(a.run, a.device, LoadOptions.from_env())
-    report, _ = evaluate_records(records, predictor, a.out, heldout_sources=tuple(heldout), skip_overlong=bool(a.data))
+    predictor = RemotePredictor(a.remote, a.remote_model, os.environ.get("KEV_REMOTE_API_KEY", "local")) if a.remote else LocalPredictor(a.run, a.device, LoadOptions.from_env(), context=context)
+    report, _ = evaluate_records(records, predictor, a.out, heldout_sources=tuple(heldout), skip_overlong=skip_overlong)
     report.update(suite_sha256=source_hash, data=a.data, date_facts=a.date_facts, run=a.run or a.remote, split=split,
                   calibration_applied=predictor.temperature != 1.0 if not a.remote else None,
                   remote={"base_url": a.remote, "requested_model": a.remote_model, "served_model": predictor.served_model} if a.remote else None)

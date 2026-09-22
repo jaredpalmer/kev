@@ -44,7 +44,8 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   Manifests pin dataset + base revisions and the sha256 of every partition. Current: `evals/v7/decision-v7` (the release
   recipe), `evals/v8/decision-v8`, `evals/v4/transfer-v4` and `evals/v9/transfer-v9` (MMLU-Pro, buried states,
   unknowable) for OOD, `evals/round3/{decision-r3,transfer-r3}` (calibration audit; the 1,260-record final panel is
-  unscored), `evals/smoke-v1` for tests, plus `evals/external/` (semif-v1, scienthoon-v1, ekzhang-mmlupro-v1),
+  unscored), `evals/smoke-v1` for tests, plus `evals/external/` (semif-v1, scienthoon-v1, ekzhang-mmlupro-v1, and SemIf's pinned third-party selections wanli-v1 + typesafe-v1 via
+  `scripts/freeze_semif_external.py`; `scripts/compare_typesafe.py` reports equal-case agreement/TVD against the reference and published answers),
   `evals/night2/` (delta training data, `scripts/build_night2_data.py`) and `evals/diagnostics/` (binding-v1).
   Partitions over ~10 MB are not in git; they are mirrored at the Hub dataset `jaredpalmer/kev-suites` (revision pinned
   in `kev/suite.py: SUITES_REVISION`) and `load_split` fetches + verifies them on first use. After freezing a new suite:

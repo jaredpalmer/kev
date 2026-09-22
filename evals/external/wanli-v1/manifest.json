@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "external": {
+    "repo": "https://github.com/TheoLeeCJ/SemIf",
+    "commit": "1f2dea3e25379f9dfc98cb83c324f00ab5deda37",
+    "license": "MIT",
+    "selection": "benchmarks/manifests/source-selection.jsonl",
+    "files": {
+      "source-selection.jsonl": "81d98a4195971e1fe046673928730b7112a6a7677baf046505761f2504b424c7",
+      "wanli256.jsonl": "40b795d82c8e53c0dbae132f5fc87c33bf0517340c69169474049e784f311c0f"
+    },
+    "upstream": [
+      {
+        "source": "WANLI",
+        "source_revision": "61c95318fd71c55b6ba355d76253254615f387ec",
+        "rights": "CC-BY-4.0"
+      }
+    ]
+  },
+  "base_revisions": {},
+  "dataset_revisions": {},
+  "holdout_sources": [],
+  "trainable_sources": [],
+  "eval_only_sources": [
+    "wanli"
+  ],
+  "context": {
+    "max_state": 384,
+    "max_branch": 1024,
+    "max_packed": 2048,
+    "truncate": false
+  },
+  "files": {
+    "development.jsonl": {
+      "sha256": "ab732d761daf51aa859263bb402fcc8e880bd801a21e3b882464a7766e8d1b5d",
+      "records": 256
+    },
+    "train.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "records": 0
+    },
+    "calibration.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "records": 0
+    },
+    "test.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "records": 0
+    }
+  },
+  "eval_only": true,
+  "tasks": [
+    "wanli_nli"
+  ],
+  "protocol": {
+    "note": "SemIf reports balanced accuracy on the 256 (direct Qwen3.5-4B logits 0.637); we report accuracy plus everything kev.benchmark reports"
+  }
+}
