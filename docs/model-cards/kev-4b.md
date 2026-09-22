@@ -82,7 +82,7 @@ Per-source out-of-domain accuracy (Kev-4B / Jev): QNLI 0.91 / 0.93, SciQ 0.97 / 
 
 **Newer evaluation columns** (`transfer-v9` development, Kev-4B / Jev): MMLU-Pro (10-way) 0.490 / 0.840; state buried among unrelated records 0.67 / 0.70; unknowable share at ≥ 0.9 confidence 0.00 / 0.09 (intact controls 0.94).
 
-**External suites** (same items as their published Jev numbers): SemIf's authored 144 — 0.896 before the delta (live Jev 0.965; SemIf's untrained Qwen3.5-4B 0.813); scienthoon's 900 tickets — queue 0.918, angry 0.790, ECE 0.116 (Jev 0.897, 0.914, 0.105). On ekzhang's 1,000-question MMLU-Pro sample the shipped checkpoint scores 0.468 over all 1,000 questions (8 exceed the state limit and count as wrong; ekzhang reports Jev 0.829).
+**External suites** (same items as their published Jev numbers): SemIf's authored 144 — 0.896 before the delta (live Jev 0.965; SemIf's untrained Qwen3.5-4B 0.813); scienthoon's 900 tickets — queue 0.918, angry 0.790, ECE 0.116 (Jev 0.897, 0.914, 0.105). On ekzhang's 1,000-question MMLU-Pro sample the shipped checkpoint scores 0.468 over all 1,000 questions (8 exceed the state limit and count as wrong; live Jev 0.835 on the same items, ekzhang reports 0.829).
 
 ## How it was built
 
