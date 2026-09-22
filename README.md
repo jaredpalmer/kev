@@ -233,6 +233,8 @@ The server runs in bf16 by default on CUDA and Apple GPUs. That is a latency dec
 
 The `causal_conv1d` kernel transformers asks for on load made no difference for prefill (114 vs 118 ms), so the images do not install it. `KEV_DTYPE=fp32` serves the exact path the evaluations use; the benchmark and research tools always score in fp32 regardless of this default.
 
+The LoRA adapter is merged into the base weights in fp32 before the cast, so loading needs the fp32 model on the GPU for a moment: twice the memory of the bf16 model it becomes. If that step runs out of memory (Kev-4B on a 16 GB card stops at 15.4 GiB), set `KEV_MERGE_DEVICE=cpu` to merge in host memory and move only the bf16 weights to the GPU; Kev-4B then peaks at 8.6 GB. The merged weights are the same up to one fp32 matmul's rounding. `KEV_MERGE=0` skips the merge instead and keeps the adapter separate, which is slower and a little further from the fp32 numbers.
+
 On Apple Silicon there are no PyTorch kernels for the DeltaNet layers, so the server runs the Qwen3.5 models through [MLX](https://github.com/ml-explore/mlx-lm) instead (`uv sync --extra serve` installs it on Macs). Only the backbone changes. Kev's encoder, the pointer head and the calibration are the same code, and the probabilities match the fp32 PyTorch path to bf16 rounding. On all 1,024 clean decision-v7 development records (1,264 questions), Kev-4B's largest difference is 0.025 and the mean 0.0016, and the highest-probability answer changes on one question (none through the prefix cache); Kev-0.8B's largest is 0.054 and the mean 0.0023, with four changed answers (0.3%). Median time on an M5 (32 GB) for five questions with three options each on a ~270-token state, through the model directly:
 
 | Model | New state | Repeated state (prefix cache) | PyTorch bf16 on MPS, new / repeated |
@@ -246,7 +248,7 @@ The server caches every state prefix for these models, so a repeated document pa
 
 For the attention-only models the server merges the LoRA weights in fp32 before casting, uses SDPA attention on Apple GPUs, pads MPS inputs to 64-token buckets, and caches the state prefix for repeated requests (four states of at least 384 tokens by default). With a repeated 772-token state, Kev-4B (Qwen3) answers in 242 ms instead of 861 ms.
 
-You can disable these with `KEV_MERGE=0`, `KEV_ATTN=eager`, `KEV_SHAPE_BUCKET=1`, and `KEV_PREFIX_CACHE=0`. The merge loads the backbone in fp32 on the GPU first, which needs twice the memory of the bf16 model it produces; if that runs out of memory (Kev-4B on a 16 GB card), set `KEV_MERGE_DEVICE=cpu` to merge in host memory and move only the bf16 weights to the GPU. On 24 new-source records, bf16 probabilities differed from fp32 by at most 0.017, with no change in the highest-probability answer. That is a small check, not a guarantee for every input.
+You can disable these with `KEV_MERGE=0`, `KEV_ATTN=eager`, `KEV_SHAPE_BUCKET=1`, and `KEV_PREFIX_CACHE=0`. On 24 new-source records, bf16 probabilities differed from fp32 by at most 0.017, with no change in the highest-probability answer. That is a small check, not a guarantee for every input.
 
 ## Training
 

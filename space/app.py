@@ -28,14 +28,14 @@ DEFAULT_MODEL = "Kev-4B"
 
 
 # ------------------------------------------------------------------ load
-# The shared loader runs on CPU in fp32 (the exact path every reported number uses: LoRA merged in fp32, pointer head on
-# top), then the finished module moves to "cuda" once at module scope, which is what ZeroGPU expects. The head is loaded
-# raw (T=1); the Calibrated toggle sets the checkpoint's fitted temperature per request.
+# The shared loader builds and merges on the CPU in fp32 (the exact path every reported number uses: LoRA merged in
+# fp32, pointer head on top; merge_device="cpu" is the same staging kev.serve offers for small GPUs), then moves the
+# finished module to "cuda" once at module scope, which is what ZeroGPU expects: peft never sees the faked cuda device.
+# The head is loaded raw (T=1); the Calibrated toggle sets the checkpoint's fitted temperature per request.
 
 def load(repo):
     ck = Checkpoint(repo)
-    tok, m = ck.load("cpu", LoadOptions(attn="sdpa", temperature=1.0))
-    m.device = "cuda"; m.to("cuda")
+    tok, m = ck.load("cuda", LoadOptions(merge_device="cpu", temperature=1.0))
     print(f"[kev] {repo}: base={ck.meta.base}@{ck.meta.base_revision} hybrid={m.hybrid} temperature={ck.meta.temperature:.2f}", flush=True)
     return tok, m, ck.meta.temperature
 

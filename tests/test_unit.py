@@ -157,9 +157,10 @@ def test_checkpoint_meta_round_trip_and_defaults(tmp_path):
     write_meta(tmp_path, m); back = read_meta(tmp_path)
     assert back.temperature == 2.3 and back.extra["args"] == {"lr": 1} and back.extra["temperature_fit"] == {"n": 10} and back.lora == 16
     assert LoadOptions.from_env({}) == LoadOptions()
-    opts = LoadOptions.from_env({"KEV_DTYPE": "bf16", "KEV_MERGE": "0", "KEV_ATTN": "sdpa", "KEV_TEMPERATURE": "1.0", "KEV_LORA_SCALE": "0.5"})
-    assert opts == LoadOptions(dtype=torch.bfloat16, merge=False, attn="sdpa", lora_scale=0.5, temperature=1.0)
-    assert LoadOptions.from_env({}).merge_device is None and LoadOptions.from_env({"KEV_MERGE_DEVICE": "cpu"}).merge_device == "cpu"
+    opts = LoadOptions.from_env({"KEV_DTYPE": "bf16", "KEV_MERGE": "0", "KEV_MERGE_DEVICE": "cpu", "KEV_ATTN": "sdpa", "KEV_TEMPERATURE": "1.0", "KEV_LORA_SCALE": "0.5"})
+    assert opts == LoadOptions(dtype=torch.bfloat16, merge=False, merge_device="cpu", attn="sdpa", lora_scale=0.5, temperature=1.0)
+    with pytest.raises(ValueError, match="KEV_MERGE_DEVICE"):
+        LoadOptions.from_env({"KEV_MERGE_DEVICE": "host"})
     assert LoadOptions.from_env({"KEV_DTYPE": "fp32"}).dtype is torch.float32   # explicit fp32 survives, so kev.serve's bf16 default can be declined
     assert LoadOptions.from_env({}).backend is None and LoadOptions.from_env({"KEV_BACKEND": "mlx"}).backend == "mlx"
     with pytest.raises(ValueError, match="KEV_BACKEND"):

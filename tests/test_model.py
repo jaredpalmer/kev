@@ -29,6 +29,34 @@ def test_merged_load_matches_unmerged_exactly_in_fp32(smoke_run):
             pa, pb = torch.cat(a.probs(a.encode(tok, r))), torch.cat(b.probs(b.encode(tok, r)))
             assert (pa - pb).abs().max() < 1e-5
 
+def test_merge_on_cpu_then_move_matches_merge_on_device(smoke_run):
+    """LoadOptions(merge_device="cpu") merges in host memory and moves only the cast model: same weights to fp32 rounding,
+    head and device attributes on the accelerator. Answers are held to the fp32 path, since one ulp of bf16 rounding
+    noise is amplified on a weak checkpoint the same way for either merge device."""
+    import torch
+    from kev.checkpoint import LoadOptions, load
+    from kev.data import materialize
+    from kev.device import default_device
+    from kev.suite import load_split
+    dev = default_device()
+    if dev == "cpu": pytest.skip("needs an accelerator to stage on the CPU and move to")
+    tok, a = load(smoke_run, dev, LoadOptions(dtype=torch.bfloat16))
+    _, b = load(smoke_run, dev, LoadOptions(dtype=torch.bfloat16, merge_device="cpu"))
+    _, c = load(smoke_run, dev)                                                   # fp32, the exact path
+    assert b.device == dev and b.dtype == "bfloat16" == a.dtype and b.lm.config._attn_implementation == a.lm.config._attn_implementation
+    assert next(b.head.parameters()).device.type == torch.device(dev).type and next(b.head.parameters()).dtype == torch.float32
+    wa, wb = a.state_dict(), b.state_dict()
+    assert wa.keys() == wb.keys()
+    for k in wa: assert torch.allclose(wa[k].float(), wb[k].float(), rtol=2 ** -7, atol=1e-6), k   # one bf16 ulp, or 1e-6 where base and delta nearly cancel
+    recs = [materialize(r) for r in load_split("evals/smoke-v1", "development")[:3]]
+    with torch.no_grad():
+        for r in recs:
+            pa, pb, pc = (torch.cat(m.probs(m.encode(tok, r))) for m in (a, b, c))
+            assert (pb - pc).abs().max() < 0.05 and (pa - pc).abs().max() < 0.05
+            top = pc.topk(2).values
+            if top[0] - top[1] > 0.1: assert pb.argmax() == pc.argmax()
+
+
 def test_prefix_cache_matches_full_pass(smoke_run):
     import torch
     from kev.checkpoint import load

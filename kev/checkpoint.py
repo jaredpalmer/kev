@@ -86,8 +86,10 @@ class LoadOptions:
                  0.029, 0 vs 1 argmax flips). Ignored for adapters that carry trained token embeddings.
     merge_device where the fp32 backbone is loaded and merged; None = the serving device. "cpu" keeps the fp32 copy in host
                  memory and moves only the cast model, so the GPU never holds more than the serving dtype: Kev-4B in bf16
-                 fits a 16 GB card this way, while the fp32 merge on the card runs out of memory. Same weights, slower
-                 load. Ignored when nothing is merged.
+                 fits a 16 GB card this way, while the fp32 merge on the card runs out of memory. Same weights up to one
+                 fp32 matmul's rounding, slower load. Any torch device string is accepted (a second GPU with more memory).
+                 Torch only, and it only saves memory when a cast follows the merge (dtype bf16/fp16); ignored when
+                 nothing is merged. The HF Space loads this way (space/app.py: ZeroGPU has no GPU at import time).
     attn         attention backend; None = the model default (SDPA on CUDA, eager elsewhere). "sdpa" on MPS measured
                  parity with eager and is a few percent faster.
     lora_scale   WiSE-FT-style interpolation between base (0) and fine-tuned weights (1), at inference.
@@ -117,9 +119,12 @@ class LoadOptions:
         kev.serve, can tell "asked for it" from "did not say"."""
         backend = env.get("KEV_BACKEND") or None
         if backend not in cls.BACKENDS: raise ValueError(f"KEV_BACKEND must be one of torch, mlx, auto; got {backend!r}")
+        merge_device = env.get("KEV_MERGE_DEVICE") or None
+        if merge_device is not None:
+            try: torch.device(merge_device)
+            except RuntimeError: raise ValueError(f"KEV_MERGE_DEVICE must be a torch device such as cpu; got {merge_device!r}") from None
         return cls(dtype={"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}.get(env.get("KEV_DTYPE", "")),
-                   merge=env.get("KEV_MERGE", "1") != "0", merge_device=env.get("KEV_MERGE_DEVICE") or None,
-                   attn=env.get("KEV_ATTN") or None,
+                   merge=env.get("KEV_MERGE", "1") != "0", merge_device=merge_device, attn=env.get("KEV_ATTN") or None,
                    lora_scale=float(env.get("KEV_LORA_SCALE", "1")),
                    temperature=float(env["KEV_TEMPERATURE"]) if env.get("KEV_TEMPERATURE") else None, backend=backend)
 
