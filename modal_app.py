@@ -48,11 +48,17 @@ def worker_environment(app_name, gpu, secret_name=None):
     return env
 
 
+CAUSAL_CONV1D_WHEEL = ("https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.7.0/"
+                       "causal_conv1d-1.7.0+cu12torch2.8cxx11abiTRUE-cp313-cp313-linux_x86_64.whl")
+
 app = modal.App(APP_NAME)
 image = (
     modal.Image.debian_slim(python_version="3.13")
     .apt_install("git")
     .uv_sync(uv_project_dir=str(ROOT), groups=[])           # exact locked deps; Linux torch wheels are the CUDA build
+    # Fused kernels for the Qwen3.5 short convolutions (transformers falls back to reference PyTorch without them).
+    # Prebuilt for the locked torch 2.8 / CUDA 12 / Python 3.13; it re-pins Triton to 3.4, so it installs before the line below.
+    .uv_pip_install(CAUSAL_CONV1D_WHEEL)
     # Gated DeltaNet kernels for the Qwen3.5 hybrid backbones (transformers falls back to slow reference code without them)
     # fla refuses its gated chunk backward on Hopper with Triton 3.4-3.7.0 (incorrect results, fla#640); torch 2.8 pins 3.4
     .uv_pip_install("flash-linear-attention", "triton>=3.7.1")
