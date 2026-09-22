@@ -25,8 +25,7 @@ Kev is a family of small decision models built on Qwen3.5 and based on the archi
 
 ## Quick Start
 
-You'll need Python 3.12 or 3.13 and [uv](https://docs.astral.sh/uv/) (3.14 is not yet supported by the pinned torch; the
-repo's `.python-version` selects 3.13, or pass it explicitly: `uv sync --extra serve --python 3.13`).
+You'll need Python 3.12 or 3.13 and [uv](https://docs.astral.sh/uv/). The repo's `.python-version` makes `uv sync` use 3.13; torch has no wheels for 3.14 yet.
 
 ```bash
 git clone https://github.com/jaredpalmer/kev.git && cd kev
