@@ -187,15 +187,29 @@ def grouped_metrics(rows, key, temperature=1.0):
     return {name: metrics(group, temperature) for name, group in sorted(groups.items())}
 
 
-def fit_temperature(rows, aggregation="macro"):
+def tempered_row(row, temperature):
+    """The row as a calibrated predictor would have returned it: probabilities and logits at `temperature`, so metrics()
+    at T=1 scores it (per-row temperatures, e.g. out-of-fold, cannot go through metrics(rows, T))."""
+    return {**row, "p": probabilities_at_temperature(row, temperature).tolist(), "logits": _tempered_logits(row, temperature).tolist(),
+            "inference_temperature": temperature}
+
+
+def scored_rows(rows):
+    """The rows metrics are computed on: clean variants of knowable records."""
+    return [row for row in rows if row["variant"] == "clean" and row["source"] != "unknowable"]
+
+
+def fit_temperature(rows, aggregation="macro", points=81):
+    """Temperature minimizing the (micro or per-task macro) mean NLL over a `points`-point log grid on 0.25..4.
+    scripts/calibrate_checkpoint.py fits the released checkpoints with points=121."""
     if aggregation not in ("micro", "macro"):
         raise ValueError("invalid calibration aggregation")
-    clean = [row for row in rows if row["variant"] == "clean" and row["source"] != "unknowable"]
+    clean = scored_rows(rows)
     if not clean:
         raise ValueError("cannot fit temperature without labelled calibration rows")
     if any(row.get("inference_temperature", 1.0) != 1.0 for row in clean):
         raise ValueError("fit temperature on raw logits, not previously calibrated outputs")
-    candidates = np.exp(np.linspace(np.log(0.25), np.log(4), 81))
+    candidates = np.exp(np.linspace(np.log(0.25), np.log(4), points))
     weights = np.ones(len(clean))
     if aggregation == "macro":
         counts = defaultdict(int)
@@ -217,16 +231,10 @@ def _source_groups(rows):
     return sources
 
 
-def cross_validated_temperature(rows, fit=fit_temperature, folds=5, seed=0, samples=1000):
-    """Out-of-fold calibration report. Folds are disjoint in (source, group) so sibling questions and variants of one
-    record never straddle train/test, and are assigned round-robin within each source so every fold sees every source;
-    each fold's temperature is fit on the other folds and applied to the held-out rows.
-    Bootstrap resamples source-stratified groups (the same unit as paired_bootstrap) and reports raw vs out-of-fold ECE
-    with a 95% interval on the paired delta; `separated` is True when that interval excludes zero."""
-    if folds < 2 or samples < 1:
-        raise ValueError("folds must be >= 2 and samples >= 1")
-    clean = [row for row in rows if row["variant"] == "clean" and row["source"] != "unknowable"]
-    units = sorted({(row["source"], row["group"]) for row in clean})
+def grouped_folds(rows, folds, seed):
+    """Fold id per row, disjoint in (source, group) so sibling questions and variants of one record never straddle
+    train/test, assigned round-robin within each source so every fold sees every source."""
+    units = sorted({(row["source"], row["group"]) for row in rows})
     if len(units) < folds:
         raise ValueError("fewer distinct (source, group) units than folds")
     rng = np.random.default_rng(seed)
@@ -236,43 +244,39 @@ def cross_validated_temperature(rows, fit=fit_temperature, folds=5, seed=0, samp
         for i, j in enumerate(rng.permutation(len(own))):
             fold_of[own[j]] = (offset + i) % folds
         offset += len(own)
-    fold_id = np.asarray([fold_of[(row["source"], row["group"])] for row in clean])
-    correct = np.asarray([np.argmax(row["p"]) == row["label"] for row in clean], dtype=bool)
-    raw_conf = np.asarray([float(max(row["p"])) for row in clean])
-    oof_conf, oof_nll, oof_brier = (np.empty(len(clean)) for _ in range(3))
-    temperatures = []
+    return np.asarray([fold_of[(row["source"], row["group"])] for row in rows])
+
+
+def cross_validated_temperature(rows, folds=5, seed=0, samples=1000, **fit_kwargs):
+    """Out-of-fold calibration report: each fold's temperature is fit on the other folds (fit_temperature(**fit_kwargs))
+    and applied to its held-out rows, which are then scored like any calibrated prediction. The bootstrap resamples
+    source-stratified groups (the unit paired_bootstrap uses) and reports raw vs out-of-fold ECE with a 95% interval on
+    the paired delta; `separated` is True when that interval excludes zero."""
+    if folds < 2 or samples < 1:
+        raise ValueError("folds must be >= 2 and samples >= 1")
+    clean = scored_rows(rows)
+    fold_id = grouped_folds(clean, folds, seed)
+    temperatures, oof = [], list(clean)
     for fold in range(folds):
         held = fold_id == fold
-        temperature = fit([row for row, out in zip(clean, held) if not out])
-        temperatures.append(float(temperature))
+        temperature = fit_temperature([row for row, out in zip(clean, held) if not out], **fit_kwargs)
+        temperatures.append(temperature)
         for i in np.flatnonzero(held):
-            row = clean[i]
-            p = probabilities_at_temperature(row, temperature)
-            assert int(p.argmax() == row["label"]) == int(np.argmax(row["p"]) == row["label"])
-            oof_conf[i] = float(p.max())
-            oof_nll[i] = nll_at_temperature(row, temperature)
-            oof_brier[i] = float(((p - np.eye(len(p))[row["label"]]) ** 2).sum())
-    full = metrics(clean)
-    raw = {k: full[k] for k in ("n", "ece", "brier", "nll", "confident_error_rate", "coverage_at_5pct_error")}
-    out_of_fold = {"n": len(clean), "ece": ece(oof_conf, correct), "brier": float(oof_brier.mean()), "nll": float(oof_nll.mean()),
-                   "confident_error_rate": float(np.mean((oof_conf >= 0.9) & ~correct)),
-                   "coverage_at_5pct_error": coverage_at_error(oof_conf, correct, 0.05)}
+            oof[i] = tempered_row(clean[i], temperature)
+    keys = ("n", "ece", "brier", "nll", "confident_error_rate", "coverage_at_5pct_error")
+    raw, out_of_fold = metrics(clean), metrics(oof)
+    correct = np.asarray([np.argmax(row["p"]) == row["label"] for row in clean])   # argmax is temperature-invariant
+    conf = np.asarray([[max(row["p"]) for row in rows] for rows in (clean, oof)])
     sources = _source_groups(clean)
     rng = np.random.default_rng(seed)
-    values = np.empty((samples, 3))
+    values = np.empty((samples, 2))
     for s in range(samples):
         drawn = np.concatenate([grouped[i] for grouped in sources.values() for i in rng.integers(0, len(grouped), size=len(grouped))])
-        values[s, 0], values[s, 1] = ece(raw_conf[drawn], correct[drawn]), ece(oof_conf[drawn], correct[drawn])
-        values[s, 2] = values[s, 1] - values[s, 0]
-    lo_raw, hi_raw = np.quantile(values[:, 0], [0.025, 0.975])
-    lo_oof, hi_oof = np.quantile(values[:, 1], [0.025, 0.975])
-    lo_delta, hi_delta = np.quantile(values[:, 2], [0.025, 0.975])
-    return {"raw": raw, "out_of_fold": out_of_fold,
-            "ece_ci95": {"raw": [float(lo_raw), float(hi_raw)], "out_of_fold": [float(lo_oof), float(hi_oof)],
-                         "delta": [float(lo_delta), float(hi_delta)]},
-            "separated": bool(hi_delta < 0 or lo_delta > 0), "temperatures": temperatures,
-            "folds": folds, "seed": seed, "samples": samples, "groups": len(units),
-            "fold_of": [{"source": source, "group": group, "fold": fold} for (source, group), fold in fold_of.items()],
+        values[s] = [ece(conf[0][drawn], correct[drawn]), ece(conf[1][drawn], correct[drawn])]
+    ci = {name: np.quantile(v, [0.025, 0.975]).tolist() for name, v in (("raw", values[:, 0]), ("out_of_fold", values[:, 1]), ("delta", values[:, 1] - values[:, 0]))}
+    return {"raw": {k: raw[k] for k in keys}, "out_of_fold": {k: out_of_fold[k] for k in keys}, "ece_ci95": ci,
+            "separated": bool(ci["delta"][1] < 0 or ci["delta"][0] > 0), "temperatures": temperatures,
+            "folds": folds, "seed": seed, "samples": samples, "groups": sum(len(v) for v in sources.values()),
             "unit": "source-stratified (source, group); sibling questions and variants stay together"}
 
 
@@ -284,9 +288,7 @@ def paired_bootstrap(candidate, reference, samples=1000, seed=0, metric="nll", a
 
     def index(rows):
         out = {}
-        for r in rows:
-            if r["variant"] != "clean" or r["source"] == "unknowable":
-                continue
+        for r in scored_rows(rows):
             key = r["id"], r["question"]
             if key in out:
                 raise ValueError("duplicate paired example")

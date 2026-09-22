@@ -8,21 +8,15 @@ be checked against held-out records; the value written is always the full-develo
 Fitting on the development partition only (never on transfer or test); the optional --transfer rows are reported, not fitted.
 Argmax never changes; accuracy is identical before and after. KEV_TEMPERATURE=1.0 restores raw logits at load time.
 """
-import argparse, json, sys
+import argparse, sys
 from pathlib import Path
 
-import numpy as np
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kev.metrics import cross_validated_temperature, metrics  # noqa: E402
+from kev.metrics import cross_validated_temperature, fit_temperature, metrics  # noqa: E402
 from kev.checkpoint import read_meta, write_meta  # noqa: E402
-from kev.suite import read_json, write_json
+from kev.suite import read_json  # noqa: E402
 
-GRID = np.exp(np.linspace(np.log(0.25), np.log(4), 121))
-
-
-def fit(rows):
-    return float(GRID[int(np.argmin([metrics(rows, float(t))["nll"] for t in GRID]))])
+FIT = {"aggregation": "micro", "points": 121}   # min mean NLL over a 121-point log grid on 0.25..4: how every released temperature was fitted
 
 
 def main():
@@ -33,7 +27,7 @@ def main():
     ap.add_argument("--folds", type=int, default=5); ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
     dev = [r for r in read_json(a.rows) if r["variant"] == "clean"]
-    T = a.temperature or fit(dev)
+    T = a.temperature or fit_temperature(dev, **FIT)
     for name, rows in (("development", dev), *((("transfer", [r for r in read_json(a.transfer) if r["variant"] == "clean"]),) if a.transfer else ())):
         raw, cal = metrics(rows), metrics(rows, T)
         print(f"{name:12} T={T:.2f}  acc {raw['acc']:.3f} -> {cal['acc']:.3f} | brier {raw['brier']:.3f} -> {cal['brier']:.3f} | ece {raw['ece']:.3f} -> {cal['ece']:.3f} | conf-err {raw['confident_error_rate']:.3f} -> {cal['confident_error_rate']:.3f} | cov@5% {raw['coverage_at_5pct_error']:.2f} -> {cal['coverage_at_5pct_error']:.2f}")
@@ -43,16 +37,14 @@ def main():
         meta.extra["temperature_fit"] = {"method": "manual"}
         write_meta(a.run, meta); print(f"wrote temperature {T:.2f} to {a.run}/head.pt")
         return
-    cv = cross_validated_temperature(dev, fit=fit, folds=a.folds, seed=a.seed)
+    cv = cross_validated_temperature(dev, folds=a.folds, seed=a.seed, **FIT)
     ci = cv["ece_ci95"]
-    fold_map = cv.pop("fold_of")
     temperatures = ", ".join(f"{t:.2f}" for t in cv["temperatures"])
     print(f"development  OOF T=[{temperatures}] ece raw {cv['raw']['ece']:.3f} [{ci['raw'][0]:.3f}, {ci['raw'][1]:.3f}]"
           f" -> oof {cv['out_of_fold']['ece']:.3f} [{ci['out_of_fold'][0]:.3f}, {ci['out_of_fold'][1]:.3f}]"
           f"  delta [{ci['delta'][0]:.3f}, {ci['delta'][1]:.3f}] separated={cv['separated']}")
     meta.extra["temperature_fit"] = {"rows": a.rows, "n": len(dev), "method": "min NLL over a 121-point log grid 0.25..4", "cross_validation": cv}
     write_meta(a.run, meta); print(f"wrote temperature {T:.2f} to {a.run}/head.pt")
-    write_json(Path(a.run) / "calibration_folds.json", fold_map)
 
 
 if __name__ == "__main__":
