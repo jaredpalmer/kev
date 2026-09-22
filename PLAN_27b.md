@@ -1,6 +1,16 @@
 # Plan: a bigger Kev — Qwen3.8-27B, question-side LoRA, long documents
 
-Status: **proposal, 2026-09-21.** Nothing here has been started. Written after reading [DoccyHealth/Solomon](https://huggingface.co/DoccyHealth/Solomon) (card and code), [Bonsai 2 27B](https://x.com/PrismML/status/2100692248480596348), Archer Hume's release thread ([1](https://x.com/4rcherhume/status/2101888238357237798), [2](https://x.com/4rcherhume/status/2101965358047596823)), and the night-2 results in [`PLAN.md`](PLAN.md). Budget assumption: Modal credits up to $10k; this plan uses ~$3–4k and says where each dollar goes. Every number below is either ours (linked to a result file) or theirs (linked to the card). Working notes: [`scratchpad.txt`](scratchpad.txt).
+Status: **proposal, 2026-09-21; gated on [`PLAN.md` Round 4](PLAN.md#round-4--current-architecture-levers-before-the-27b-registered-2026-09-22) as of 2026-09-22.** Nothing here has been started. Written after reading [DoccyHealth/Solomon](https://huggingface.co/DoccyHealth/Solomon) (card and code), [Bonsai 2 27B](https://x.com/PrismML/status/2100692248480596348), Archer Hume's release thread ([1](https://x.com/4rcherhume/status/2101888238357237798), [2](https://x.com/4rcherhume/status/2101965358047596823)), and the night-2 results in [`PLAN.md`](PLAN.md). Budget assumption: Modal credits up to $10k; this plan uses ~$3–4k and says where each dollar goes. Every number below is either ours (linked to a result file) or theirs (linked to the card). Working notes were in `scratchpad.txt` (deleted; in git history up to f3bae08).
+
+## Gating addendum (2026-09-22, after the Solomon / SemIf comparison)
+
+Round 4 in `PLAN.md` runs every cheap lever at the current sizes first. Three of its results change this plan and must be read before Phase A spends anything:
+
+- **Which base to pin (4.8).** If the post-trained `Qwen/Qwen3.5-9B` keeps its date arithmetic through Kev training, B1 pins a post-trained 27B with evidence instead of by analogy to the 35B-A3B, and A1 (question-side LoRA as a way to protect base skills) drops in priority — the cheaper protection is the base itself. If it erodes like the Base checkpoints, A1 becomes the first Phase-A run.
+- **What the probe must contain (A2).** SemIf reports zero-shot Qwen3.8-27B at 0.958 balanced accuracy on its authored-144 vs 0.813 for zero-shot 4B; trained Kev-4B scores 0.847 there ([`runs/kev-4b-semif-v1`](runs/kev-4b-semif-v1/report.json)). The A2 probe therefore scores `evals/external/semif-v1` and `evals/external/wanli-v1` alongside `transfer-v4`/`v9`, and the Phase-B gate adds: authored-144 ≥ 0.90 zero-shot. A base ceiling matters more there than on our synthetic transfer set.
+- **What long context costs (4.12).** The 4B long-state delta reports the short-state accuracy cost of lifting `MAX_STATE`; B2's budget is sized from that curve, not assumed.
+
+Struck from §5: "calibration in training rather than after it" — the round-3 matched loss screen was negative ([`PLAN.md`](PLAN.md#round-3-screening-result--stopped-at-the-registered-gate)); the remaining calibration levers are ordering (round-4 4.9 soft targets, 4.10 reliability head) and per-workload temperature at the deployer (4.1). Kept from the Solomon reading and still true: MMLU 72.9 vs base 71.8 at 27B — do not sell B1 on knowledge.
 
 ## Review addendum (after the calibration audit)
 
