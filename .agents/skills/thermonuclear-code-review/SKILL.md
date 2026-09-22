@@ -35,7 +35,7 @@ standards to *this* repository.
 | default device / sync / empty_cache / allocated_bytes | `kev/device.py` |
 | read/write JSON and JSONL as UTF-8 (`read_json`, `read_jsonl`, `write_json`, `write_jsonl`), read a manifest, sha256 a file, load a split, trainable/eval-only policy (`validate_training`), `semantic_hash`, `SYNTHETIC_SOURCES` | `kev/suite.py` |
 | labelled request -> API request / internal record | `kev.data.api_request`, `kev.data.materialize` |
-| selective-prediction metrics, the rows metrics run on (`scored_rows`), a row at another temperature (`tempered_row`), temperature fit (`fit_temperature`, `points=` for the grid), group-disjoint folds and out-of-fold calibration (`grouped_folds`, `cross_validated_temperature`), paired bootstrap | `kev/metrics.py` |
+| selective-prediction metrics, the rows metrics run on (`scored_rows`), a row at another temperature (`tempered_row`) and back to T=1 (`raw_row`), temperature fit (`fit_temperature`; the shipped grid is `TEMPERATURE_FIT`), group-disjoint folds and out-of-fold calibration (`grouped_folds`, `out_of_fold_rows`, `cross_validated_temperature`); per-workload report `kev.calibrate`, paired bootstrap | `kev/metrics.py` |
 | predictors (local checkpoint, remote System One endpoint, Jev) | `kev/predictors.py` |
 | rows from predictions, `summarize`, `evaluate_records` | `kev/benchmark.py` |
 | research gates and thresholds | `kev.experiment.GATES`, `gate_report` |

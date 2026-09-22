@@ -189,9 +189,10 @@ def grouped_metrics(rows, key, temperature=1.0):
 
 def tempered_row(row, temperature):
     """The row as a calibrated predictor would have returned it: probabilities and logits at `temperature`, so metrics()
-    at T=1 scores it (per-row temperatures, e.g. out-of-fold, cannot go through metrics(rows, T))."""
+    at T=1 scores it (per-row temperatures, e.g. out-of-fold, cannot go through metrics(rows, T)). The recorded
+    inference_temperature composes (served at T, tempered by T' -> T * T'), so raw_row always restores the T=1 logits."""
     return {**row, "p": probabilities_at_temperature(row, temperature).tolist(), "logits": _tempered_logits(row, temperature).tolist(),
-            "inference_temperature": temperature}
+            "inference_temperature": row.get("inference_temperature", 1.0) * temperature}
 
 
 def raw_row(row):
@@ -214,8 +215,10 @@ def scored_rows(rows):
 
 
 # how every released temperature was fitted (scripts/calibrate_checkpoint.py) and how kev.calibrate fits a workload's:
-# min mean NLL over a 121-point log grid on 0.25..4, every question weighted equally
+# min mean NLL over a 121-point log grid on 0.25..4, every question weighted equally. Research trials (kev.experiment) and
+# the kev-finetune skill keep the default 81-point grid: their temperatures are screening reports, not shipped values.
 TEMPERATURE_FIT = {"aggregation": "micro", "points": 121}
+TEMPERATURE_FIT_METHOD = f"min {TEMPERATURE_FIT['aggregation']} mean NLL over a {TEMPERATURE_FIT['points']}-point log grid 0.25..4"
 
 
 def fit_temperature(rows, aggregation="macro", points=81):

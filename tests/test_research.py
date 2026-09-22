@@ -502,6 +502,16 @@ def test_raw_row_inverts_the_served_temperature():
         fit_temperature([served])
     with pytest.raises(ValueError, match="recorded none"):
         raw_row({"p": [0.6, 0.4], "inference_temperature": 2.0})
+    twice = tempered_row(served, 1.5)                        # a second temperature composes, and raw_row still restores T=1
+    assert twice["inference_temperature"] == pytest.approx(2.3 * 1.5) and np.allclose(raw_row(twice)["p"], raw["p"])
+
+
+def test_workload_report_refuses_rows_without_logits():
+    from kev.calibrate import workload_report
+    rows = [{"id": str(i), "source": "jev", "group": f"g{i}", "task": "t", "type": "choice", "variant": "clean",
+             "question": "q", "keys": ["x", "y"], "label": 0, "p": [0.7, 0.3]} for i in range(10)]
+    with pytest.raises(ValueError, match="logits"):
+        workload_report(rows, folds=2, samples=10)
 
 
 def test_workload_report_recovers_a_shared_temperature_and_keeps_accuracy():

@@ -12,7 +12,7 @@ import argparse, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kev.metrics import TEMPERATURE_FIT as FIT, cross_validated_temperature, fit_temperature, metrics  # noqa: E402
+from kev.metrics import TEMPERATURE_FIT as FIT, TEMPERATURE_FIT_METHOD, cross_validated_temperature, fit_temperature, metrics  # noqa: E402
 from kev.checkpoint import read_meta, write_meta  # noqa: E402
 from kev.suite import read_json  # noqa: E402
 
@@ -41,7 +41,7 @@ def main():
     print(f"development  OOF T=[{temperatures}] ece raw {cv['raw']['ece']:.3f} [{ci['raw'][0]:.3f}, {ci['raw'][1]:.3f}]"
           f" -> oof {cv['out_of_fold']['ece']:.3f} [{ci['out_of_fold'][0]:.3f}, {ci['out_of_fold'][1]:.3f}]"
           f"  delta [{ci['delta'][0]:.3f}, {ci['delta'][1]:.3f}] separated={cv['separated']}")
-    meta.extra["temperature_fit"] = {"rows": a.rows, "n": len(dev), "method": "min NLL over a 121-point log grid 0.25..4", "cross_validation": cv}
+    meta.extra["temperature_fit"] = {"rows": a.rows, "n": len(dev), "method": TEMPERATURE_FIT_METHOD, "cross_validation": cv}
     write_meta(a.run, meta); print(f"wrote temperature {T:.2f} to {a.run}/head.pt")
 
 

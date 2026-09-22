@@ -28,6 +28,9 @@ def workload_report(rows, folds=5, seed=0, samples=1000):
     served = scored_rows(rows)
     if not served:
         raise ValueError("no clean, knowable rows to calibrate")
+    if any("logits" not in row or "inference_temperature" not in row for row in served):
+        raise ValueError("rows without recorded logits and inference_temperature (remote or Jev predictions): a fit would be "
+                         "relative to the served probabilities, not the checkpoint's raw logits")
     raw = [raw_row(row) for row in served]
     temperature = fit_temperature(raw, **TEMPERATURE_FIT)
     oof, fold_temperatures = out_of_fold_rows(raw, folds, seed, **TEMPERATURE_FIT)
