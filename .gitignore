@@ -86,6 +86,8 @@ runs/*/*
 !runs/*/longstate.json
 !runs/r4-*longstate*/rows.json
 !runs/r4-*-ls/rows.json
+# the soft-target Kev-9B release confirmation: every input scripts/release_confirm.py reads
+!runs/rc-*/rows.json
 !runs/*/*/
 runs/*/*/*
 !runs/*/*/result.json
@@ -119,3 +121,10 @@ skills/kev-finetune/runs/
 evals/round4/longstate-v1/train.jsonl
 evals/round4/distill-9b-v1/soft.jsonl
 evals/round4/distill-9b-v1/hard.jsonl
+# release confirmation (scripts/release_confirm.py): the three arms' development rows its temperatures are fitted on
+!runs/r4-soft/00-trial-0/development/
+!runs/r4-soft/00-trial-0/development/rows.json
+!runs/r4-deltas/01-trial-1/development/
+!runs/r4-deltas/01-trial-1/development/rows.json
+!runs/night2-9b-du/00-trial-0/development/
+!runs/night2-9b-du/00-trial-0/development/rows.json
