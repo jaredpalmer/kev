@@ -1,10 +1,11 @@
 """MLX backend parity and latency against the fp32 torch path, on this Mac.
 
     uv run --extra mlx python scripts/mlx_parity.py --run jaredpalmer/kev-0.8b --n 60
-    uv run --extra mlx python scripts/mlx_parity.py --run jaredpalmer/kev-4b --n 40 --out runs/mlx-parity-4b.json
+    uv run --extra mlx python scripts/mlx_parity.py --run jaredpalmer/kev-4b --n 40 --out runs/mlx-parity-4b/report.json
 
 For n clean development records of decision-v7: probabilities from MLX (full pass, prefix pass, each question alone) vs
-the torch fp32 path (max |dp|, argmax flips, calibrated), and median latency of each path. Writes a JSON report.
+the torch fp32 path (max |dp|, argmax flips, calibrated), and median latency of each path. Writes a JSON report
+(runs/<name>/report.json is kept by .gitignore; runs/mlx-parity-{4b,0.8b} hold the numbers the README quotes).
 """
 import argparse, gc, json, statistics, time
 
