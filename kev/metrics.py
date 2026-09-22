@@ -206,6 +206,70 @@ def fit_temperature(rows, aggregation="macro"):
     return float(candidates[int(np.argmin(losses))])
 
 
+def _source_groups(rows):
+    """dict[source, list[np.ndarray of row indices]]: one array per (source, group) cluster, in first-seen order."""
+    groups = defaultdict(list)
+    for i, row in enumerate(rows):
+        groups[(row["source"], row["group"])].append(i)
+    sources = defaultdict(list)
+    for (source, _), indices in groups.items():
+        sources[source].append(np.asarray(indices, dtype=int))
+    return sources
+
+
+def cross_validated_temperature(rows, fit=fit_temperature, folds=5, seed=0, samples=1000):
+    """Out-of-fold calibration report. Folds are disjoint in (source, group) so sibling questions and variants of one
+    record never straddle train/test; each fold's temperature is fit on the other folds and applied to the held-out rows.
+    Bootstrap resamples source-stratified groups (the same unit as paired_bootstrap) and reports raw vs out-of-fold ECE
+    with a 95% interval on the paired delta; `separated` is True when that interval excludes zero."""
+    if folds < 2 or samples < 1:
+        raise ValueError("folds must be >= 2 and samples >= 1")
+    clean = [row for row in rows if row["variant"] == "clean" and row["source"] != "unknowable"]
+    units = sorted({(row["source"], row["group"]) for row in clean})
+    if len(units) < folds:
+        raise ValueError("fewer distinct (source, group) units than folds")
+    rng = np.random.default_rng(seed)
+    permutation = rng.permutation(len(units))
+    fold_of = {f"{units[permutation[i]][0]}/{units[permutation[i]][1]}": i % folds for i in range(len(units))}
+    fold_id = np.asarray([fold_of[f"{row['source']}/{row['group']}"] for row in clean])
+    correct = np.asarray([np.argmax(row["p"]) == row["label"] for row in clean], dtype=bool)
+    raw_conf = np.asarray([float(max(row["p"])) for row in clean])
+    oof_conf, oof_nll, oof_brier = (np.empty(len(clean)) for _ in range(3))
+    temperatures = []
+    for fold in range(folds):
+        held = fold_id == fold
+        temperature = fit([row for row, out in zip(clean, held) if not out])
+        temperatures.append(float(temperature))
+        for i in np.flatnonzero(held):
+            row = clean[i]
+            p = probabilities_at_temperature(row, temperature)
+            assert int(p.argmax() == row["label"]) == int(np.argmax(row["p"]) == row["label"])
+            oof_conf[i] = float(p.max())
+            oof_nll[i] = nll_at_temperature(row, temperature)
+            oof_brier[i] = float(((p - np.eye(len(p))[row["label"]]) ** 2).sum())
+    keys = ("n", "ece", "brier", "nll", "confident_error_rate", "coverage_at_5pct_error")
+    raw = {k: metrics(clean)[k] for k in keys}
+    out_of_fold = {"n": len(clean), "ece": ece(oof_conf, correct), "brier": float(oof_brier.mean()), "nll": float(oof_nll.mean()),
+                   "confident_error_rate": float(np.mean((oof_conf >= 0.9) & ~correct)),
+                   "coverage_at_5pct_error": coverage_at_error(oof_conf, correct, 0.05)}
+    sources = _source_groups(clean)
+    rng = np.random.default_rng(seed)
+    values = np.empty((samples, 3))
+    for s in range(samples):
+        drawn = np.concatenate([grouped[i] for grouped in sources.values() for i in rng.integers(0, len(grouped), size=len(grouped))])
+        values[s, 0], values[s, 1] = ece(raw_conf[drawn], correct[drawn]), ece(oof_conf[drawn], correct[drawn])
+        values[s, 2] = values[s, 1] - values[s, 0]
+    lo_raw, hi_raw = np.quantile(values[:, 0], [0.025, 0.975])
+    lo_oof, hi_oof = np.quantile(values[:, 1], [0.025, 0.975])
+    lo_delta, hi_delta = np.quantile(values[:, 2], [0.025, 0.975])
+    return {"raw": raw, "out_of_fold": out_of_fold,
+            "ece_ci95": {"raw": [float(lo_raw), float(hi_raw)], "out_of_fold": [float(lo_oof), float(hi_oof)],
+                         "delta": [float(lo_delta), float(hi_delta)]},
+            "separated": bool(hi_delta < 0 or lo_delta > 0), "temperatures": temperatures,
+            "folds": folds, "seed": seed, "samples": samples, "groups": len(units), "fold_of": fold_of,
+            "unit": "source-stratified (source, group); sibling questions and variants stay together"}
+
+
 def paired_bootstrap(candidate, reference, samples=1000, seed=0, metric="nll", aggregation="macro"):
     nonlinear = {"coverage_at_5pct_error", "coverage_at_1pct_error", "aurc", "ece"}   # recomputed on every resample
     additive = metric not in nonlinear                                                  # else a mean of _row_scores
@@ -227,17 +291,13 @@ def paired_bootstrap(candidate, reference, samples=1000, seed=0, metric="nll", a
     if not a or a.keys() != b.keys():
         raise ValueError("paired comparison requires identical complete clean examples")
     keys = sorted(a)
-    groups = defaultdict(list)
-    for i, key in enumerate(keys):
+    for key in keys:
         row, other = a[key], b[key]
         if row["keys"] != other["keys"] or row["label"] != other["label"]:
             raise ValueError("paired comparison labels or option order differ")
         if any(row[field] != other[field] for field in ("source", "group", "task", "type")):
             raise ValueError("paired comparison group or task metadata differ")
-        groups[(row["source"], row["group"])].append(i)
-    sources = defaultdict(list)
-    for (source, _), indices in groups.items():
-        sources[source].append(np.asarray(indices, dtype=int))
+    sources = _source_groups([a[key] for key in keys])
     task_names = np.asarray([a[key]["task"] for key in keys])
     statistics = []
     for indexed in (a, b):
@@ -268,6 +328,6 @@ def paired_bootstrap(candidate, reference, samples=1000, seed=0, metric="nll", a
         drawn = [units[i] for units in sources.values() for i in rng.integers(0, len(units), size=len(units))]
         values.append(delta(np.concatenate(drawn)))
     return {f"{aggregation}_{metric}_delta": delta(np.arange(len(keys))), "ci95": np.quantile(values, [0.025, 0.975]).tolist(),
-            "samples": samples, "groups": len(groups), "aggregation": aggregation,
+            "samples": samples, "groups": sum(len(v) for v in sources.values()), "aggregation": aggregation,
             "unit": "source-stratified original record; sibling questions stay together",
             "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"}

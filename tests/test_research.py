@@ -434,6 +434,38 @@ def test_temperature_fit_requires_raw_rows_and_uses_true_logit_nll():
         fit_temperature([{**row, "inference_temperature": 2.0}])
 
 
+def test_cross_validated_temperature_is_group_disjoint_and_reports_intervals():
+    import numpy as np
+    from kev.metrics import cross_validated_temperature
+    weights = np.exp([3.0, 0.0]); p = (weights / weights.sum()).tolist()
+    rows = []
+    for source in ("a", "b"):
+        for group in range(10):
+            for _ in range(2):
+                i = len(rows)
+                rows.append({"id": str(i), "source": source, "group": f"g{group}", "task": "t", "type": "choice",
+                             "variant": "clean", "question": "q", "keys": ["x", "y"],
+                             "label": 1 if i % 4 == 3 else 0, "logits": [3.0, 0.0], "p": p, "inference_temperature": 1.0})
+    result = cross_validated_temperature(rows, folds=5, samples=200)
+    assert len(result["fold_of"]) == 20 and set(result["fold_of"].values()) <= set(range(5))
+    for source in ("a", "b"):
+        for group in range(10):
+            assert f"{source}/g{group}" in result["fold_of"]
+    assert len(result["temperatures"]) == 5 and all(t > 1 for t in result["temperatures"])
+    assert result["out_of_fold"]["ece"] < result["raw"]["ece"]
+    lo, hi = result["ece_ci95"]["delta"]
+    assert lo <= hi and isinstance(result["separated"], bool)
+    assert result["raw"]["n"] == result["out_of_fold"]["n"] == 40
+
+
+def test_cross_validated_temperature_rejects_too_few_groups():
+    from kev.metrics import cross_validated_temperature
+    rows = [{"id": str(i), "source": "a", "group": f"g{i}", "task": "t", "type": "choice", "variant": "clean",
+             "label": 0, "logits": [1.0, 0.0], "p": [0.73, 0.27], "inference_temperature": 1.0} for i in range(3)]
+    with pytest.raises(ValueError, match="fewer"):
+        cross_validated_temperature(rows, folds=5)
+
+
 def test_training_plan_matches_registered_screen():
     import json
     from pathlib import Path
