@@ -269,12 +269,13 @@ def base_probe(bases: str, suite: str = "evals/v4/transfer-v4", tasks: str = "al
 
 
 @app.local_entrypoint()
-def benchmarks(jobs: str, gpu: str = GPU):
+def benchmarks(jobs: str, gpu: str = GPU, timeout: int = 3600):
     """Score checkpoints on suites or --data .jsonl files: comma-separated run@suite@name[@flags] entries, e.g.
     "jaredpalmer/kev-9b@evals/external/semif-v1@kev-9b-semif,/runs/X/00-trial-0/checkpoint@evals/v9/transfer-v9@x-v9@--date_facts".
-    Results are pulled to runs/<name>."""
+    Results are pulled to runs/<name>. Raise --timeout for long-state suites: fp32 evaluation of a 9B on 6k-token rows
+    takes over an hour for ~900 records."""
     entries = [(j.split("@") + [""])[:4] for j in jobs.split(",")]
-    for (run, suite, name, _), result in zip(entries, run_bench.with_options(gpu=gpu).starmap(entries, return_exceptions=True)):
+    for (run, suite, name, _), result in zip(entries, run_bench.with_options(gpu=gpu, timeout=timeout).starmap(entries, return_exceptions=True)):
         if isinstance(result, Exception): print(f"{name}: FAILED {type(result).__name__}: {str(result)[:300]}"); continue
         pull_volume(f"/bench/{name}", ROOT / "runs")
         print(f"{name}: acc {result['acc']:.3f} brier {result['brier']:.3f}")
