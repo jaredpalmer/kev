@@ -21,7 +21,7 @@ from kev.data import api_request, load_records
 from kev.device import default_device
 from kev.metrics import EPSILON, grouped_metrics, metrics, unknowable_report
 from kev.model import ContextOverflow
-from kev.predictors import LocalPredictor, RemotePredictor
+from kev.predictors import LocalPredictor, RemotePredictor, RotationAveraged
 from kev.suite import CONTEXT, ENCODING, digest, load_split, read_manifest, record_digest, write_json
 
 
@@ -154,8 +154,10 @@ def main():
     ap.add_argument("--device", choices=["cpu", "mps", "cuda"], default=default_device())
     ap.add_argument("--allow-test", action="store_true")
     ap.add_argument("--date_facts", action="store_true", help="apply kev.api.with_date_facts to every state before scoring (the opt-in serving preprocessor); reported in report.json")
+    ap.add_argument("--rotations", type=int, default=1, help="average every Choice question over this many cyclic option rotations (kev.predictors.RotationAveraged); 1 = one order")
     a = ap.parse_args()
     if bool(a.run) == bool(a.remote): ap.error("give exactly one of --run or --remote")
+    if a.rotations < 1: ap.error("--rotations must be >= 1")
     if bool(a.suite) == bool(a.data): ap.error("give exactly one of --suite or --data")
     if a.data:
         records, heldout, split, source_hash = load_records(a.data), [], "custom", digest(Path(a.data))
@@ -169,8 +171,9 @@ def main():
     if a.date_facts:
         records = [{**r, "state": with_date_facts(r["state"])} for r in records]
     predictor = RemotePredictor(a.remote, a.remote_model, os.environ.get("KEV_REMOTE_API_KEY", "local")) if a.remote else LocalPredictor(a.run, a.device, LoadOptions.from_env(), context=context)
-    report, _ = evaluate_records(records, predictor, a.out, heldout_sources=tuple(heldout), skip_overlong=skip_overlong)
-    report.update(suite_sha256=source_hash, data=a.data, date_facts=a.date_facts, run=a.run or a.remote, split=split,
+    scorer = RotationAveraged(predictor, a.rotations) if a.rotations > 1 else predictor
+    report, _ = evaluate_records(records, scorer, a.out, heldout_sources=tuple(heldout), skip_overlong=skip_overlong)
+    report.update(suite_sha256=source_hash, data=a.data, date_facts=a.date_facts, rotations=a.rotations, run=a.run or a.remote, split=split,
                   calibration_applied=predictor.temperature != 1.0 if not a.remote else None,
                   remote={"base_url": a.remote, "requested_model": a.remote_model, "served_model": predictor.served_model} if a.remote else None)
     write_json(Path(a.out) / "report.json", report)

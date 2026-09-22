@@ -95,6 +95,46 @@ class RemotePredictor:
 PRICE_PER_MILLION = 0.042   # Jev list price per million input tokens, for the budget cap
 
 
+class RotationAveraged:
+    """Test-time order averaging (PLAN.md round 4, item 4.4): score the record under the first `rotations` cyclic
+    rotations of every Choice question's options (rotation r of a K-option question is r mod K; Noul and Score keep their
+    order, which is part of their meaning) and average the logits per option key. The geometric mean of softmax
+    probabilities is the softmax of the mean logits, so the returned probabilities and logits stay consistent; predictors
+    that return no logits are averaged in log-probability space. Costs `rotations` forward passes per record."""
+
+    def __init__(self, predictor, rotations):
+        if rotations < 2:
+            raise ValueError("rotation averaging needs at least 2 rotations")
+        self.predictor, self.rotations = predictor, rotations
+        self.temperature = getattr(predictor, "temperature", None)
+
+    @staticmethod
+    def rotated(record, r):
+        def rotate(q):
+            if q["type"] != "choice": return q
+            keys = list(q["criteria"]); k = r % len(keys)
+            return {**q, "criteria": {key: q["criteria"][key] for key in keys[k:] + keys[:k]}}
+        return {**record, "questions": {qid: rotate(q) for qid, q in record["questions"].items()}}
+
+    def __call__(self, record):
+        widest = max((len(q["criteria"]) for q in record["questions"].values() if q["type"] == "choice"), default=1)
+        preds = [self.predictor(self.rotated(record, r)) for r in range(min(self.rotations, widest))]
+        field = "logits" if all("logits" in p for p in preds) else "probabilities"
+        out = {"probabilities": {}, "latency_ms": sum(p["latency_ms"] for p in preds), "rotations": len(preds)}
+        if field == "logits":
+            out["logits"] = {}; out["inference_temperature"] = preds[0]["inference_temperature"]
+        for qid in record["questions"]:
+            keys = list(preds[0]["probabilities"][qid])
+            if field == "logits":
+                z = {k: sum(p["logits"][qid][k] for p in preds) / len(preds) for k in keys}
+            else:
+                z = {k: sum(math.log(max(p["probabilities"][qid][k], 1e-12)) for p in preds) / len(preds) for k in keys}
+            top = max(z.values()); e = {k: math.exp(v - top) for k, v in z.items()}; s = sum(e.values())
+            out["probabilities"][qid] = {k: v / s for k, v in e.items()}
+            if field == "logits": out["logits"][qid] = z
+        return out
+
+
 class JevPredictor:
     """Jev through the AI SDK worker (playground/scripts/jev-evaluate.mjs); every call is counted against a token budget."""
     def __init__(self, key, budget=0.1, max_calls=700):

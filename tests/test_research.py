@@ -818,3 +818,32 @@ def test_semif_external_suites_are_frozen_as_scored(suite, rows, tasks):
             top = sorted(target.values(), reverse=True)
             assert top[0] > top[1], r["_meta"]["id"]
             assert set(target) == set(r["questions"]["decision"]["criteria"])
+
+
+def test_rotation_averaging_cancels_a_position_bias():
+    import math
+    from kev.api import question_keys
+    from kev.predictors import RotationAveraged
+    content = {"a": 1.0, "b": 0.0, "c": -1.0}; position = [2.0, 0.0, 0.0]         # the first slot is favoured by +2 logits
+
+    def biased(record):
+        out = {"probabilities": {}, "logits": {}, "inference_temperature": 1.0, "latency_ms": 1.0}
+        for qid, q in record["questions"].items():
+            keys = question_keys(q["type"], q.get("criteria"))
+            z = {k: (content.get(k, 0.0) + position[i] if q["type"] == "choice" else float(i)) for i, k in enumerate(keys)}
+            s = sum(math.exp(v) for v in z.values())
+            out["logits"][qid] = z; out["probabilities"][qid] = {k: math.exp(v) / s for k, v in z.items()}
+        return out
+
+    record = {"state": "s", "questions": {"c": {"type": "choice", "criteria": {"a": None, "b": None, "c": None}}, "n": {"type": "noul"}}}
+    shifted = RotationAveraged.rotated(record, 1)
+    assert list(shifted["questions"]["c"]["criteria"]) == ["b", "c", "a"] and shifted["questions"]["n"] == record["questions"]["n"]
+    avg = RotationAveraged(biased, 3)
+    one, other = avg(record), avg(shifted)
+    assert one["rotations"] == 3 and one["latency_ms"] == 3.0
+    for k in "abc":                                                               # order no longer matters after a full cycle
+        assert one["probabilities"]["c"][k] == pytest.approx(other["probabilities"]["c"][k])
+    z = one["logits"]["c"]; assert z["a"] - z["b"] == pytest.approx(1.0) and z["b"] - z["c"] == pytest.approx(1.0)   # the bias is a constant
+    assert one["probabilities"]["n"] == pytest.approx(biased(record)["probabilities"]["n"])   # noul untouched
+    with pytest.raises(ValueError):
+        RotationAveraged(biased, 1)
