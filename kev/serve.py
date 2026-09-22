@@ -4,8 +4,9 @@ Run: uv run --extra serve python -m kev.serve --run runs/kev --port 8008
 
 TypeSafe-compatible: POST /v1/systemone, GET /v1/models (no auth). Demo extras: POST /v1/systemone/permute (one Choice
 under several option orders) and POST /v1/systemone/separate (each question in its own pass, for the packed-vs-separate
-comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS size the state-prefix KV cache; KEV_DATE_FACTS=1 opts into the
-date preprocessing (api.with_date_facts).
+comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS size the state-prefix cache; KEV_DATE_FACTS=1 opts into the
+date preprocessing (api.with_date_facts). Backend and precision follow LoadOptions (KEV_BACKEND, KEV_DTYPE, ...): on Apple
+Silicon the hybrid Qwen3.5 checkpoints run on MLX by default, elsewhere on torch in bf16.
 """
 import argparse, os, random, threading, time
 import torch
@@ -20,7 +21,7 @@ from .device import default_device, sync
 # inference limits (training used 384/1024); per-branch cap mirrors Jev's ~32k, bounded by the base model window
 INFER_MAX_STATE, INFER_MAX_BRANCH = 8192, 8192
 PREFIX_CACHE_SIZE = int(os.environ.get("KEV_PREFIX_CACHE", "4"))          # states kept (KV + hidden); 0 disables
-PREFIX_MIN_TOKENS = int(os.environ.get("KEV_PREFIX_MIN_TOKENS", "384"))   # below this the branch-only pass is not faster on MPS (per-op overhead dominates)
+PREFIX_MIN_TOKENS = os.environ.get("KEV_PREFIX_MIN_TOKENS")               # states shorter than this are not cached; default = the model's prefix_min_tokens (0 for hybrid backbones and MLX, 384 for attention-only torch models)
 DATE_FACTS = os.environ.get("KEV_DATE_FACTS", "0") == "1"
 
 
@@ -36,6 +37,10 @@ class Server:
     prefix_hits: int = 0
     prefix_misses: int = 0
 
+    @property
+    def prefix_min_tokens(self):
+        return int(PREFIX_MIN_TOKENS) if PREFIX_MIN_TOKENS else self.model.prefix_min_tokens
+
     def probs(self, rec):
         """One forward pass. The state prefix (tokens up to the first question) is cached across requests, so a repeated
         state only pays for its question branches. Exact: the state's activations do not depend on the branches."""
@@ -45,7 +50,7 @@ class Server:
         cache, hit = self.prefix_cache, False
         with self.lock:
             sync(self.device); t = time.time()
-            eligible = PREFIX_CACHE_SIZE and Ls >= PREFIX_MIN_TOKENS
+            eligible = PREFIX_CACHE_SIZE and Ls >= self.prefix_min_tokens
             if eligible and key in cache:
                 prefix = cache.pop(key)                            # pop + reinsert = LRU order
                 ps = self.model.probs_with_prefix(enc, prefix); cache[key] = prefix
@@ -124,8 +129,8 @@ def systemone_separate(req: SystemOneRequest):
 def models():
     s = server()
     return {"models": [{"id": "kev-latest", "aliases": ["jev-latest"], "run": s.checkpoint.requested, "base": s.checkpoint.meta.base,
-                        "lora": s.checkpoint.meta.lora, "device": s.device, "dtype": str(next(s.model.lm.parameters()).dtype).removeprefix("torch."), "temperature": s.model.head.temperature,
-                        "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": PREFIX_MIN_TOKENS, "hits": s.prefix_hits,
+                        "lora": s.checkpoint.meta.lora, "device": s.device, "backend": s.model.backend, "dtype": s.model.dtype, "temperature": s.model.head.temperature,
+                        "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": s.prefix_min_tokens, "hits": s.prefix_hits,
                                          "misses": s.prefix_misses, "cached_states": len(s.prefix_cache)}}]}
 
 
@@ -141,10 +146,11 @@ def main():
     opts = LoadOptions.from_env()
     if dev == "mps" and opts.attn is None: opts = replace(opts, attn="sdpa")   # serving default on Apple GPUs (parity measured)
     if dev != "cpu" and opts.dtype is None: opts = replace(opts, dtype=torch.bfloat16)   # serving default: 2-4.5x faster than fp32 on an L4, same answers (LoadOptions.dtype); KEV_DTYPE=fp32 for the exact path
+    if opts.backend is None: opts = replace(opts, backend="auto")   # serving default: MLX for the hybrid Qwen3.5 checkpoints on Apple Silicon (LoadOptions.backend); KEV_BACKEND=torch to decline
     ck = Checkpoint(run)
     tok, model = ck.load(dev, opts)
     app.state.server = Server(ck, tok, model, dev)
-    print(f"serving {ck.requested} ({ck.path}) on {dev} :{a.port}")   # /v1/models reports the run as given, not the resolved cache path
+    print(f"serving {ck.requested} ({ck.path}) on {dev} via {model.backend} ({model.dtype}) :{a.port}")   # /v1/models reports the run as given, not the resolved cache path
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=a.port)
 

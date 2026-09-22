@@ -15,8 +15,10 @@ SCANNED = ("kev", "scripts", "space", "tests", "modal_app.py")
 RULES = [
     ("head.pt is read and written through kev.checkpoint (Meta, read_meta, write_meta)",
      r"torch\.(load|save)\([^\n]*head\.pt", {"kev/checkpoint.py"}),
-    ("KEV_DTYPE/KEV_MERGE/KEV_ATTN/KEV_LORA_SCALE/KEV_TEMPERATURE are read only by LoadOptions.from_env",
-     r"environ(\.get)?\(?\[?\s*\"KEV_(DTYPE|MERGE|ATTN|LORA_SCALE|TEMPERATURE)\"", {"kev/checkpoint.py"}),
+    ("KEV_DTYPE/KEV_MERGE/KEV_ATTN/KEV_LORA_SCALE/KEV_TEMPERATURE/KEV_BACKEND are read only by LoadOptions.from_env",
+     r"environ(\.get)?\(?\[?\s*\"KEV_(DTYPE|MERGE|ATTN|LORA_SCALE|TEMPERATURE|BACKEND)\"", {"kev/checkpoint.py"}),
+    ("a checkpoint becomes a model only through kev.checkpoint (Checkpoint.load picks the torch or MLX implementation)",
+     r"MLXDecisionModel\(|merge_lora\(", {"kev/checkpoint.py", "kev/mlx_model.py", "tests/test_mlx.py"}),
     ("option keys come from kev.api.question_keys",
      r"\[\s*\"false\"\s*,\s*\"true\"\s*\]|\[str\(i\) for i in range\(len\(", {"kev/api.py", "tests/test_unit.py"}),   # the unit test pins the contract
     ("the training context is kev.model.MAX_STATE/MAX_BRANCH/MAX_PACKED (kev.suite.CONTEXT in manifests) and kev.model.fits",

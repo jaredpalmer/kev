@@ -17,6 +17,17 @@ def load_tokenizer(name, revision=None):
     return AutoTokenizer.from_pretrained(name, revision=revision)
 
 
+def pad_id(tok):
+    """The id used to right-pad token rows (never attended to); Qwen tokenizers define one, others fall back to 0."""
+    return tok.pad_token_id if tok.pad_token_id is not None else 0
+
+
+def is_hybrid(config):
+    """Whether a (text) config has Gated DeltaNet layers (Qwen3.5). Such backbones cannot honour the block-causal mask and
+    run the row form; on Apple Silicon they are what the MLX backend is for."""
+    return "linear_attention" in set(getattr(config, "layer_types", None) or [])
+
+
 _SPECIAL_RE = re.compile(r"<\|([A-Za-z0-9_]+)\|>")
 
 
@@ -153,12 +164,11 @@ class DecisionModel(nn.Module):
         attn = attn or ("sdpa" if str(device).startswith("cuda") else "eager")
         # dtype: fp32 for training and exact evaluation; bf16 is a serving option for large backbones (8B on a 32 GB Mac)
         self.lm = AutoModelForCausalLM.from_pretrained(name, revision=revision, dtype=dtype, attn_implementation=attn).model
-        self.pad_id = tok.pad_token_id if tok.pad_token_id is not None else 0
+        self.pad_id = pad_id(tok)
         # hybrid backbones (Qwen3.5: Gated DeltaNet layers, recurrent) cannot honour the block-causal mask, so every
         # question runs as its own causal row continuing from the state (rows_of). Attention-only backbones keep the
         # packed form; the two agree to fp32 noise (tests/test_model.py::test_rows_match_packed).
-        cfg = self.lm.config
-        self.hybrid = "linear_attention" in set(getattr(cfg, "layer_types", None) or [])
+        self.hybrid = is_hybrid(self.lm.config)
         if self.hybrid and option_isolation: raise ValueError("option_isolation needs the packed mask; not available on hybrid backbones")
         self.option_isolation = option_isolation
         if lora:
@@ -175,6 +185,19 @@ class DecisionModel(nn.Module):
         self.head = PointerHead(self.lm.config.hidden_size, dp=head_dim)
         self.device = device
         self.to(device)
+
+    backend = "torch"           # kev.mlx_model.MLXDecisionModel is the other implementation of this scoring interface
+
+    @property
+    def prefix_min_tokens(self):
+        """kev.serve caches the state prefix from this many state tokens. Attention-only backbones: 384, below which the
+        branch-only pass is not faster than one packed pass on MPS (per-op overhead). Hybrid backbones: always, because
+        their miss path otherwise recomputes the state once per question (Kev-0.8B bf16 on MPS, 5 questions: 1011 -> 413 ms)."""
+        return 0 if self.hybrid else 384
+
+    @property
+    def dtype(self):
+        return str(next(self.lm.parameters()).dtype).removeprefix("torch.")
 
     def encode(self, tok, rec, **kw):
         """encode() with this model's option-isolation setting; use this from serving/eval code."""

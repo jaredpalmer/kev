@@ -18,7 +18,7 @@ Kev is a family of small decision models built on Qwen3.5 and based on the archi
 - 0.8B, 4B, and 9B models, with training code and evaluation data.
 - Yes/no (`noul`), multiple-choice (`choice`), and rating (`score`) questions in the same request.
 - Questions share the input text but can't read each other.
-- Runs on CUDA, ROCm, and Apple Silicon. The 4B and 9B models fit a 32 GB Mac using bf16; see [Serving Performance](#serving-performance) for what to expect on a Mac.
+- Runs on CUDA, ROCm, and Apple Silicon (MLX). The 4B and 9B models fit a 32 GB Mac; see [Serving Performance](#serving-performance) for what to expect.
 - A web playground for trying your own inputs and checking how option order affects the answers. Or try Kev-4B and Kev-0.8B in the browser at [huggingface.co/spaces/jaredpalmer/kev](https://huggingface.co/spaces/jaredpalmer/kev), no install needed.
 
 ![Kev playground](docs/playground.png)
@@ -233,15 +233,16 @@ The server runs in bf16 by default on CUDA and Apple GPUs. That is a latency dec
 
 The `causal_conv1d` kernel transformers asks for on load made no difference for prefill (114 vs 118 ms), so the images do not install it. `KEV_DTYPE=fp32` serves the exact path the evaluations use; the benchmark and research tools always score in fp32 regardless of this default.
 
-On Apple Silicon there are no fast kernels for the DeltaNet layers, so PyTorch runs reference code. Median model time in bf16 on an M5, five questions with three options each on a ~230-token state:
+On Apple Silicon there are no PyTorch kernels for the DeltaNet layers, so the server runs the Qwen3.5 models through [MLX](https://github.com/ml-explore/mlx-lm) instead (`uv sync --extra serve` installs it on Macs). Only the backbone changes: Kev's encoder, the pointer head and the calibration are the same code, and the probabilities match the fp32 PyTorch path to bf16 rounding (Kev-4B, 40 development records: max difference 0.024, mean 0.004, no change in the highest-probability answer; Kev-0.8B, 60 records: max 0.017, one flip on a question the fp32 path had at 0.299 vs 0.297). Median time on an M5 (32 GB) for five questions with three options each on a ~270-token state, through the model directly:
 
-| Model | Time | Previous generation on the same request |
-|---|---|---|
-| Kev-0.8B | 329 ms | Kev-0.6B (Qwen3): 123 ms |
-| Kev-4B | 779 ms | Kev-4B (Qwen3), `jaredpalmer/kev-4b@qwen3`: 174 ms |
-| Kev-9B | about 2 s | Kev-8B (Qwen3): about 300 ms |
+| Model | New state | Repeated state (prefix cache) | PyTorch bf16 on MPS, new / repeated |
+|---|---|---|---|
+| Kev-0.8B | 149 ms | 28 ms | 1062 / 276 ms |
+| Kev-4B | 721 ms | 136 ms | 3302 / 847 ms |
 
-If you serve on a Mac and need low latency, use the Qwen3 models for now. An MLX backend for the Qwen3.5 models is the next planned change.
+The server caches every state prefix for these models, so a repeated document pays only for its questions. `KEV_BACKEND=torch` restores the PyTorch path; `/v1/models` reports which backend and dtype are serving. The previous-generation Qwen3 models (`jaredpalmer/kev-4b@qwen3`, `kev-8b`, `kev-0.6b`) still run on plain PyTorch MPS and remain a fine choice on a Mac.
+
+`scripts/mlx_parity.py --run jaredpalmer/kev-4b` reproduces the parity and latency numbers on your machine.
 
 For the attention-only models the server merges the LoRA weights in fp32 before casting, uses SDPA attention on Apple GPUs, pads MPS inputs to 64-token buckets, and caches the state prefix for repeated requests (four states of at least 384 tokens by default). With a repeated 772-token state, Kev-4B (Qwen3) answers in 242 ms instead of 861 ms.
 

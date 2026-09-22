@@ -17,7 +17,7 @@ from pathlib import Path
 
 import torch
 
-from .model import DecisionModel, load_tokenizer
+from .model import DecisionModel, is_hybrid, load_tokenizer, pad_id
 
 HUB_ID = re.compile(r"[\w.-]+/[\w.-]+(@[\w.-]+)?")
 
@@ -87,22 +87,40 @@ class LoadOptions:
                  parity with eager and is a few percent faster.
     lora_scale   WiSE-FT-style interpolation between base (0) and fine-tuned weights (1), at inference.
     temperature  None = the temperature the checkpoint carries (fitted by scripts/calibrate_checkpoint.py); 1.0 = raw logits.
+    backend      None = torch, the path every reported number uses. "mlx" = kev.mlx_model (Metal kernels for the hybrid
+                 Qwen3.5 backbones through mlx-lm; the pointer head and encoder are shared). "auto" = mlx when the device is
+                 mps, the checkpoint's base is hybrid and mlx-lm is installed, else torch; kev.serve uses auto. The MLX path
+                 always merges the adapter and ignores `attn` and `dtype` (the backbone runs as stored, bf16).
     """
     dtype: torch.dtype | None = None
     merge: bool = True
     attn: str | None = None
     lora_scale: float = 1.0
     temperature: float | None = None
+    backend: str | None = None
+
+    BACKENDS = (None, "torch", "mlx", "auto")
 
     @classmethod
     def from_env(cls, env=os.environ):
-        """KEV_DTYPE=bf16|fp16|fp32, KEV_MERGE=0, KEV_ATTN=sdpa|eager, KEV_LORA_SCALE, KEV_TEMPERATURE. For command-line entry
-        points only; library code passes an explicit LoadOptions. An explicit fp32 is kept as torch.float32 (not None) so a
-        caller with its own default, like kev.serve, can tell "asked for fp32" from "did not say"."""
+        """KEV_DTYPE=bf16|fp16|fp32, KEV_MERGE=0, KEV_ATTN=sdpa|eager, KEV_LORA_SCALE, KEV_TEMPERATURE, KEV_BACKEND=torch|mlx|auto.
+        For command-line entry points only; library code passes an explicit LoadOptions. Explicit values that equal a
+        library default are kept (fp32 as torch.float32, "torch" as a string) so a caller with its own default, like
+        kev.serve, can tell "asked for it" from "did not say"."""
+        backend = env.get("KEV_BACKEND") or None
+        if backend not in cls.BACKENDS: raise ValueError(f"KEV_BACKEND must be one of torch, mlx, auto; got {backend!r}")
         return cls(dtype={"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}.get(env.get("KEV_DTYPE", "")),
                    merge=env.get("KEV_MERGE", "1") != "0", attn=env.get("KEV_ATTN") or None,
                    lora_scale=float(env.get("KEV_LORA_SCALE", "1")),
-                   temperature=float(env["KEV_TEMPERATURE"]) if env.get("KEV_TEMPERATURE") else None)
+                   temperature=float(env["KEV_TEMPERATURE"]) if env.get("KEV_TEMPERATURE") else None, backend=backend)
+
+
+def mlx_available():
+    try:
+        import mlx_lm  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
 
 class Checkpoint:
@@ -117,8 +135,37 @@ class Checkpoint:
     def adapter_config(self):
         return json.loads(self.file("adapter_config.json").read_text(encoding="utf-8"))
 
+    def hybrid_base(self):
+        """Whether the base has Gated DeltaNet layers (Qwen3.5), read from its config without loading weights."""
+        from transformers import AutoConfig
+        return is_hybrid(AutoConfig.from_pretrained(self.meta.base, revision=self.meta.base_revision).get_text_config())
+
+    def backend(self, device, opts=LoadOptions()):
+        """The backend `load` will use: LoadOptions.backend resolved ("auto" -> mlx only where it pays and is installed)."""
+        if opts.backend not in LoadOptions.BACKENDS: raise ValueError(f"unknown backend {opts.backend!r}")
+        if opts.backend != "auto": return opts.backend or "torch"
+        return "mlx" if str(device) == "mps" and mlx_available() and self.hybrid_base() else "torch"
+
     def load(self, device, opts=LoadOptions()):
-        """-> (tokenizer, DecisionModel) in eval mode with the LoRA applied and the pointer head loaded."""
+        """-> (tokenizer, model) in eval mode with the LoRA applied and the pointer head loaded. The model is a
+        DecisionModel (torch) or an MLXDecisionModel (backend mlx); both expose the same scoring interface."""
+        meta = self.meta
+        tok = load_tokenizer(meta.base, revision=meta.base_revision)
+        m = self._load_mlx(tok, opts) if self.backend(device, opts) == "mlx" else self._load_torch(tok, device, opts)
+        m.head.load_state_dict(meta.head); m.eval()
+        m.head.temperature = meta.temperature if opts.temperature is None else opts.temperature
+        return tok, m
+
+    def _load_mlx(self, tok, opts):
+        from .mlx_model import MLXDecisionModel, merge_lora
+        if not opts.merge: raise ValueError("the MLX backend always merges the adapter (KEV_MERGE=0 needs backend=torch)")
+        if self.meta.option_isolation: raise ValueError("option_isolation needs the packed mask; not available on the MLX backend")
+        base_dir = resolve_run(f"{self.meta.base}@{self.meta.base_revision or ''}")   # the base snapshot the torch path already cached
+        m = MLXDecisionModel(base_dir, pad_id(tok), head_dim=self.meta.head_dim)
+        merge_lora(m.lm, self.path, opts.lora_scale)
+        return m
+
+    def _load_torch(self, tok, device, opts):
         from peft import PeftModel
         meta = self.meta
         dtype, merge = opts.dtype or torch.float32, opts.merge
@@ -127,7 +174,6 @@ class Checkpoint:
             # the same way and keep the fp32 adapter unmerged rather than folding it into bf16 weights.
             dtype, merge = torch.bfloat16, False
         merge = merge and not self.adapter_config().get("trainable_token_indices")   # token-trained adapters stay unmerged
-        tok = load_tokenizer(meta.base, revision=meta.base_revision)
         m = DecisionModel(meta.base, tok, device, lora=None, revision=meta.base_revision, head_dim=meta.head_dim,
                           option_isolation=meta.option_isolation, dtype=torch.float32 if merge else dtype, attn=opts.attn)
         m.lm = PeftModel.from_pretrained(m.lm, self.path, torch_device=str(device)).to(device)   # trainable token embeddings, if any, live in the adapter
@@ -138,9 +184,7 @@ class Checkpoint:
             m.lora_scale = opts.lora_scale
         if merge: m.lm = m.lm.merge_and_unload()     # in fp32: exact
         if dtype != torch.float32: m.lm = m.lm.to(dtype)
-        m.head.load_state_dict(meta.head); m.eval()
-        m.head.temperature = meta.temperature if opts.temperature is None else opts.temperature
-        return tok, m
+        return m
 
     COMPAT_FIELDS = ("base", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings")
 
