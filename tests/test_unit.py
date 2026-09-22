@@ -40,9 +40,16 @@ def test_to_answers_shapes_and_formulas():
     ans = to_answers([[0.3, 0.7], [0.8, 0.15, 0.05], [0.1, 0.3, 0.6]], meta)
     assert ans["n"] == {"type": "noul", "noul": 0.7}
     assert ans["c"]["choice"] == "a" and ans["c"]["probabilities"] == {"a": 0.8, "b": 0.15, "c": 0.05}
-    assert ans["c"]["confidence"] == round((0.8 - 1 / 3) / (1 - 1 / 3), 2)
+    assert ans["c"]["confidence"] == round((0.8 - 1 / 3) / (1 - 1 / 3), 4)
     assert ans["s"]["score"] == 1.5 and ans["s"]["probabilities"] == {"0": 0.1, "1": 0.3, "2": 0.6}
     assert ans["s"]["legend"] == {"0": "lo", "1": "mid", "2": "hi"}
+
+
+@pytest.mark.parametrize("p", [[0.79] + [0.21 / 39] * 39, [1 / 255] * 255])
+def test_to_answers_choice_probabilities_sum_within_typesafe_tolerance(p):
+    meta = [{"id": "target", "type": "choice", "keys": [str(i) for i in range(len(p))]}]
+    served = to_answers([p], meta)["target"]["probabilities"]
+    assert len(served) == len(p) and abs(sum(served.values()) - 1) < 0.02
 
 
 def test_confidence_edge_cases():
