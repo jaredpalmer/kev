@@ -15,6 +15,7 @@ from pathlib import Path
 from kev.checkpoint import Checkpoint, LoadOptions
 from kev.data import materialize
 from kev.device import empty_cache
+from kev.model import load_tokenizer
 from kev.suite import load_split, write_json
 
 
@@ -42,7 +43,6 @@ def main():
     a = ap.parse_args()
     recs = [materialize(r) for r in load_split(a.suite, "development") if r["_meta"]["variant"] == "clean"][: a.n]
     ck = Checkpoint(a.run)
-    from kev.model import load_tokenizer
     tok = load_tokenizer(ck.meta.base, revision=ck.meta.base_revision)
     targets, torch_ms, torch_dtype = reference(ck, tok, recs)
     gc.collect(); empty_cache("mps")

@@ -156,6 +156,12 @@ class PointerHead(nn.Module):
         return z if self.training or self.temperature == 1.0 else z / self.temperature
 
 
+# What a loaded model exposes to kev.serve, kev.predictors and the Space: the scoring interface both DecisionModel (torch)
+# and kev.mlx_model.MLXDecisionModel implement. tests/test_mlx.py checks the MLX class against this list.
+SCORING_INTERFACE = ("encode", "forward", "probs", "probs_and_prefix", "probs_with_prefix", "eval",
+                     "head", "backend", "dtype", "device", "hybrid", "option_isolation", "prefix_min_tokens")
+
+
 class DecisionModel(nn.Module):
     def __init__(self, name, tok, device, lora=None, revision=None, attn=None, head_dim=256, option_isolation=False, special_embeddings=False, lora_targets="all", dtype=torch.float32):
         super().__init__()

@@ -240,7 +240,7 @@ On Apple Silicon there are no PyTorch kernels for the DeltaNet layers, so the se
 | Kev-0.8B | 149 ms | 28 ms | 1062 / 276 ms |
 | Kev-4B | 721 ms | 136 ms | 3302 / 847 ms |
 
-The server caches every state prefix for these models, so a repeated document pays only for its questions. `KEV_BACKEND=torch` restores the PyTorch path; `/v1/models` reports which backend and dtype are serving. The previous-generation Qwen3 models (`jaredpalmer/kev-4b@qwen3`, `kev-8b`, `kev-0.6b`) still run on plain PyTorch MPS and remain a fine choice on a Mac.
+The server caches every state prefix for these models, so a repeated document pays only for its questions. `KEV_BACKEND=torch` restores the PyTorch path, as does `KEV_DTYPE=fp32` (asking for the exact path always means PyTorch); `/v1/models` reports which backend and dtype are serving. The previous-generation Qwen3 models (`jaredpalmer/kev-4b@qwen3`, `kev-8b`, `kev-0.6b`) still run on plain PyTorch MPS and remain a fine choice on a Mac.
 
 `scripts/mlx_parity.py --run jaredpalmer/kev-4b` reproduces the parity and latency numbers on your machine.
 

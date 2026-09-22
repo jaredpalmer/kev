@@ -88,9 +88,11 @@ class LoadOptions:
     lora_scale   WiSE-FT-style interpolation between base (0) and fine-tuned weights (1), at inference.
     temperature  None = the temperature the checkpoint carries (fitted by scripts/calibrate_checkpoint.py); 1.0 = raw logits.
     backend      None = torch, the path every reported number uses. "mlx" = kev.mlx_model (Metal kernels for the hybrid
-                 Qwen3.5 backbones through mlx-lm; the pointer head and encoder are shared). "auto" = mlx when the device is
-                 mps, the checkpoint's base is hybrid and mlx-lm is installed, else torch; kev.serve uses auto. The MLX path
-                 always merges the adapter and ignores `attn` and `dtype` (the backbone runs as stored, bf16).
+                 Qwen3.5 backbones through mlx-lm; the pointer head and encoder are shared; refused for attention-only
+                 bases, which MPS already runs well). "auto" = mlx when the device is mps, the base is hybrid, mlx-lm is
+                 installed and fp32 was not asked for (an explicit dtype=float32 means "the exact path"), else torch;
+                 kev.serve uses auto. The MLX path always merges the adapter and ignores `attn` and `dtype` (the backbone
+                 runs as stored, bf16).
     """
     dtype: torch.dtype | None = None
     merge: bool = True
@@ -144,7 +146,8 @@ class Checkpoint:
         """The backend `load` will use: LoadOptions.backend resolved ("auto" -> mlx only where it pays and is installed)."""
         if opts.backend not in LoadOptions.BACKENDS: raise ValueError(f"unknown backend {opts.backend!r}")
         if opts.backend != "auto": return opts.backend or "torch"
-        return "mlx" if str(device) == "mps" and mlx_available() and self.hybrid_base() else "torch"
+        exact = opts.dtype is torch.float32   # KEV_DTYPE=fp32: the caller wants the reported-numbers path, not a faster one
+        return "mlx" if str(device) == "mps" and not exact and mlx_available() and self.hybrid_base() else "torch"
 
     def load(self, device, opts=LoadOptions()):
         """-> (tokenizer, model) in eval mode with the LoRA applied and the pointer head loaded. The model is a
@@ -160,6 +163,7 @@ class Checkpoint:
         from .mlx_model import MLXDecisionModel, merge_lora
         if not opts.merge: raise ValueError("the MLX backend always merges the adapter (KEV_MERGE=0 needs backend=torch)")
         if self.meta.option_isolation: raise ValueError("option_isolation needs the packed mask; not available on the MLX backend")
+        if not self.hybrid_base(): raise ValueError(f"the MLX backend is for the hybrid (Qwen3.5) bases; {self.meta.base} is attention-only and runs on MPS with backend=torch")
         base_dir = resolve_run(f"{self.meta.base}@{self.meta.base_revision or ''}")   # the base snapshot the torch path already cached
         m = MLXDecisionModel(base_dir, pad_id(tok), head_dim=self.meta.head_dim)
         merge_lora(m.lm, self.path, opts.lora_scale)

@@ -14,7 +14,8 @@ pytest.importorskip("mlx_lm")
 pytestmark = pytest.mark.skipif(platform.system() != "Darwin" or platform.machine() != "arm64", reason="MLX runs on Apple Silicon only")
 
 from kev.checkpoint import Checkpoint, LoadOptions, mlx_available  # noqa: E402
-from kev.mlx_model import merge_lora  # noqa: E402
+from kev.mlx_model import MLXDecisionModel, merge_lora  # noqa: E402
+from kev.model import SCORING_INTERFACE, DecisionModel  # noqa: E402
 
 RUN = "jaredpalmer/kev-0.8b"
 
@@ -51,12 +52,16 @@ def test_backend_resolution():
     assert ck.hybrid_base() and mlx_available()
     assert ck.backend("mps", LoadOptions(backend="auto")) == "mlx"
     assert ck.backend("cuda", LoadOptions(backend="auto")) == "torch"      # auto only pays where MPS has no kernels
+    assert ck.backend("mps", LoadOptions(backend="auto", dtype=torch.float32)) == "torch"   # KEV_DTYPE=fp32 asks for the exact path
+    assert ck.backend("mps", LoadOptions(backend="auto", dtype=torch.bfloat16)) == "mlx"
     assert ck.backend("mps", LoadOptions()) == "torch"                     # library default: the reported-numbers path
     assert ck.backend("mps", LoadOptions(backend="torch")) == "torch"
     with pytest.raises(ValueError):
         ck.backend("mps", LoadOptions(backend="metal"))
     with pytest.raises(ValueError, match="merges"):
         ck.load("mps", LoadOptions(backend="mlx", merge=False))
+    with pytest.raises(ValueError, match="attention-only"):
+        Checkpoint("jaredpalmer/kev-4b@qwen3").load("mps", LoadOptions(backend="mlx"))   # Qwen3 base: no DeltaNet layers
 
 
 @pytest.fixture(scope="module")
@@ -68,6 +73,15 @@ def models():
     _, ref = ck.load("mps", LoadOptions(backend="torch"))
     recs = [materialize(r) for r in load_split("evals/v7/decision-v7", "development") if r["_meta"]["variant"] == "clean"][:12]
     return tok, mlx_model, ref, recs
+
+
+def test_scoring_interface_is_shared(models):
+    """Everything kev.serve, kev.predictors and the Space call on a loaded model exists on both implementations."""
+    _, m, ref, _ = models
+    assert isinstance(m, MLXDecisionModel) and isinstance(ref, DecisionModel)
+    for model in (m, ref):
+        missing = [name for name in SCORING_INTERFACE if not hasattr(model, name)]
+        assert not missing, (type(model).__name__, missing)
 
 
 def test_mlx_matches_fp32_torch_to_bf16_noise(models):

@@ -39,10 +39,10 @@ serve = [
     "fastapi>=0.115",
     "typesafe-sdk>=0.6.0",
     "uvicorn>=0.30",
-    "mlx-lm>=0.31.3; sys_platform == 'darwin' and platform_machine == 'arm64'",   # the Apple Silicon backend (kev.mlx_model); a no-op elsewhere
+    "mlx-lm>=0.31.3,<0.32; sys_platform == 'darwin' and platform_machine == 'arm64'",   # the Apple Silicon backend (kev.mlx_model); a no-op elsewhere
 ]
 mlx = [
-    "mlx-lm>=0.31.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "mlx-lm>=0.31.3,<0.32; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 [dependency-groups]
