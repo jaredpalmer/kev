@@ -899,3 +899,20 @@ def test_incumbent_is_the_ledger_champion_until_challenged():
     history = [{"base": "B", "incumbent_after": {"trials": ["s/a"]}}]
     assert incumbent(rows, "B", None, None, history)["trials"] == ["s/a", "t/a"]         # sticky champion, plus its later replication
     assert incumbent(rows[:2], "B", None, None, [{"base": "B", "incumbent_after": {"trials": ["gone/x"]}}])["trials"] == ["s/b"]   # stale ledger falls back
+
+
+def test_max_state_lifts_row_and_packed_limits_together():
+    import argparse
+    from kev.experiment import validated_trial
+    from kev.model import MAX_BRANCH, MAX_PACKED, MAX_STATE
+    from kev.train import context
+    assert context(argparse.Namespace(max_state=MAX_STATE)) == {"max_state": MAX_STATE, "max_branch": MAX_BRANCH, "max_packed": MAX_PACKED}
+    long = 12 * MAX_STATE                                                              # the 4.12 delta's state limit
+    lifted = context(argparse.Namespace(max_state=long))
+    assert lifted["max_branch"] - MAX_BRANCH == lifted["max_packed"] - MAX_PACKED == long - MAX_STATE
+    manifest = {"base_revisions": {"model": "pinned"}}
+    assert validated_trial({"base": "model", "max_state": long}, manifest)["max_state"] == long
+    assert "max_state" not in validated_trial({"base": "model"}, manifest)          # optional: existing recipe digests are unchanged
+    for bad in (MAX_STATE - 1, 100 * MAX_STATE, float(long), True):
+        with pytest.raises(ValueError, match="max_state"):
+            validated_trial({"base": "model", "max_state": bad}, manifest)

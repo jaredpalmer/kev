@@ -1,0 +1,71 @@
+{
+  "suite": "evals/v7/decision-v7",
+  "suite_manifest_sha256": "a8f50e481b7d90b97da049e0ff6a01cee2f1ed204aed61a8265af0edbb5514d2",
+  "partition": "train",
+  "teacher": {
+    "base": "jaredpalmer/kev-9b",
+    "revision": null,
+    "readout": null,
+    "rows_sha256": "3f5afcd0a8836db51bfe962d4370611c3ada6a766914bef22f542063ab482c22"
+  },
+  "rule": {
+    "select": "all",
+    "threshold": null,
+    "lam": 0.5,
+    "ambiguous": "teacher top option != label and teacher top probability >= threshold",
+    "target": "(1 - lam) * one_hot(label) + lam * teacher"
+  },
+  "questions_scored": {
+    "yelp": 2000,
+    "legacy_policy": 896,
+    "dbpedia14": 1000,
+    "banking77": 1000,
+    "agnews": 3000,
+    "trec": 1000,
+    "compositional": 1680,
+    "mnli": 1000,
+    "imdb": 1000,
+    "sst5": 1000,
+    "boolq": 1000,
+    "amazon": 1000
+  },
+  "questions_softened": {
+    "yelp": 2000,
+    "legacy_policy": 896,
+    "dbpedia14": 1000,
+    "banking77": 1000,
+    "agnews": 3000,
+    "trec": 1000,
+    "compositional": 1680,
+    "mnli": 1000,
+    "imdb": 1000,
+    "sst5": 1000,
+    "boolq": 1000,
+    "amazon": 1000
+  },
+  "records": 12576,
+  "files": {
+    "soft.jsonl": {
+      "sha256": "8b682eb91278e42952028bbfa4102f43e26a4c265b26cdcc017f9d5b643f62f9",
+      "records": 12576
+    },
+    "hard.jsonl": {
+      "sha256": "b78f6b04afe5b6933b14955c299e6a098190ec707de422ad1ac0c42c64272ea4",
+      "records": 12576
+    }
+  },
+  "trainable_sources": [
+    "agnews",
+    "amazon",
+    "banking77",
+    "boolq",
+    "dbpedia14",
+    "imdb",
+    "mnli",
+    "sst5",
+    "trec",
+    "yelp",
+    "legacy_policy",
+    "compositional"
+  ]
+}

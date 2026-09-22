@@ -1,0 +1,117 @@
+"""Long-state records (PLAN.md round 4, item 4.12; PLAN_27b A3): a decision-v7 record's state buried among unrelated
+states from the same partition until the state reaches about 1k, 2k or 4k tokens. The question and label are unchanged
+and a note names the primary record, as in kev.transfer_v9.buried (which stops at three neighbours and ~400 tokens).
+
+    uv run python scripts/build_long_states.py --out evals/round4/longstate-v1
+
+Writes
+    train.jsonl        long-state records from decision-v7/train: delta training data (kev.train --data ... --max_state 4608)
+    train_control.jsonl  the same primaries unburied, one per long record: the matched short-state continuation control
+    development.jsonl  long-state records from decision-v7/development, plus each primary unburied (source
+                       longstate_control), so a paired read gives the cost of burial per length; eval-only, scored under
+                       the serving context
+    manifest.json      sha256 per file, seed, lengths, tokenizer, and the context the development partition is scored in
+
+Sources: every trainable decision-v7 source; neighbours never share the primary's id. Records outside the 8,192-token
+serving state are not produced.
+"""
+import argparse, copy, hashlib, json, random, sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from kev.model import SERVE_MAX_STATE, load_tokenizer  # noqa: E402
+from kev.suite import SERVING_CONTEXT, digest, load_split, read_manifest, record_digest, write_json, write_jsonl  # noqa: E402
+
+SUITE = "evals/v7/decision-v7"
+TOKENIZER = ("Qwen/Qwen3.5-4B-Base", "1001bb4d826a52d1f399e183466143f4da7b741b")
+LENGTHS = (1024, 2048, 4096)
+NOTE = "Answer about the primary record only; the other records are unrelated."
+PAIRING = ("pair_id", "sibling", "control_id")   # the parent's minimal-pair links; copies at several lengths must not claim them
+
+
+def meta(record, **fields):
+    return {**{k: v for k, v in record["_meta"].items() if k not in PAIRING}, "parent_source": record["_meta"]["source"],
+            "parent_id": record["_meta"]["id"], "variant": "clean", **fields}
+
+
+def as_text(state):
+    return state if isinstance(state, str) else json.dumps(state, ensure_ascii=False)
+
+
+def bury(record, pool, length, rng, count):
+    """The record with its state placed among neighbours until the serialised state reaches `length` tokens (at most
+    1.25 * length); None when the draw overshoots."""
+    records, slot = [record["state"]], 0
+    while True:
+        state = {"records": records, "primary_record": slot + 1, "note": NOTE}
+        n = count(state)
+        if n >= length:
+            break
+        other = rng.choice(pool)
+        if other["_meta"]["id"] == record["_meta"]["id"]:
+            continue
+        position = rng.randrange(len(records) + 1)
+        records.insert(position, other["state"]); slot += position <= slot
+    if n > min(1.25 * length, SERVE_MAX_STATE - 64):
+        return None
+    rec = copy.deepcopy(record); rec["state"] = state
+    for q in rec["questions"].values(): q["src"] = f"longstate_{length}_{q['src']}"
+    parent = record["_meta"]["id"]
+    rec["_meta"] = meta(record, source="longstate", id=f"longstate/{length}/{parent}", group_id=f"longstate/{parent}", length=length, state_tokens=n,
+                        primary_slot=slot, text_sha256=hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest())
+    rec["_meta"]["row_sha256"] = record_digest({k: v for k, v in rec.items() if k != "_meta"})
+    return rec
+
+
+def control(record):
+    rec = copy.deepcopy(record); parent = record["_meta"]["id"]
+    for q in rec["questions"].values(): q["src"] = f"longstate_control_{q['src']}"
+    rec["_meta"] = meta(record, source="longstate_control", id=f"longstate_control/{parent}", group_id=f"longstate/{parent}")
+    return rec
+
+
+def build(records, per_length, rng, count, with_controls):
+    out, primaries = [], set()
+    for length in LENGTHS:
+        made = 0
+        for record in rng.sample(records, len(records)):
+            if made == per_length: break
+            rec = bury(record, records, length, rng, count)
+            if rec is None: continue
+            out.append(rec); primaries.add(record["_meta"]["id"]); made += 1
+    if with_controls:
+        out += [control(r) for r in records if r["_meta"]["id"] in primaries]
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--train_per_length", type=int, default=600)
+    ap.add_argument("--dev_per_length", type=int, default=100)
+    ap.add_argument("--seed", default="round4-longstate-v1")
+    a = ap.parse_args()
+    tok = load_tokenizer(TOKENIZER[0], revision=TOKENIZER[1])
+    count = lambda state: len(tok.encode(as_text(state), add_special_tokens=False))
+    trainable = set(read_manifest(SUITE)["trainable_sources"])
+    parts = {part: [r for r in load_split(SUITE, part) if r["_meta"]["source"] in trainable] for part in ("train", "development")}
+    train = build(parts["train"], a.train_per_length, random.Random(f"{a.seed}:train"), count, with_controls=False)
+    dev = build(parts["development"], a.dev_per_length, random.Random(f"{a.seed}:development"), count, with_controls=True)
+    out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
+    parents = {r["_meta"]["id"]: r for r in parts["train"]}
+    train_control = [parents[r["_meta"]["parent_id"]] for r in train]
+    write_jsonl(out / "train.jsonl", train); write_jsonl(out / "train_control.jsonl", train_control); write_jsonl(out / "development.jsonl", dev)
+    tokens = lambda rows, length: sorted(r["_meta"]["state_tokens"] for r in rows if r["_meta"].get("length") == length)
+    write_json(out / "manifest.json", {
+        "version": "longstate-v1", "parent": SUITE, "parent_manifest_sha256": digest(Path(SUITE) / "manifest.json"), "seed": a.seed,
+        "tokenizer": {"model": TOKENIZER[0], "revision": TOKENIZER[1]}, "lengths": list(LENGTHS),
+        "state_tokens": {str(L): {"train_median": (t := tokens(train, L))[len(t) // 2], "dev_median": (d := tokens(dev, L))[len(d) // 2]} for L in LENGTHS},
+        "eval_only": True, "context": SERVING_CONTEXT, "holdout_sources": [], "base_revisions": read_manifest(SUITE)["base_revisions"],
+        "files": {name: {"sha256": digest(out / name), "records": len(rows)} for name, rows in (("train.jsonl", train), ("train_control.jsonl", train_control), ("development.jsonl", dev))},
+        "protocol": "development = decision-v7/development primaries buried at each length + the same primaries unburied (longstate_control); "
+                    "train = decision-v7/train primaries buried (delta data, never scored). Scored under the serving context."})
+    print(f"train {len(train)} records, development {len(dev)} records -> {out}")
+
+
+if __name__ == "__main__":
+    main()

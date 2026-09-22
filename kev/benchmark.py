@@ -153,6 +153,8 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--device", choices=["cpu", "mps", "cuda"], default=default_device())
     ap.add_argument("--allow-test", action="store_true")
+    ap.add_argument("--split", choices=["development", "calibration", "train"], default="development",
+                    help="suite partition to score (train: teacher predictions for distillation; --allow-test reads the locked test instead)")
     ap.add_argument("--date_facts", action="store_true", help="apply kev.api.with_date_facts to every state before scoring (the opt-in serving preprocessor); reported in report.json")
     ap.add_argument("--rotations", type=int, default=1, help="average every Choice question over this many cyclic option rotations (kev.predictors.RotationAveraged); 1 = one order")
     a = ap.parse_args()
@@ -163,7 +165,7 @@ def main():
         records, heldout, split, source_hash = load_records(a.data), [], "custom", digest(Path(a.data))
         context, skip_overlong = CONTEXT, True
     else:
-        split = "test" if a.allow_test else "development"
+        split = "test" if a.allow_test else a.split
         records = load_split(a.suite, split, allow_test=a.allow_test)
         manifest = read_manifest(a.suite)
         heldout = manifest["holdout_sources"]; source_hash = digest(Path(a.suite) / "manifest.json")

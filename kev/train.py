@@ -17,7 +17,7 @@ from .checkpoint import Checkpoint, Meta, write_meta
 from .device import allocated_bytes, default_device, empty_cache
 from .data import EVAL_ONLY, build, augment, load_records, materialize, none_pair, source_seed
 from .suite import SYNTHETIC_SOURCES, digest, load_split, read_json, read_manifest, validate_training, write_json
-from .model import MAX_BRANCH, MAX_PACKED, MAX_STATE, DecisionModel, fits, load_tokenizer
+from .model import MAX_BRANCH, MAX_PACKED, MAX_STATE, SERVE_MAX_STATE, DecisionModel, fits, load_tokenizer
 
 
 # --- losses -----------------------------------------------------------------------------------------------------------
@@ -79,6 +79,13 @@ def accumulation_records(n, batch, accum, microbatch):
 
 # --- data -------------------------------------------------------------------------------------------------------------
 
+def context(a):
+    """The encoder limits for this run: the training context with the state limit lifted by --max_state. The row
+    (state + one branch) and packed limits grow by the same amount, so every question keeps its token budget."""
+    extra = a.max_state - MAX_STATE
+    return {"max_state": a.max_state, "max_branch": MAX_BRANCH + extra, "max_packed": MAX_PACKED + extra}
+
+
 def training_requests(a, tok, manifest, holdout):
     """The labelled requests one run trains on: the suite's training partition, records built from the public sources,
     or the user's own file (optionally with a replay sample from the suite); filtered to the training context, checked
@@ -98,10 +105,11 @@ def training_requests(a, tok, manifest, holdout):
     if not manifest or a.data:
         # frozen suites are filtered to the training context when they are frozen (kev.suite.select_unique); records built
         # on the fly here are not, so apply the same rule instead of letting the strict encoder abort the run (issue #5)
-        kept = [r for r in reqs if fits(materialize(r), tok)]
+        kept = [r for r in reqs if fits(materialize(r), tok, **context(a))]
         if len(kept) < len(reqs):
+            c = context(a)
             print(f"dropped {len(reqs) - len(kept)} of {len(reqs)} records that exceed the training context "
-                  f"({MAX_STATE} state / {MAX_BRANCH} branch / {MAX_PACKED} packed tokens)", flush=True)
+                  f"({c['max_state']} state / {c['max_branch']} branch / {c['max_packed']} packed tokens)", flush=True)
         reqs = kept
     if not reqs:
         raise ValueError("empty training set")
@@ -146,7 +154,8 @@ class Variant:
 def encode_batch(model, tok, a, chunk, epoch):
     """Augment each request (fresh permutation / none option / distractor per epoch), optionally add its none-pair
     siblings and a permuted copy for the KL term, and encode strictly."""
-    out = []
+    out, c = [], context(a)
+    limits = {"max_state": c["max_state"], "max_branch": c["max_branch"]}
     for req in chunk:
         item_rng = random.Random(source_seed(a.seed, f"{epoch}:{req['_meta']['id']}"))
         variants = [augment(req, item_rng, p_none=a.p_none, p_none_distract=a.p_none_distract, p_distract=a.p_distract)]
@@ -154,13 +163,13 @@ def encode_batch(model, tok, a, chunk, epoch):
             variants += none_pair(req, item_rng)
         for v in variants:
             rec = materialize(v)
-            enc = model.encode(tok, rec, strict=True)
-            if len(enc["ids"]) > MAX_PACKED:
-                raise ValueError(f"training request exceeds {MAX_PACKED} packed tokens")
+            enc = model.encode(tok, rec, strict=True, **limits)
+            if len(enc["ids"]) > c["max_packed"]:
+                raise ValueError(f"training request exceeds {c['max_packed']} packed tokens")
             out.append(Variant(rec, enc, req["_meta"]["id"], req["_meta"]["source"]))
         if a.perm_kl > 0 and item_rng.random() < a.perm_frac and any(q["qtype"] == "choice" and len(q["options"]) >= 3 for q in rec["questions"]):
             rec2, perms = permuted_copy(rec, item_rng)
-            out[-1].permuted = (model.encode(tok, rec2, strict=True), perms)
+            out[-1].permuted = (model.encode(tok, rec2, strict=True, **limits), perms)
     return out
 
 
@@ -233,6 +242,7 @@ def parse_args():
     ap.add_argument("--anchor_sources", default="", help="comma-separated sources to anchor (default: every record with a target)")
     ap.add_argument("--out", default="runs/kev")
     ap.add_argument("--data", default="", help="your own labelled requests, one JSON object per line (see kev.data.load_records); an alternative to --suite for fine-tuning, or combined with --suite and --replay")
+    ap.add_argument("--max_state", type=int, default=MAX_STATE, help=f"state tokens per training record (default {MAX_STATE}); raising it admits long-state --data records, the packed limit grows by the same amount")
     ap.add_argument("--replay", type=int, default=0, help="with --data and --suite: mix in this many records sampled (by --seed) from the suite's training partition, so a delta fine-tune does not forget the released recipe")
     ap.add_argument("--init_from", default="", help="delta mode: warm-start LoRA and the pointer head from an existing run "
                                                    "(local directory or hub id) instead of starting from the base model; keeps the "
@@ -250,6 +260,8 @@ def parse_args():
         ap.error("use at most one finite, nonnegative loss modifier; smoothing must be <= 1")
     if bool(a.anchor) != (a.anchor_w > 0):
         ap.error("--anchor and --anchor_w > 0 go together")
+    if not MAX_STATE <= a.max_state <= SERVE_MAX_STATE:
+        ap.error(f"--max_state must be in [{MAX_STATE}, {SERVE_MAX_STATE}]")
     if a.replay and not (a.data and a.suite):
         ap.error("--replay needs both --data and --suite")
     if Path(a.out).exists():
