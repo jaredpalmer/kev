@@ -14,7 +14,7 @@ kev.benchmark / kev.serve code the released checkpoints were built and measured 
 volume `kev-finetune-runs` under /runs/<name> (names are immutable: a new attempt needs a new name); base weights are
 cached on `kev-hf-cache`. Environment (read at launch time): KEV_GPU (training GPU, default H100), KEV_SERVE_GPU (default L4;
 Kev-9B needs A100-80GB or H100), KEV_SERVE_RUN (run name on the volume or a Hub id), KEV_SERVE_SECRET (Modal secret holding
-KEV_SERVE_API_KEY for bearer auth), KEV_HF_SECRET (Modal secret holding HF_TOKEN, needed by publish), KEV_APP_NAME, KEV_REF.
+KEV_API_KEY for bearer auth, read by kev.serve itself), KEV_HF_SECRET (Modal secret holding HF_TOKEN, needed by publish), KEV_APP_NAME, KEV_REF.
 """
 import json
 import os
@@ -418,7 +418,6 @@ class Serve:
     @modal.enter()
     def load(self):
         import torch
-        from kev import serve as kev_serve
         from kev.api import SystemOneRequest
         from kev.checkpoint import Checkpoint, LoadOptions
         from kev.serve import Server, app as api
@@ -426,7 +425,6 @@ class Serve:
         ck = Checkpoint(resolve_checkpoint(run))
         tok, model = ck.load("cuda", LoadOptions(dtype=torch.bfloat16))
         api.state.server = Server(ck, tok, model, "cuda")
-        kev_serve.API_KEY = os.environ.get("KEV_SERVE_API_KEY")   # the bearer check lives in kev.serve; the Modal secret only supplies the key
         started = time.time()
         api.state.server.answer(SystemOneRequest.model_validate(WARMUP))   # compiles the DeltaNet kernels now, not on the first user request (~1 min uncached)
         hf_cache.commit()                                                    # keep the compiled kernels for the next cold start

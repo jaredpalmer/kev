@@ -9,10 +9,9 @@ comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS size the state-prefix cach
 date preprocessing (api.with_date_facts). Backend and precision follow LoadOptions (KEV_BACKEND, KEV_DTYPE, ...): on Apple
 Silicon the hybrid Qwen3.5 checkpoints run on MLX by default, elsewhere on torch in bf16.
 """
-import argparse, os, random, threading, time, uuid
+import argparse, hmac, os, random, threading, time, uuid
 import torch
 from dataclasses import dataclass, field, replace
-from datetime import date
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -40,6 +39,10 @@ class Server:
     prefix_cache: dict = field(default_factory=dict)   # (state token ids, option_isolation) -> prefix, in LRU order
     prefix_hits: int = 0
     prefix_misses: int = 0
+    release_date: str = field(default="")   # for the TypeSafe model card; resolved once (may ask the Hub)
+
+    def __post_init__(self):
+        self.release_date = self.release_date or self.checkpoint.release_date()
 
     @property
     def prefix_min_tokens(self):
@@ -89,7 +92,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 @app.middleware("http")
 async def typesafe(request, call_next):
     """Bearer auth (when API_KEY is set) and the request id every TypeSafe client reads off the response."""
-    if API_KEY and request.url.path.startswith("/v1") and request.headers.get("authorization") != f"Bearer {API_KEY}":
+    if API_KEY and request.url.path.startswith("/v1") and not hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {API_KEY}"):
         resp = JSONResponse({"detail": "missing or invalid API key; send Authorization: Bearer <KEV_API_KEY>"}, 401, {"www-authenticate": "Bearer"})
     else:
         resp = await call_next(request)
@@ -147,7 +150,7 @@ def models():
     s = server()
     ck, meta = s.checkpoint, s.checkpoint.meta
     card = {"description": f"Kev pointer head on {meta.base}, serving {ck.requested} at temperature {s.model.head.temperature:.2f}",
-            "release_date": date.fromtimestamp(ck.file("head.pt").stat().st_mtime).isoformat(),   # when head.pt was written (a Hub checkpoint: when it was cached); Kev has no release train
+            "release_date": s.release_date,
             "run": ck.requested, "base": meta.base, "lora": meta.lora, "device": s.device, "backend": s.model.backend, "dtype": s.model.dtype,
             "temperature": s.model.head.temperature,
             "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": s.prefix_min_tokens, "hits": s.prefix_hits,

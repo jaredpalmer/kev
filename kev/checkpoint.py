@@ -9,6 +9,7 @@ import the data or suite modules at import time.
     tok, model = ck.load("mps", LoadOptions.from_env())
     ck.meta.temperature                             # the calibration the checkpoint carries
 """
+import datetime
 import json
 import os
 import re
@@ -136,6 +137,18 @@ class Checkpoint:
 
     def adapter_config(self):
         return json.loads(self.file("adapter_config.json").read_text(encoding="utf-8"))
+
+    def release_date(self):
+        """ISO date for the TypeSafe model card: the Hub commit date for a Hub checkpoint (falls back to the cached file's
+        date offline), the time head.pt was written for a local run."""
+        if is_hub_id(self.requested):
+            from huggingface_hub import HfApi
+            repo, _, revision = self.requested.partition("@")
+            try:
+                return HfApi().model_info(repo, revision=revision or None).last_modified.date().isoformat()
+            except Exception:
+                pass
+        return datetime.date.fromtimestamp(self.file("head.pt").stat().st_mtime).isoformat()
 
     def hybrid_base(self):
         """Whether the base has Gated DeltaNet layers (Qwen3.5), read from its config without loading weights."""
