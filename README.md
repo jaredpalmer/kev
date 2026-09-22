@@ -333,6 +333,8 @@ uv run python -m kev.benchmark --run jaredpalmer/kev-4b --suite evals/v7/decisio
 uv run python -m kev.benchmark --remote http://127.0.0.1:8009 --suite evals/v4/transfer-v4 --out runs/my-remote   # any System One endpoint
 ```
 
+To compare Kev with a live Jev deployment on your own traffic rather than on a suite, [stuntdouble](https://github.com/ReallyArtificial/stuntdouble) is a drop-in `/v1/systemone` proxy: point the TypeSafe SDK's `baseURL` at it, list `kev.serve` as a double, and it records both answers per request and reports agreement, a confidence threshold for routing to Kev, and the saving per 1,000 decisions. Its replay command reruns recorded Jev traffic against a new checkpoint without calling Jev again.
+
 These commands use development data. Test data requires `--allow-test`. The benchmark reports accuracy, Brier score, calibration error, the share of decisions you could automate at a 5% error budget, option-order changes, and question isolation. `transfer-v9` adds 10-way MMLU-Pro, records buried among unrelated text, and "unknowable" records whose deciding evidence was removed; for those it reports how often the model still answers with at least 0.9 confidence (Kev-9B 5%, Jev 9%, Kev-8B 26%). Published accuracy numbers use fp32 evaluation, not the bf16 serving path.
 
 `evals/external/` holds two other projects' test sets converted to this format, with their published live Jev results: [SemIf](https://github.com/TheoLeeCJ/SemIf)'s 144 authored decisions (Kev-9B 0.917, Jev 0.965) and [scienthoon](https://github.com/scienthoon/jev-ood-calibration)'s 900 support tickets (Kev-9B 0.952 on routing and 0.911 on tone, Jev 0.897 and 0.914).
