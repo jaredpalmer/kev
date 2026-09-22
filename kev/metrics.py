@@ -221,8 +221,8 @@ def served_at(rows, temperature):
 
 def served(fit_rows, eval_rows, **fit_kwargs):
     """(temperature fitted on `fit_rows`' raw logits, `eval_rows` served at it): how a checkpoint is calibrated and read
-    everywhere a comparison is served-vs-served. fit_kwargs default to TEMPERATURE_FIT."""
-    temperature = fit_temperature([raw_row(recorded(r)) for r in scored_rows(fit_rows)], **(fit_kwargs or TEMPERATURE_FIT))
+    everywhere a comparison is served-vs-served. fit_kwargs override TEMPERATURE_FIT key by key."""
+    temperature = fit_temperature([raw_row(recorded(r)) for r in scored_rows(fit_rows)], **{**TEMPERATURE_FIT, **fit_kwargs})
     return temperature, served_at(eval_rows, temperature)
 
 
