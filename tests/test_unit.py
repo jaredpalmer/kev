@@ -176,6 +176,28 @@ def test_head_temperature_scales_logits_at_eval_only():
     head.train(); assert torch.allclose(head(hd, ho), raw), "training must not be tempered"
 
 
+@pytest.mark.parametrize("n_perm, code", [(0, 422), (-1, 422), (65, 422), (1, 200), (64, 200)])
+def test_permute_bounds_n_perm(n_perm, code, monkeypatch):
+    """Each option order is a forward pass: 0 divided by nothing and unbounded counts ran forever (#30, @53Abdeali)."""
+    from types import SimpleNamespace
+    from fastapi.testclient import TestClient
+    from kev import serve
+    answer = lambda req: {"answers": {"q": {"probabilities": {"a": 0.75, "b": 0.25}, "choice": "a"}}, "latency_ms": 1.0}
+    monkeypatch.setattr(serve, "server", lambda: SimpleNamespace(answer=answer))
+    body = {"request": {"state": "s", "questions": {"q": {"type": "choice", "instructions": "Pick", "criteria": {"a": None, "b": None}}}}, "question": "q", "n_perm": n_perm}
+    with TestClient(serve.app) as client:
+        r = client.post("/v1/systemone/permute", json=body)
+    assert r.status_code == code
+    if code == 200: assert len(r.json()["runs"]) == n_perm and r.json()["argmax_stable"]
+
+
+def test_rows_per_pass_is_a_token_budget():
+    from kev.model import rows_per_pass
+    assert rows_per_pass([[0] * 30] * 5, prefix_len=270) == 16384 // 300     # a short state: every question of a normal request batches
+    assert rows_per_pass([[0] * 20] * 64, prefix_len=4802) == 3            # a long state: a few cache copies per pass
+    assert rows_per_pass([[0] * 8192], prefix_len=8192) == 1               # a maximal row still runs
+
+
 def test_bearer_auth_and_request_id(monkeypatch):
     """KEV_API_KEY (kev.serve.API_KEY) gates /v1/*; every response carries the request id the TypeSafe clients read."""
     from fastapi.testclient import TestClient

@@ -22,7 +22,7 @@ from mlx.utils import tree_flatten
 from mlx_lm.models.cache import make_prompt_cache
 from mlx_lm.utils import load_model
 
-from .model import PointerHead, encode, rows_of
+from .model import PointerHead, encode, rows_of, rows_per_pass
 
 
 def merge_lora(lm, adapter_dir, scale=1.0):
@@ -95,8 +95,12 @@ class MLXDecisionModel:
         """Row form, as the torch path computes it: every question is one causal row of state + branch tokens, the state
         recomputed per row. The reference the prefix form is checked against (tests/test_mlx.py); serving uses `forward`."""
         S, _, rows = rows_of(enc)
-        h = self._hidden([S + r["ids"] for r in rows])
-        return [self._logits(h[i], len(S) + r["decide"], [len(S) + o for o in r["opts"]]) for i, r in enumerate(rows)]
+        chunk, out = rows_per_pass([S + r["ids"] for r in rows]), []
+        for start in range(0, len(rows), chunk):
+            part = rows[start:start + chunk]
+            h = self._hidden([S + r["ids"] for r in part])
+            out += [self._logits(h[i], len(S) + r["decide"], [len(S) + o for o in r["opts"]]) for i, r in enumerate(part)]
+        return out
 
     # --- state prefix: the state runs once into an mlx-lm prompt cache (KV for the attention layers, conv + recurrent state
     # for the DeltaNet layers); the branches run as one batch on a replicated copy, so the prefix stays pristine and can be
@@ -110,10 +114,15 @@ class MLXDecisionModel:
         return Ls, cache
 
     def _branch_logits(self, enc, cache):
+        """Branches as rows on a replicated copy of the state cache, rows_per_pass rows (and cache copies) at a time."""
         _, _, rows = rows_of(enc)
-        batch = [type(c).merge([c] * len(rows)) for c in cache]      # merge copies the arrays: `cache` is not mutated
-        h = self._hidden([r["ids"] for r in rows], batch)
-        return [self._logits(h[i], r["decide"], r["opts"]) for i, r in enumerate(rows)]
+        chunk, out = rows_per_pass([r["ids"] for r in rows], enc["seg"].count(0)), []
+        for start in range(0, len(rows), chunk):
+            part = rows[start:start + chunk]
+            batch = [type(c).merge([c] * len(part)) for c in cache]      # merge copies the arrays: `cache` is not mutated
+            h = self._hidden([r["ids"] for r in part], batch)
+            out += [self._logits(h[i], r["decide"], r["opts"]) for i, r in enumerate(part)]
+        return out
 
     def _branch_probs(self, enc, cache):
         return [F.softmax(z, -1) for z in self._branch_logits(enc, cache)]

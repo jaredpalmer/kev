@@ -114,5 +114,10 @@ def test_prefix_reuse_and_question_isolation(models):
         assert max(float((a - b).abs().max()) for a, b in zip(got, full)) < 0.01
     alone = [m.probs(m.encode(tok, {"state": rec["state"], "questions": [q]}))[0] for q in rec["questions"]]
     assert max(float((a - b).abs().max()) for a, b in zip(alone, full)) < 0.01
+    import kev.mlx_model as MM
+    saved, MM.rows_per_pass = MM.rows_per_pass, lambda rows, prefix_len=0, budget=0: 1   # one row (and one cache copy) per pass: same answers
+    try: chunked = m.probs_with_prefix(enc, prefix)
+    finally: MM.rows_per_pass = saved
+    assert max(float((a - b).abs().max()) for a, b in zip(chunked, full)) < 0.01
     with pytest.raises(ValueError, match="prefix"):
         m.probs_with_prefix(m.encode(tok, {**rec, "state": rec["state"] + " extra words here"}), prefix)

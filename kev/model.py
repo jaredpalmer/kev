@@ -13,6 +13,16 @@ SPECIAL = ["<|fim_prefix|>", "<|fim_middle|>", "<|box_start|>", "<|box_end|>", "
 MAX_STATE, MAX_BRANCH, MAX_PACKED = 384, 1024, 2048
 # serving context (kev.serve): per-branch cap mirrors Jev's ~32k, bounded by the base model window; longer than training, so untested there
 SERVE_MAX_STATE, SERVE_MAX_BRANCH = 8192, 8192
+SERVE_MAX_PACKED = SERVE_MAX_STATE + SERVE_MAX_BRANCH   # one row at most: a packed request longer than this runs in the row form (the block-causal mask is L x L)
+
+
+def rows_per_pass(rows, prefix_len=0, budget=SERVE_MAX_PACKED):
+    """How many causal rows one inference forward pass takes: as many as fit `budget` tokens counting the cached state
+    each row carries (prefix_len) plus its own tokens, at least one. Memory per pass is bounded by one maximal row however
+    many questions a request has, and the rows are independent, so the answers do not depend on the split. Kev-4B on MLX,
+    a 4.8k-token state with 64 questions: 24.7 GB peak in one pass, 8.9 GB one row at a time (and faster: the cost was
+    64 copies of the state cache)."""
+    return max(1, budget // (prefix_len + max(len(r) for r in rows)))
 
 
 class ContextOverflow(ValueError):
@@ -247,21 +257,43 @@ class DecisionModel(nn.Module):
     def _readout(self, h, enc):
         return [self.head(h[d], h[torch.tensor(oi, device=self.device)]) for d, oi in zip(enc["decide_idx"], enc["opt_idx"])]
 
+    def rows_form(self, encs):
+        """Whether these records run as causal rows: hybrid backbones always (the recurrent layers cannot honour the packed
+        mask), attention-only ones when the packed sequence would exceed one serving row (its L x L mask grows without
+        bound with the number of questions). The two forms agree (tests/test_model.py::test_rows_match_packed)."""
+        return self.hybrid or any(len(e["ids"]) > SERVE_MAX_PACKED for e in encs)
+
+    def _rows_hidden(self, rows, cache=None, prefix_len=0):
+        """Hidden states of causal token rows, one [L_i, d] tensor per row. In eval mode the rows go through the backbone
+        rows_per_pass at a time; training keeps one batch (its batches are small and autograd needs the whole graph anyway).
+        With `cache`, the rows are branches continuing the cached state: the cache is replicated once per chunk (a copy,
+        so the caller's prefix stays pristine) and the cached tokens are marked real in the attention mask."""
+        chunk = len(rows) if self.training else rows_per_pass([ids for ids, _ in rows], prefix_len)
+        out = []
+        for start in range(0, len(rows), chunk):
+            part = rows[start:start + chunk]
+            ids, pos, att = self._pad_rows(part)
+            past = {}
+            if cache is not None:
+                replica = copy.deepcopy(cache); replica.reorder_cache(torch.zeros(len(part), dtype=torch.long, device=self.device))
+                att = torch.cat([torch.ones((len(part), prefix_len), dtype=torch.long, device=self.device), att], 1)
+                past = {"past_key_values": replica, "use_cache": True}
+            h = self.lm(input_ids=ids, position_ids=pos, attention_mask=att, **past).last_hidden_state.float()
+            out += [h[i, : len(row_ids)] for i, (row_ids, _) in enumerate(part)]
+        return out
+
     def forward_rows_batch(self, encs):
-        """Row form: every question of every record is one causal row = state tokens + its branch tokens, right-padded
-        into a single batch. Returns the same nested logits as forward_batch. Exact isolation by construction (rows are
-        independent); the state is recomputed per row (Q x state tokens), which training accepts; serving uses the
-        prefix cache instead."""
+        """Row form: every question of every record is one causal row = state tokens + its branch tokens. Returns the same
+        nested logits as forward_batch. Exact isolation by construction (rows are independent); the state is recomputed
+        per row (Q x state tokens), which training accepts; serving uses the prefix cache instead."""
         rows, readouts = [], []   # one causal row per question; readouts[i] = (record, <decide> offset, option offsets)
         for b, e in enumerate(encs):
             S, Sp, brs = rows_of(e)
             for r in brs:
                 rows.append((S + r["ids"], Sp + r["pos"])); readouts.append((b, len(S) + r["decide"], [len(S) + o for o in r["opts"]]))
-        ids, pos, att = self._pad_rows(rows)
-        h = self.lm(input_ids=ids, position_ids=pos, attention_mask=att).last_hidden_state.float()
         out = [[] for _ in encs]
-        for i, (b, d, oi) in enumerate(readouts):
-            out[b].append(self.head(h[i, d], h[i, torch.tensor(oi, device=self.device)]))
+        for h, (b, d, oi) in zip(self._rows_hidden(rows), readouts):
+            out[b].append(self.head(h[d], h[torch.tensor(oi, device=self.device)]))
         return out
 
     def forward(self, enc):
@@ -269,9 +301,8 @@ class DecisionModel(nn.Module):
         return self.forward_batch([enc])[0]
 
     def forward_batch(self, encs):
-        """List (per record) of lists (per question) of logits, from one padded forward pass. Hybrid backbones take the
-        row form; attention-only ones the packed block-causal mask (the two agree, tests/test_model.py::test_rows_match_packed)."""
-        if self.hybrid: return self.forward_rows_batch(encs)
+        """List (per record) of lists (per question) of logits. Row form or packed block-causal mask, see rows_form."""
+        if self.rows_form(encs): return self.forward_rows_batch(encs)
         hs = self.hidden_batch(encs)
         return [self._readout(hs[b], e) for b, e in enumerate(encs)]
 
@@ -284,14 +315,11 @@ class DecisionModel(nn.Module):
     # never sees the branches (causal), so the state's hidden states and KV are identical with or without the branches.
 
     def _branch_rows_from_prefix(self, enc, cache):
-        """Hybrid serving: replicate the cached state once per question and run the branches as causal rows (exactly the
-        forward_rows_batch layout, minus the recomputed state). Works on a copy: the caller's prefix stays pristine."""
-        S, Sp, rows = rows_of(enc); Q = len(rows)
-        cache = copy.deepcopy(cache); cache.reorder_cache(torch.zeros(Q, dtype=torch.long, device=self.device))
-        ids, pos, att = self._pad_rows([(r["ids"], r["pos"]) for r in rows])
-        att = torch.cat([torch.ones((Q, len(S)), dtype=torch.long, device=self.device), att], 1)   # the cached state tokens are all real
-        h = self.lm(input_ids=ids, position_ids=pos, attention_mask=att, past_key_values=cache, use_cache=True).last_hidden_state.float()
-        return [F.softmax(self.head(h[i, r["decide"]], h[i, torch.tensor(r["opts"], device=self.device)]), -1).cpu() for i, r in enumerate(rows)]
+        """Row-form serving: the branches run as causal rows continuing the cached state (exactly the forward_rows_batch
+        layout, minus the recomputed state)."""
+        S, _, rows = rows_of(enc)
+        hs = self._rows_hidden([(r["ids"], r["pos"]) for r in rows], cache=cache, prefix_len=len(S))
+        return [F.softmax(self.head(h[r["decide"]], h[torch.tensor(r["opts"], device=self.device)]), -1).cpu() for h, r in zip(hs, rows)]
 
     @torch.no_grad()
     def prefix(self, enc):
@@ -307,9 +335,9 @@ class DecisionModel(nn.Module):
         """One full pass that also returns the state prefix (KV cropped to the state, state hidden states): a cache miss
         costs a single forward pass, not two."""
         Ls = enc["seg"].count(0)
-        if self.hybrid:
-            # recurrent layers cannot be cropped back to the state, so a hybrid miss is a state pass (kept as the prefix)
-            # plus the branch rows
+        if self.rows_form([enc]):
+            # recurrent layers cannot be cropped back to the state (and an over-long packed pass is what the row form avoids),
+            # so a miss here is a state pass (kept as the prefix) plus the branch rows
             Ls, cache, h_state = self.prefix(enc)
             return self._branch_rows_from_prefix(enc, cache), (Ls, cache, h_state)
         ids = torch.tensor([enc["ids"]], device=self.device); pos = torch.tensor([enc["pos"]], device=self.device)
@@ -326,7 +354,7 @@ class DecisionModel(nn.Module):
         back to the state afterwards so it can be reused."""
         Ls, cache, h_state = prefix
         if enc["seg"].count(0) != Ls: raise ValueError("prefix does not match this record's state")
-        if self.hybrid:
+        if self.rows_form([enc]):
             return self._branch_rows_from_prefix(enc, cache)
         ids = torch.tensor([enc["ids"][Ls:]], device=self.device); pos = torch.tensor([enc["pos"][Ls:]], device=self.device)
         dt = next(self.lm.parameters()).dtype

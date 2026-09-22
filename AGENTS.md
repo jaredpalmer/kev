@@ -178,7 +178,7 @@ runs / the endpoint / the volumes. Tests: `tests/test_skill_scripts.py`.
   `--weights_dtype bf16` always load bf16 with the adapter unmerged. Any change here must keep the parity
   tests in tests/test_model.py (merged vs unmerged, prefix vs full pass, bucket padding) and tests/test_mlx.py (MLX vs fp32 torch, prefix form vs row form, isolation; Apple Silicon only) passing; report numbers with the fp32 unmerged path.
   `scripts/mlx_parity.py --run <ckpt>` is the fuller read (60 records, latency of every path); MLX's fp32 GPU matmul is a reduced-precision fast path (~1e-3 relative on an M5), which is why the LoRA merge runs on `mx.cpu`.
-- Serving context is 8,192 tokens for the state and 8,192 for a question branch; training used 384 / 1,024, so longer inputs are untested.
+- Serving context is 8,192 tokens for the state and 8,192 for a question branch (`kev.model.SERVE_MAX_*`); training used 384 / 1,024, so longer inputs are untested. No limit on questions per request: the row form runs `rows_per_pass` rows per forward pass (a 16,384-token budget counting the cached state per row), and an attention-only model switches from the packed mask to rows above `SERVE_MAX_PACKED` (`DecisionModel.rows_form`). Kev-4B on MLX, 64 questions on a 4.8k-token state: 4.3 s / 9.4 GB peak instead of 18.5 s / 24.7 GB in one pass. `n_perm` on `/permute` is 1..64.
 
 ## Calibration Research
 

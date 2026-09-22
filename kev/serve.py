@@ -15,7 +15,7 @@ from dataclasses import dataclass, field, replace
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
 from .checkpoint import Checkpoint, LoadOptions, is_hub_id
 from .device import default_device, sync
@@ -113,7 +113,7 @@ def systemone(req: SystemOneRequest):
 class PermuteSystemOne(BaseModel):
     request: SystemOneRequest
     question: str
-    n_perm: int = 6
+    n_perm: int = Field(default=6, ge=1, le=64)   # each order is a forward pass; 0 divided by nothing, unbounded counts ran forever (#30)
     seed: int = 0
 
 
