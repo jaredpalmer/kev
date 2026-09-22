@@ -20,6 +20,7 @@ from kev.contrastive import paired_flip
 from kev.data import api_request, load_records
 from kev.device import default_device
 from kev.metrics import EPSILON, grouped_metrics, metrics, unknowable_report
+from kev.model import ContextOverflow
 from kev.predictors import LocalPredictor, RemotePredictor
 from kev.suite import CONTEXT, ENCODING, digest, load_split, read_manifest, record_digest, write_json
 
@@ -113,8 +114,8 @@ def evaluate_records(records, predictor, directory, temperature=1.0, heldout_sou
             try:
                 pred = predictor(record)
                 new_rows = prediction_rows(record, pred)
-            except ValueError as error:
-                if skip_overlong and ("exceeds" in str(error) or "tokens" in str(error)):
+            except ContextOverflow as error:
+                if skip_overlong:
                     coverage["rejected_records"] += 1; rejected.append({"id": record["_meta"]["id"], "error": str(error)}); continue
                 coverage["rejected_records"] += 1
                 write_json(directory / "failure.json", {"coverage": coverage, "record_id": record["_meta"]["id"], "error_type": type(error).__name__})

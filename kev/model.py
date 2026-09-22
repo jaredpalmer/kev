@@ -15,6 +15,11 @@ MAX_STATE, MAX_BRANCH, MAX_PACKED = 384, 1024, 2048
 SERVE_MAX_STATE, SERVE_MAX_BRANCH = 8192, 8192
 
 
+class ContextOverflow(ValueError):
+    """A record does not encode within its context (state, branch or packed limit). Serving turns it into a 422; the
+    benchmark counts it as a rejected record for suites scored as published (skip_overlong)."""
+
+
 def load_tokenizer(name, revision=None):
     return AutoTokenizer.from_pretrained(name, revision=revision)
 
@@ -55,7 +60,7 @@ def encode(tok, rec, max_state=MAX_STATE, max_branch=MAX_BRANCH, strict=False, o
     """
     state_tokens = user_tokens(tok, rec["state"])
     if strict and len(state_tokens) + 1 > max_state:
-        raise ValueError(f"state exceeds {max_state} tokens: {len(state_tokens) + 1}")
+        raise ContextOverflow(f"state exceeds {max_state} tokens: {len(state_tokens) + 1}")
     S = [tok.convert_tokens_to_ids(SPECIAL[0])] + state_tokens[: max_state - 1]
     ids, seg, pos, opt = list(S), [0] * len(S), list(range(len(S))), [OPT_NONE] * len(S)
     q_id, o_id, c_id, d_id = (tok.convert_tokens_to_ids(t) for t in SPECIAL[1:])
@@ -65,7 +70,7 @@ def encode(tok, rec, max_state=MAX_STATE, max_branch=MAX_BRANCH, strict=False, o
         spans = [[o_id] + user_tokens(tok, o) + [c_id] for o in q["options"]]
         br = instr + [t for sp in spans for t in sp] + [d_id]
         if len(br) > max_branch - len(S):
-            raise ValueError(f"branch too long: {len(br)}")
+            raise ContextOverflow(f"branch too long: {len(br)} tokens with a {len(S)}-token state (row limit {max_branch})")
         base = len(ids); p0 = len(S)
         br_opt = [OPT_NONE] * len(instr) + [j for j, sp in enumerate(spans) for _ in sp] + [OPT_DECIDE]
         if option_isolation:

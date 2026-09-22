@@ -143,6 +143,32 @@ def test_failed_prediction_cannot_produce_partial_score(tmp_path):
     assert not (out / "report.json").exists()
 
 
+def test_overlong_records_are_rejected_only_for_suites_scored_as_published(tmp_path):
+    """ContextOverflow from the encoder (any of its three limits) is a counted rejection under skip_overlong and an abort
+    otherwise; every other ValueError still aborts either way."""
+    from kev.benchmark import evaluate_records
+    from kev.model import ContextOverflow
+    from kev.suite import read_json
+    records = [frozen_request(0), frozen_request(1), frozen_request(2)]
+    keys = list(records[0]["questions"]["reason"]["criteria"])
+
+    def predictor(record):
+        if record["_meta"]["id"] == "item-1": raise ContextOverflow("branch too long: 1590 tokens with a 7000-token state (row limit 8192)")
+        return {"probabilities": {"reason": {k: 1.0 / len(keys) for k in keys}}, "latency_ms": 1.0}
+
+    report, _ = evaluate_records(records, predictor, tmp_path / "published", skip_overlong=True)
+    assert report["coverage"]["evaluated_records"] == 2 and report["coverage"]["rejected_records"] == 1
+    assert [r["id"] for r in read_json(tmp_path / "published" / "rejected.json")] == ["item-1"]
+    with pytest.raises(ContextOverflow):
+        evaluate_records(records, predictor, tmp_path / "admitted")
+    assert read_json(tmp_path / "admitted" / "failure.json")["error_type"] == "ContextOverflow"
+
+    def other(record):
+        raise ValueError("answer IDs differ from request IDs")
+    with pytest.raises(ValueError):
+        evaluate_records(records, other, tmp_path / "other", skip_overlong=True)
+
+
 def test_missing_answers_and_nonfinite_probabilities_fail():
     from kev.benchmark import prediction_rows, validate_distribution
     with pytest.raises(ValueError, match="answer IDs"):

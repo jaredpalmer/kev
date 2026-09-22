@@ -18,6 +18,7 @@ from kev.api import question_keys
 from kev.checkpoint import Checkpoint, LoadOptions
 from kev.data import api_request, materialize
 from kev.device import sync
+from kev.model import ContextOverflow
 from kev.suite import CONTEXT
 
 
@@ -43,7 +44,7 @@ class LocalPredictor:
     def __call__(self, record):
         enc = self.model.encode(self.tok, materialize(record), max_state=self.context["max_state"], max_branch=self.context["max_branch"], strict=True)
         if len(enc["ids"]) > self.context["max_packed"]:
-            raise ValueError(f"packed request exceeds the {self.context['max_packed']}-token limit")
+            raise ContextOverflow(f"packed request exceeds the {self.context['max_packed']}-token limit")
         sync(self.device)
         start = time.perf_counter()
         logits = self.model.forward(enc)
