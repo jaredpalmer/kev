@@ -113,6 +113,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
 ## Skills
 Repo skills (`.agents/skills`, tracked in git):
 - `kev-verify`: how to prove a change has no regression (unit suites, weight-backed parity, worktree parity harness against main) and ship it as a stacked, reviewed, squash-merged PR.
+- `kev-pr-description`: how to write the PR title and body (the acdlite / sebmarkbage essay style, with a weak/strong pair from a real Kev PR). Read it before opening any PR.
 - `kev-modal-study`: launching, monitoring and pulling Modal studies, base probes, remote benchmarks and new-base smoke checks.
 - `thermonuclear-code-review`: how to apply the installed `thermo-nuclear-code-quality-review` standards to this repo; its table lists the canonical home of each shared rule.
 
@@ -192,3 +193,9 @@ runs / the endpoint / the volumes. Tests: `tests/test_skill_scripts.py`.
 
 ## Writing
 - Use simple technical English. For README tone, use Jared's older Formik, TSDX, Razzle, and Backpack READMEs as references: explain the developer's problem, address the reader directly, and show code early. Avoid slogans, canned contrasts, and repeated claims. Keep detailed experiment history in PLAN.md and the model cards rather than repeating it in the README.
+- Pull requests teach. Write the body the way Andrew Clark (`acdlite`) and Sebastian Markbåge (`sebmarkbage`) wrote theirs on facebook/react before 2023: the
+  problem as it exists today first, then the mechanism as an argument with one concrete artifact per idea, then what is uncertain and what was left out. Define
+  the one term the change hinges on (pointer head, temperature, flip rate, AURC, prefix cache) the first time it appears, so an engineer who is not an ML
+  researcher can follow. Numbers carry their provenance (checkpoint, suite + partition, n, report path); the decision rule is written before the result. A list
+  of files changed is the diff again, not a description. Length follows novelty: one sentence for a one-line fix, headings for a new loss or serving path.
+  The title becomes the squash commit subject. The `kev-pr-description` skill has the reference PRs and a weak/strong pair.

@@ -86,7 +86,9 @@ Everything the worktree process opens must be an absolute path into this checkou
 
 ## 5. Ship
 
-- One branch per concern, stacked on the previous branch while it is under review; PR bodies list the parity evidence.
+- One branch per concern, stacked on the previous branch while it is under review. Write the body with the
+  `kev-pr-description` skill (problem, mechanism, uncertainty, scope); the parity evidence from this skill goes in its
+  `Test plan` as re-runnable commands and numbers, not "tests pass".
 - Review every PR with the `thermonuclear-code-review` skill (a read-only subagent works well) and apply the findings
   before merging; the reviewer has caught real bugs (a dropped import, a double-applied temperature).
 - Merge with `gh pr merge <n> --squash`. Because of the squash, rebase the next stacked branch with
