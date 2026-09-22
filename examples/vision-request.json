@@ -1,0 +1,18 @@
+{
+  "state": "Inspect the attached product photo for a returns workflow.",
+  "questions": {
+    "damage": {
+      "type": "noul",
+      "instructions": "Is visible damage present?"
+    },
+    "route": {
+      "type": "choice",
+      "instructions": "Which review queue fits the visible condition?",
+      "criteria": {
+        "normal": "No visible damage",
+        "damage_review": "Visible damage",
+        "manual_review": "The image does not provide enough information"
+      }
+    }
+  }
+}

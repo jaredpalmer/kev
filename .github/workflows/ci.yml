@@ -13,9 +13,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - run: uv sync --extra serve
+      - run: uv sync --extra serve --extra vision
       # Unit tests only: no model weights, no server. The tokenizer (~10 MB) is downloaded from the Hub.
-      - run: uv run python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py -q
+      - run: uv run python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py tests/test_vision.py -q
 
   playground:
     runs-on: ubuntu-latest

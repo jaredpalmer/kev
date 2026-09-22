@@ -201,6 +201,8 @@ The server binds to `127.0.0.1` and has no authentication. Keep it local unless 
 
 ## How It Works
 
+For an experimental image-input CLI using a Qwen2.5-VL baseline, see [Experimental Image Decisions](docs/experimental-vision.md). It returns the same typed answers without text generation. It has not been trained or calibrated as a Kev vision checkpoint.
+
 Each checkpoint is a rank-16 LoRA adapter and a small pointer head on a Qwen base model. On an attention-only base (Qwen3), the state and questions go into one token sequence:
 
 ```text
