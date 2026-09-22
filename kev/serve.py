@@ -8,6 +8,7 @@ comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS size the state-prefix KV c
 date preprocessing (api.with_date_facts).
 """
 import argparse, os, random, threading, time
+import torch
 from dataclasses import dataclass, field, replace
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -123,7 +124,7 @@ def systemone_separate(req: SystemOneRequest):
 def models():
     s = server()
     return {"models": [{"id": "kev-latest", "aliases": ["jev-latest"], "run": s.checkpoint.requested, "base": s.checkpoint.meta.base,
-                        "lora": s.checkpoint.meta.lora, "device": s.device, "temperature": s.model.head.temperature,
+                        "lora": s.checkpoint.meta.lora, "device": s.device, "dtype": str(next(s.model.lm.parameters()).dtype).removeprefix("torch."), "temperature": s.model.head.temperature,
                         "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": PREFIX_MIN_TOKENS, "hits": s.prefix_hits,
                                          "misses": s.prefix_misses, "cached_states": len(s.prefix_cache)}}]}
 
@@ -139,6 +140,7 @@ def main():
     dev = default_device()
     opts = LoadOptions.from_env()
     if dev == "mps" and opts.attn is None: opts = replace(opts, attn="sdpa")   # serving default on Apple GPUs (parity measured)
+    if dev != "cpu" and opts.dtype is None: opts = replace(opts, dtype=torch.bfloat16)   # serving default: 2-4.5x faster than fp32 on an L4, same answers (LoadOptions.dtype); KEV_DTYPE=fp32 for the exact path
     ck = Checkpoint(run)
     tok, model = ck.load(dev, opts)
     app.state.server = Server(ck, tok, model, dev)

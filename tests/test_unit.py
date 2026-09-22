@@ -151,6 +151,7 @@ def test_checkpoint_meta_round_trip_and_defaults(tmp_path):
     assert LoadOptions.from_env({}) == LoadOptions()
     opts = LoadOptions.from_env({"KEV_DTYPE": "bf16", "KEV_MERGE": "0", "KEV_ATTN": "sdpa", "KEV_TEMPERATURE": "1.0", "KEV_LORA_SCALE": "0.5"})
     assert opts == LoadOptions(dtype=torch.bfloat16, merge=False, attn="sdpa", lora_scale=0.5, temperature=1.0)
+    assert LoadOptions.from_env({"KEV_DTYPE": "fp32"}).dtype is torch.float32   # explicit fp32 survives, so kev.serve's bf16 default can be declined
 
 
 def test_head_temperature_scales_logits_at_eval_only():

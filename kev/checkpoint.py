@@ -76,8 +76,10 @@ class LoadOptions:
     """How a checkpoint is turned into a model. Defaults are the exact path every reported number uses; the fields
     are the same knobs the KEV_* environment variables expose to the command-line tools (see from_env).
 
-    dtype        None = fp32 (bf16 when the checkpoint was trained with a bf16 backbone). bf16 halves memory for
-                 serving large backbones; probabilities then differ from fp32 in the third decimal.
+    dtype        None = fp32, the exact path every reported number uses (bf16 when the checkpoint was trained with a bf16
+                 backbone). kev.serve defaults to bf16 on CUDA and MPS instead: half the memory, 2-4.5x lower latency on an
+                 L4 (Kev-4B: 209 -> 118 ms at 101 tokens, 850 -> 189 ms at 330 tokens), probabilities within ~0.01 and
+                 the same argmax on the checks run so far. KEV_DTYPE=fp32 restores the exact path when serving.
     merge        fold the LoRA into the base weights in fp32 before any cast. Exact in fp32; in bf16 it is faster (~15%)
                  and closer to the fp32 numbers than the unmerged adapter (kev-4b, 24 dev records: max |dp| 0.017 vs
                  0.029, 0 vs 1 argmax flips). Ignored for adapters that carry trained token embeddings.
@@ -94,9 +96,10 @@ class LoadOptions:
 
     @classmethod
     def from_env(cls, env=os.environ):
-        """KEV_DTYPE=bf16|fp16, KEV_MERGE=0, KEV_ATTN=sdpa|eager, KEV_LORA_SCALE, KEV_TEMPERATURE. For command-line entry
-        points only; library code passes an explicit LoadOptions."""
-        return cls(dtype={"bf16": torch.bfloat16, "fp16": torch.float16}.get(env.get("KEV_DTYPE", "")),
+        """KEV_DTYPE=bf16|fp16|fp32, KEV_MERGE=0, KEV_ATTN=sdpa|eager, KEV_LORA_SCALE, KEV_TEMPERATURE. For command-line entry
+        points only; library code passes an explicit LoadOptions. An explicit fp32 is kept as torch.float32 (not None) so a
+        caller with its own default, like kev.serve, can tell "asked for fp32" from "did not say"."""
+        return cls(dtype={"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}.get(env.get("KEV_DTYPE", "")),
                    merge=env.get("KEV_MERGE", "1") != "0", attn=env.get("KEV_ATTN") or None,
                    lora_scale=float(env.get("KEV_LORA_SCALE", "1")),
                    temperature=float(env["KEV_TEMPERATURE"]) if env.get("KEV_TEMPERATURE") else None)

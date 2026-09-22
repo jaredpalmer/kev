@@ -30,10 +30,10 @@ You'll need Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 ```bash
 git clone https://github.com/jaredpalmer/kev.git && cd kev
 uv sync --extra serve
-KEV_DTYPE=bf16 uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009
+uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009
 ```
 
-This starts Kev-4B locally. The first run downloads the adapter and base model. `--run` also accepts a local checkpoint directory or a Hub revision, such as `jaredpalmer/kev-4b@qwen3` for the previous generation.
+This starts Kev-4B locally in bf16 (`KEV_DTYPE=fp32` for the exact path the evaluations use). The first run downloads the adapter and base model. `--run` also accepts a local checkpoint directory or a Hub revision, such as `jaredpalmer/kev-4b@qwen3` for the previous generation.
 
 In another terminal, send it a ticket:
 
@@ -223,6 +223,16 @@ Asking questions together or separately produces probabilities within 4e-6 in th
 
 On CUDA and ROCm, install `flash-linear-attention` for the Qwen3.5 models (the Modal image does this); a five-question request takes tens of milliseconds on an H100 and MI300X.
 
+The server runs in bf16 by default on CUDA and Apple GPUs. That is a latency decision, measured on Kev-4B on an L4 (three questions, 20 requests each; every mode returned the same probabilities to two decimals):
+
+| Precision | 101-token request | 330-token request |
+|---|---|---|
+| fp32 | 209 ms | 850 ms |
+| fp32 with TF32 matmuls | 113 ms | 354 ms |
+| bf16 (default) | 118 ms | 189 ms |
+
+The `causal_conv1d` kernel transformers asks for on load made no difference for prefill (114 vs 118 ms), so the images do not install it. `KEV_DTYPE=fp32` serves the exact path the evaluations use; the benchmark and research tools always score in fp32 regardless of this default.
+
 On Apple Silicon there are no fast kernels for the DeltaNet layers, so PyTorch runs reference code. Median model time in bf16 on an M5, five questions with three options each on a ~230-token state:
 
 | Model | Time | Previous generation on the same request |
@@ -278,7 +288,7 @@ uv run python -m kev.train --data train.jsonl --base Qwen/Qwen3.5-4B-Base --init
     --epochs 2 --lr 2e-5 --batch 1 --accum 8 --dtype bf16 --checkpointing 1 --device cuda --out runs/mine
 
 uv run python -m kev.benchmark --run runs/mine --data heldout.jsonl --out runs/mine-eval
-KEV_DTYPE=bf16 uv run --extra serve python -m kev.serve --run runs/mine --port 8009
+uv run --extra serve python -m kev.serve --run runs/mine --port 8009
 ```
 
 `--init_from` loads the adapter and pointer head from the released model before training, so you keep what Kev already knows and add your domain on top. Starting from the base model instead throws that away: in one user's test on 836 support-tool decisions, a fine-tune from the base scored 0.33 on Kev's own evaluation set, against 0.84 for the released model; the same data with `--init_from` kept 0.83 there and reached 0.88 on the new domain. Use a smaller learning rate than the from-scratch recipe (`2e-5` is a good start), and pick `--base` to match the checkpoint you start from; the trainer checks that the base, revision, LoRA rank, and head size agree before it loads anything.
