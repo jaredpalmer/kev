@@ -247,8 +247,8 @@ def cross_validated_temperature(rows, fit=fit_temperature, folds=5, seed=0, samp
             oof_conf[i] = float(p.max())
             oof_nll[i] = nll_at_temperature(row, temperature)
             oof_brier[i] = float(((p - np.eye(len(p))[row["label"]]) ** 2).sum())
-    keys = ("n", "ece", "brier", "nll", "confident_error_rate", "coverage_at_5pct_error")
-    raw = {k: metrics(clean)[k] for k in keys}
+    full = metrics(clean)
+    raw = {k: full[k] for k in ("n", "ece", "brier", "nll", "confident_error_rate", "coverage_at_5pct_error")}
     out_of_fold = {"n": len(clean), "ece": ece(oof_conf, correct), "brier": float(oof_brier.mean()), "nll": float(oof_nll.mean()),
                    "confident_error_rate": float(np.mean((oof_conf >= 0.9) & ~correct)),
                    "coverage_at_5pct_error": coverage_at_error(oof_conf, correct, 0.05)}
