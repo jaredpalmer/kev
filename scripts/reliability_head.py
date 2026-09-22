@@ -18,15 +18,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kev.checkpoint import read_meta  # noqa: E402
-from kev.metrics import _source_groups, area_under_risk_coverage, coverage_at_error, scored_rows, tempered_row  # noqa: E402
+from kev.metrics import area_under_risk_coverage, cluster_resamples, coverage_at_error, scored_rows, served_at  # noqa: E402
 from kev.suite import read_json, write_json  # noqa: E402
 
 TYPES = ("choice", "noul", "score")
-
-
-def served(rows, temperature):
-    """Trial rows are raw (no inference_temperature recorded): serve them at the checkpoint's temperature."""
-    return [tempered_row({**r, "inference_temperature": 1.0}, temperature) if r.get("inference_temperature") is None else r for r in scored_rows(rows)]
 
 
 def features(rows):
@@ -57,11 +52,10 @@ def fit_logistic(x, y, l2=1.0, steps=50):
 def compare(rows, head, samples=1000, seed=0):
     ok = correct(rows).astype(bool); base = np.asarray([max(r["p"]) for r in rows]); new = head(features(rows))
     stats = lambda conf, idx: (area_under_risk_coverage(conf[idx], ok[idx]), coverage_at_error(conf[idx], ok[idx], 0.05))
-    full = np.arange(len(rows)); units = _source_groups(rows); rng = np.random.default_rng(seed); deltas = []
-    for _ in range(samples):
-        idx = np.concatenate([g[i] for g in units.values() for i in rng.integers(0, len(g), size=len(g))])
+    deltas = []
+    for idx in cluster_resamples(rows, samples, seed):
         (a0, c0), (a1, c1) = stats(base, idx), stats(new, idx); deltas.append((a1 - a0, c1 - c0))
-    (a0, c0), (a1, c1) = stats(base, full), stats(new, full); deltas = np.asarray(deltas)
+    (a0, c0), (a1, c1) = stats(base, np.arange(len(rows))), stats(new, np.arange(len(rows))); deltas = np.asarray(deltas)
     ci = lambda col: np.quantile(deltas[:, col], [0.025, 0.975]).tolist()
     return {"n": len(rows), "acc": float(ok.mean()), "p_max": {"aurc": a0, "coverage_at_5pct_error": c0}, "head": {"aurc": a1, "coverage_at_5pct_error": c1},
             "delta": {"aurc": a1 - a0, "aurc_ci95": ci(0), "coverage_at_5pct_error": c1 - c0, "coverage_ci95": ci(1)},
@@ -75,11 +69,11 @@ def main():
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     temperature = read_meta(Path(a.trial) / "checkpoint").temperature
-    fit_rows = served(read_json(Path(a.trial) / "calibration/rows.json"), temperature)
+    fit_rows = served_at(read_json(Path(a.trial) / "calibration/rows.json"), temperature)
     head = fit_logistic(features(fit_rows), correct(fit_rows))
     report = {"trial": a.trial, "temperature": temperature, "fit": {"partition": "decision-v7/calibration", "n": len(fit_rows)},
               "features": ["p_max", "margin", "normalised_entropy", "log_k", *[f"type_{t}" for t in TYPES]],
-              "evaluations": {"transfer-v4/development": compare(served(read_json(Path(a.trial) / "transfer/rows.json"), temperature), head)}}
+              "evaluations": {"transfer-v4/development": compare(served_at(read_json(Path(a.trial) / "transfer/rows.json"), temperature), head)}}
     for path in a.external:
         report["evaluations"][path] = compare(scored_rows(read_json(path)), head)
     Path(a.out).mkdir(parents=True, exist_ok=True); write_json(Path(a.out) / "report.json", report)

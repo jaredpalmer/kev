@@ -12,18 +12,16 @@ import argparse, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kev.metrics import TEMPERATURE_FIT, fit_temperature, metrics, paired_bootstrap, scored_rows, tempered_row  # noqa: E402
+from kev.metrics import metrics, paired_bootstrap, served  # noqa: E402
 from kev.suite import read_json, write_json  # noqa: E402
 
 KEYS = ("n", "acc", "brier", "ece", "coverage_at_5pct_error", "aurc", "confident_error_rate")
 COMPARED = ("acc", "coverage_at_5pct_error", "aurc", "brier")
 
 
-def served(trial):
+def served_trial(trial):
     """(temperature fitted on the trial's development rows, its transfer rows served at that temperature)."""
-    raw = lambda part: [{**r, "inference_temperature": r.get("inference_temperature") or 1.0} for r in scored_rows(read_json(Path(trial) / part / "rows.json"))]
-    temperature = fit_temperature(raw("development"), **TEMPERATURE_FIT)
-    return temperature, [tempered_row(r, temperature) for r in raw("transfer")]
+    return served(read_json(Path(trial) / "development/rows.json"), read_json(Path(trial) / "transfer/rows.json"))
 
 
 def main():
@@ -31,7 +29,7 @@ def main():
     ap.add_argument("--candidate", required=True); ap.add_argument("--control", required=True); ap.add_argument("--released", required=True)
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
-    arms = {name: served(path) for name, path in (("candidate", a.candidate), ("control", a.control), ("released", a.released))}
+    arms = {name: served_trial(path) for name, path in (("candidate", a.candidate), ("control", a.control), ("released", a.released))}
     report = {"trials": {"candidate": a.candidate, "control": a.control, "released": a.released},
               "temperature": {name: t for name, (t, _) in arms.items()},
               "transfer": {name: {k: metrics(rows)[k] for k in KEYS} for name, (_, rows) in arms.items()},

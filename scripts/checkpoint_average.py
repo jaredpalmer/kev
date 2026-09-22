@@ -10,10 +10,10 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kev.metrics import TEMPERATURE_FIT, fit_temperature, metrics, paired_bootstrap, scored_rows, tempered_row  # noqa: E402
+from kev.metrics import metrics, paired_bootstrap, scored_rows, served  # noqa: E402
 from kev.suite import read_json, write_json  # noqa: E402
 
-KEYS = ("acc", "brier", "nll", "ece", "confident_error_rate", "coverage_at_5pct_error", "aurc")
+KEYS = ("n", "acc", "brier", "nll", "ece", "confident_error_rate", "coverage_at_5pct_error", "aurc")
 
 
 def averaged(runs):
@@ -31,11 +31,6 @@ def averaged(runs):
     return out
 
 
-def served(dev, transfer):
-    temperature = fit_temperature(dev, **TEMPERATURE_FIT)
-    return temperature, [tempered_row(r, temperature) for r in transfer]
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reference", required=True, help="trial dir of the released seed")
@@ -51,7 +46,7 @@ def main():
               "ensemble_minus_reference": {m: paired_bootstrap(ens, ref, metric=m, aggregation="micro") for m in ("acc", "brier", "coverage_at_5pct_error", "aurc")}}
     Path(a.out).mkdir(parents=True, exist_ok=True); write_json(Path(a.out) / "report.json", report)
     for arm in ("reference", "ensemble"):
-        print(f"{arm:10} T={report['temperature'][arm]:.2f} " + " ".join(f"{k} {report[arm][k]:.3f}" for k in KEYS))
+        print(f"{arm:10} T={report['temperature'][arm]:.2f} " + " ".join(f"{k} {report[arm][k]:.3f}" for k in KEYS if k != "n"))
     for m, b in report["ensemble_minus_reference"].items():
         print(f"  delta {m:24} {b[f'micro_{m}_delta']:+.4f} [{b['ci95'][0]:+.4f}, {b['ci95'][1]:+.4f}]")
 

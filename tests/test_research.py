@@ -927,3 +927,24 @@ def test_none_pair_leaves_soft_target_questions_alone():
     req = {"state": "x", "questions": {"q": q}}
     assert len(none_pair(req, random.Random(0))) == 2
     assert none_pair({"state": "x", "questions": {"q": {**q, "target": {"a": 0.5, "b": 0.5}}}}, random.Random(0)) == []
+
+
+def test_served_fits_on_raw_rows_and_cluster_resamples_keep_groups_together():
+    import numpy as np
+    from kev.metrics import TEMPERATURE_FIT, cluster_resamples, fit_temperature, served, served_at, tempered_row
+    rng = np.random.default_rng(1)
+    rows = []
+    for g in range(20):
+        for q in range(2):
+            z = rng.normal(0, 1, 3); y = int(rng.integers(0, 3)); z[y] += 2.0; p = np.exp(z - z.max()); p /= p.sum()
+            rows.append({"id": f"r{g}", "question": f"q{q}", "source": "s" if g % 2 else "t", "group": f"g{g}", "task": "k", "type": "choice",
+                         "variant": "clean", "label": y, "logits": z.tolist(), "p": p.tolist(), "inference_temperature": None})
+    temperature, out = served(rows, rows)
+    raw = [{**r, "inference_temperature": 1.0} for r in rows]
+    assert temperature == fit_temperature(raw, **TEMPERATURE_FIT)                      # None = recorded raw
+    assert out == [tempered_row(r, temperature) for r in raw] == served_at(rows, temperature)
+    assert served(out, rows)[0] == temperature                                         # fitting on served rows restores raw logits first
+    for idx in cluster_resamples(rows, 20, 0):
+        drawn = [rows[i]["group"] for i in idx]
+        assert all(drawn.count(g) % 2 == 0 for g in set(drawn))                        # both questions of a record move together
+        assert sum(rows[i]["source"] == "s" for i in idx) == 20                        # stratified: each source keeps its size

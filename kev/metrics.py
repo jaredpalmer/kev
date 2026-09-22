@@ -209,6 +209,23 @@ def raw_row(row):
     return {**row, "p": (p / p.sum()).tolist(), "logits": z.tolist(), "inference_temperature": 1.0}
 
 
+def recorded(row):
+    """The row with its inference temperature explicit: rows saved before benchmarks recorded one (None) were scored raw."""
+    return {**row, "inference_temperature": 1.0} if row.get("inference_temperature") is None else row
+
+
+def served_at(rows, temperature):
+    """The scored rows as a predictor at `temperature` would have returned them (recorded temperatures compose)."""
+    return [tempered_row(recorded(r), temperature) for r in scored_rows(rows)]
+
+
+def served(fit_rows, eval_rows, **fit_kwargs):
+    """(temperature fitted on `fit_rows`' raw logits, `eval_rows` served at it): how a checkpoint is calibrated and read
+    everywhere a comparison is served-vs-served. fit_kwargs default to TEMPERATURE_FIT."""
+    temperature = fit_temperature([raw_row(recorded(r)) for r in scored_rows(fit_rows)], **(fit_kwargs or TEMPERATURE_FIT))
+    return temperature, served_at(eval_rows, temperature)
+
+
 def scored_rows(rows):
     """The rows metrics are computed on: clean variants of knowable records."""
     return [row for row in rows if row["variant"] == "clean" and row["source"] != "unknowable"]
@@ -251,6 +268,15 @@ def _source_groups(rows):
     for (source, _), indices in groups.items():
         sources[source].append(np.asarray(indices, dtype=int))
     return sources
+
+
+def cluster_resamples(rows, samples, seed):
+    """Index arrays of `samples` bootstrap resamples of `rows`: within each source, (source, group) clusters drawn with
+    replacement, so sibling questions and variants of one record move together. The resampling unit of every bootstrap
+    here (paired_bootstrap, cross_validated_temperature) and of the research scripts that bootstrap their own statistic."""
+    sources, rng = _source_groups(rows), np.random.default_rng(seed)
+    for _ in range(samples):
+        yield np.concatenate([grouped[i] for grouped in sources.values() for i in rng.integers(0, len(grouped), size=len(grouped))])
 
 
 def grouped_folds(rows, folds, seed):
@@ -300,11 +326,7 @@ def cross_validated_temperature(rows, folds=5, seed=0, samples=1000, **fit_kwarg
     correct = np.asarray([np.argmax(row["p"]) == row["label"] for row in clean])   # argmax is temperature-invariant
     conf = np.asarray([[max(row["p"]) for row in rows] for rows in (clean, oof)])
     sources = _source_groups(clean)
-    rng = np.random.default_rng(seed)
-    values = np.empty((samples, 2))
-    for s in range(samples):
-        drawn = np.concatenate([grouped[i] for grouped in sources.values() for i in rng.integers(0, len(grouped), size=len(grouped))])
-        values[s] = [ece(conf[0][drawn], correct[drawn]), ece(conf[1][drawn], correct[drawn])]
+    values = np.asarray([[ece(conf[0][drawn], correct[drawn]), ece(conf[1][drawn], correct[drawn])] for drawn in cluster_resamples(clean, samples, seed)])
     ci = {name: np.quantile(v, [0.025, 0.975]).tolist() for name, v in (("raw", values[:, 0]), ("out_of_fold", values[:, 1]), ("delta", values[:, 1] - values[:, 0]))}
     return {"raw": {k: raw[k] for k in keys}, "out_of_fold": {k: out_of_fold[k] for k in keys}, "ece_ci95": ci,
             "separated": bool(ci["delta"][1] < 0 or ci["delta"][0] > 0), "temperatures": temperatures,
@@ -362,11 +384,7 @@ def paired_bootstrap(candidate, reference, samples=1000, seed=0, metric="nll", a
         parts = [indices] if aggregation == "micro" else [indices[task_names[indices] == t] for t in np.unique(task_names[indices])]
         return float(np.mean([statistic(part, statistics[0]) - statistic(part, statistics[1]) for part in parts]))
 
-    rng = np.random.default_rng(seed)
-    values = []
-    for _ in range(samples):
-        drawn = [units[i] for units in sources.values() for i in rng.integers(0, len(units), size=len(units))]
-        values.append(delta(np.concatenate(drawn)))
+    values = [delta(drawn) for drawn in cluster_resamples([a[key] for key in keys], samples, seed)]
     return {f"{aggregation}_{metric}_delta": delta(np.arange(len(keys))), "ci95": np.quantile(values, [0.025, 0.975]).tolist(),
             "samples": samples, "groups": sum(len(v) for v in sources.values()), "aggregation": aggregation,
             "unit": "source-stratified original record; sibling questions stay together",
