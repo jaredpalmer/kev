@@ -49,6 +49,19 @@ Already tried with negative results, not repeated: loss modifiers (round 3), per
 - **Then one locked read** (`modal_app.py::locked_test`, decision-v7 and transfer-v4 test partitions, named `kev-9b-r4-soft`). Pass if transfer-v4 locked accuracy ≥ 0.842 (the parent's 0.852 − 1 pp) and served Brier on the locked transfer items is no higher than the parent's served Brier on the same items (from the parent's saved locked rows).
 - **If everything passes:** fit and write the candidate's temperature into `head.pt` with `scripts/calibrate_checkpoint.py`, publish it as the new `jaredpalmer/kev-9b` main with the current weights tagged `night2-du` first, update the card with the raw and served numbers and this criteria outcome. **If anything fails:** no release; the result and the failed criterion are written here, and the next step is re-registered, not re-read.
 
+**Result (read once, 2026-09-22): not released.** Final panel, 1,150 knowable questions, served at T = 1.12 (candidate) / 1.59 (control) / 2.30 (parent):
+
+| | parent (released) | candidate | candidate − parent (95 % CI) | criterion |
+|---|---|---|---|---|
+| Brier | 0.2263 | 0.2240 | −0.0023 [−0.0097, +0.0053] | P1 upper < 0: **failed** |
+| confident errors | 2.87 % | 1.65 % | −1.22 pp [−2.26, −0.09] | P2 upper < 0: passed |
+| accuracy | 0.847 | 0.853 | +0.6 pp [−0.2, +1.4] | P3 lower ≥ −1 pp: passed |
+| coverage at ≤ 5 % error / AURC | 0.637 / 0.047 | 0.651 / 0.043 | +1.4 pp [−12.7, +11.3] / −0.004 [−0.010, +0.003] | reported |
+
+Secondary: `transfer-v9` unknowable share at ≥ 0.9 is 0.00 for all three arms (passed); SemIf 0.951 vs 0.910, scienthoon 0.751 vs 0.755, TypeSafe (answered rows) 0.843 vs 0.820 (passed); **WANLI 0.691 vs 0.703, −1.2 pp (failed the −1 pp gate; 3 of 256 questions)**. Against the matched hard-label control the candidate is clearly better (Brier −0.011 [−0.019, −0.003], accuracy +1.1 pp [+0.3, +2.1], AURC −0.006 [−0.012, −0.000]); against the release, only the confident-error reduction replicates. Most of the development-set advantage was the control's loss plus selection on the same items. The locked test was not read. [`runs/rc-verdict/report.json`](runs/rc-verdict/report.json), [`scripts/release_confirm.py`](scripts/release_confirm.py), reads under `runs/rc-*`.
+
+What this leaves: soft targets are the right way to continue training (a hard-label continuation loses accuracy and calibration, a soft one does not), but on their own they are not a release. The round-3 final panel is now spent; any further confirmation needs a new frozen panel, registered before it is built. The natural next candidate is a single Kev-9B delta combining the 4.12 long-state records with the ambiguity soft targets, judged first on the long-state gap (where the effect is +15 pp, not +0.6), with this short-state rule as its non-inferiority guard.
+
 ### Round 4 results
 
 Spend so far: Modal metered $407.32 before the 4.8(b) trial (from $405.94 at registration); the external and rotation benchmark passes and the probes are the rest. Every item links its run directory.
