@@ -3,7 +3,8 @@
 
 docs/claims.json lists claim records: {"printed": exact string in the docs, "in": text files where it must literally
 appear, "source": JSON/JSONL under the repo, "select": key/value filter for JSONL rows (must match exactly one row),
-"path": dotted key path (or list of paths with "derive": "macro_mean"), optional "scale" multiplier}.
+"path": dotted key path (or list of paths with "derive": "macro_mean"; "derive": "over_requested" rescales an accuracy over
+evaluated questions to all requested questions, counting rejected ones wrong), optional "scale" multiplier}.
 
 A claim passes when the printed string literally occurs in every `in` file and the source value, scaled and formatted
 to the printed precision, equals the printed digits. Run: uv run python scripts/verify_claims.py [--claims PATH].
@@ -31,11 +32,15 @@ def _dig(obj, dotted):
 
 
 def _value(claim, source):
-    if isinstance(claim["path"], list):
-        assert claim["derive"] == "macro_mean", claim
+    derive = claim.get("derive")
+    if derive == "macro_mean":
         values = [_dig(source, p) for p in claim["path"]]
         return sum(values) / len(values)
-    return _dig(source, claim["path"])
+    value = _dig(source, claim["path"])
+    if derive == "over_requested":
+        return value * source["coverage"]["evaluated_questions"] / source["coverage"]["requested_questions"]
+    assert derive is None, claim
+    return value
 
 
 def verify(root, claims=None):
