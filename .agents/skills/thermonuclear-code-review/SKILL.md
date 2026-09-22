@@ -31,10 +31,10 @@ standards to *this* repository.
 |---|---|
 | load/resolve a checkpoint, read/write `head.pt` (`Meta`), warm-start LoRA+head, `LoadOptions` (+ `from_env` at CLI entry points only) | `kev/checkpoint.py` |
 | option keys for a question (choice/noul/score) | `kev.api.question_keys` |
-| does a record fit the training context (`MAX_STATE/MAX_BRANCH/MAX_PACKED`) | `kev.model.fits(rec, *tokenizers)`; manifests write `kev.suite.CONTEXT` |
+| does a record fit the training context (`MAX_STATE/MAX_BRANCH/MAX_PACKED`); a lifted state limit (`training_context(max_state)`, ceiling `MAX_TRAIN_STATE`) | `kev.model.fits(rec, *tokenizers)`, `kev.model.training_context`; manifests write `kev.suite.CONTEXT` |
 | default device / sync / empty_cache / allocated_bytes | `kev/device.py` |
 | read/write JSON and JSONL as UTF-8 (`read_json`, `read_jsonl`, `write_json`, `write_jsonl`), read a manifest, sha256 a file, load a split, trainable/eval-only policy (`validate_training`), `semantic_hash`, `SYNTHETIC_SOURCES` | `kev/suite.py` |
-| labelled request -> API request / internal record | `kev.data.api_request`, `kev.data.materialize` |
+| labelled request -> API request / internal record; augmentation that must skip soft-target questions (`augment`, `none_pair`) | `kev.data.api_request`, `kev.data.materialize`, `kev.data` |
 | selective-prediction metrics, the rows metrics run on (`scored_rows`), a row at another temperature (`tempered_row`) and back to T=1 (`raw_row`), temperature fit (`fit_temperature`; the shipped grid is `TEMPERATURE_FIT`), group-disjoint folds and out-of-fold calibration (`grouped_folds`, `out_of_fold_rows`, `cross_validated_temperature`); per-workload report `kev.calibrate`, paired bootstrap | `kev/metrics.py` |
 | predictors (local checkpoint, remote System One endpoint, Jev) | `kev/predictors.py` |
 | rows from predictions, `summarize`, `evaluate_records` | `kev/benchmark.py` |

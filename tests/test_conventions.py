@@ -21,7 +21,7 @@ RULES = [
      r"MLXDecisionModel\(|merge_lora\(", {"kev/checkpoint.py", "kev/mlx_model.py", "tests/test_mlx.py"}),
     ("option keys come from kev.api.question_keys",
      r"\[\s*\"false\"\s*,\s*\"true\"\s*\]|\[str\(i\) for i in range\(len\(", {"kev/api.py", "tests/test_unit.py"}),   # the unit test pins the contract
-    ("the training context is kev.model.MAX_STATE/MAX_BRANCH/MAX_PACKED (kev.suite.CONTEXT in manifests) and kev.model.fits",
+    ("the training context is kev.model.MAX_STATE/MAX_BRANCH/MAX_PACKED, lifted only through kev.model.training_context (kev.suite.CONTEXT in manifests), and kev.model.fits",
      r"(?<![\w.])(>|<=|>=|<)\s*2048\b|\b2048\s*(<|>)|max_(branch|state|packed)\"?\s*[=:]\s*\d{3,}", {"kev/model.py"}),
     ("text files are read and written as UTF-8 (kev.suite.read_json/read_jsonl/write_json/write_jsonl, or an explicit encoding=); "
      "the platform locale must never decide how a frozen partition is decoded (issue #12)",
