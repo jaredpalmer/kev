@@ -447,10 +447,10 @@ def test_cross_validated_temperature_is_group_disjoint_and_reports_intervals():
                              "variant": "clean", "question": "q", "keys": ["x", "y"],
                              "label": 1 if i % 4 == 3 else 0, "logits": [3.0, 0.0], "p": p, "inference_temperature": 1.0})
     result = cross_validated_temperature(rows, folds=5, samples=200)
-    assert len(result["fold_of"]) == 20 and set(result["fold_of"].values()) <= set(range(5))
+    fold_of = {(r["source"], r["group"]): r["fold"] for r in result["fold_of"]}
+    assert len(fold_of) == 20 and set(fold_of.values()) <= set(range(5))
     for source in ("a", "b"):
-        for group in range(10):
-            assert f"{source}/g{group}" in result["fold_of"]
+        assert {fold_of[(source, f"g{g}")] for g in range(10)} == set(range(5))   # every source in every fold
     assert len(result["temperatures"]) == 5 and all(t > 1 for t in result["temperatures"])
     assert result["out_of_fold"]["ece"] < result["raw"]["ece"]
     lo, hi = result["ece_ci95"]["delta"]

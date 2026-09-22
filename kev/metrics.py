@@ -219,7 +219,8 @@ def _source_groups(rows):
 
 def cross_validated_temperature(rows, fit=fit_temperature, folds=5, seed=0, samples=1000):
     """Out-of-fold calibration report. Folds are disjoint in (source, group) so sibling questions and variants of one
-    record never straddle train/test; each fold's temperature is fit on the other folds and applied to the held-out rows.
+    record never straddle train/test, and are assigned round-robin within each source so every fold sees every source;
+    each fold's temperature is fit on the other folds and applied to the held-out rows.
     Bootstrap resamples source-stratified groups (the same unit as paired_bootstrap) and reports raw vs out-of-fold ECE
     with a 95% interval on the paired delta; `separated` is True when that interval excludes zero."""
     if folds < 2 or samples < 1:
@@ -229,9 +230,13 @@ def cross_validated_temperature(rows, fit=fit_temperature, folds=5, seed=0, samp
     if len(units) < folds:
         raise ValueError("fewer distinct (source, group) units than folds")
     rng = np.random.default_rng(seed)
-    permutation = rng.permutation(len(units))
-    fold_of = {f"{units[permutation[i]][0]}/{units[permutation[i]][1]}": i % folds for i in range(len(units))}
-    fold_id = np.asarray([fold_of[f"{row['source']}/{row['group']}"] for row in clean])
+    fold_of, offset = {}, 0
+    for source in sorted({source for source, _ in units}):
+        own = [unit for unit in units if unit[0] == source]
+        for i, j in enumerate(rng.permutation(len(own))):
+            fold_of[own[j]] = (offset + i) % folds
+        offset += len(own)
+    fold_id = np.asarray([fold_of[(row["source"], row["group"])] for row in clean])
     correct = np.asarray([np.argmax(row["p"]) == row["label"] for row in clean], dtype=bool)
     raw_conf = np.asarray([float(max(row["p"])) for row in clean])
     oof_conf, oof_nll, oof_brier = (np.empty(len(clean)) for _ in range(3))
@@ -266,7 +271,8 @@ def cross_validated_temperature(rows, fit=fit_temperature, folds=5, seed=0, samp
             "ece_ci95": {"raw": [float(lo_raw), float(hi_raw)], "out_of_fold": [float(lo_oof), float(hi_oof)],
                          "delta": [float(lo_delta), float(hi_delta)]},
             "separated": bool(hi_delta < 0 or lo_delta > 0), "temperatures": temperatures,
-            "folds": folds, "seed": seed, "samples": samples, "groups": len(units), "fold_of": fold_of,
+            "folds": folds, "seed": seed, "samples": samples, "groups": len(units),
+            "fold_of": [{"source": source, "group": group, "fold": fold} for (source, group), fold in fold_of.items()],
             "unit": "source-stratified (source, group); sibling questions and variants stay together"}
 
 
