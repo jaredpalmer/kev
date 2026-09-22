@@ -18,7 +18,7 @@ from pathlib import Path
 
 import torch
 
-from .model import DecisionModel, is_hybrid, load_tokenizer, pad_id
+from .model import DecisionModel, default_attn, is_hybrid, load_tokenizer, pad_id
 
 HUB_ID = re.compile(r"[\w.-]+/[\w.-]+(@[\w.-]+)?")
 
@@ -84,6 +84,10 @@ class LoadOptions:
     merge        fold the LoRA into the base weights in fp32 before any cast. Exact in fp32; in bf16 it is faster (~15%)
                  and closer to the fp32 numbers than the unmerged adapter (kev-4b, 24 dev records: max |dp| 0.017 vs
                  0.029, 0 vs 1 argmax flips). Ignored for adapters that carry trained token embeddings.
+    merge_device where the fp32 backbone is loaded and merged; None = the serving device. "cpu" keeps the fp32 copy in host
+                 memory and moves only the cast model, so the GPU never holds more than the serving dtype: Kev-4B in bf16
+                 fits a 16 GB card this way, while the fp32 merge on the card runs out of memory. Same weights, slower
+                 load. Ignored when nothing is merged.
     attn         attention backend; None = the model default (SDPA on CUDA, eager elsewhere). "sdpa" on MPS measured
                  parity with eager and is a few percent faster.
     lora_scale   WiSE-FT-style interpolation between base (0) and fine-tuned weights (1), at inference.
@@ -97,6 +101,7 @@ class LoadOptions:
     """
     dtype: torch.dtype | None = None
     merge: bool = True
+    merge_device: str | None = None
     attn: str | None = None
     lora_scale: float = 1.0
     temperature: float | None = None
@@ -106,14 +111,15 @@ class LoadOptions:
 
     @classmethod
     def from_env(cls, env=os.environ):
-        """KEV_DTYPE=bf16|fp16|fp32, KEV_MERGE=0, KEV_ATTN=sdpa|eager, KEV_LORA_SCALE, KEV_TEMPERATURE, KEV_BACKEND=torch|mlx|auto.
+        """KEV_DTYPE=bf16|fp16|fp32, KEV_MERGE=0, KEV_MERGE_DEVICE=cpu, KEV_ATTN=sdpa|eager, KEV_LORA_SCALE, KEV_TEMPERATURE, KEV_BACKEND=torch|mlx|auto.
         For command-line entry points only; library code passes an explicit LoadOptions. Explicit values that equal a
         library default are kept (fp32 as torch.float32, "torch" as a string) so a caller with its own default, like
         kev.serve, can tell "asked for it" from "did not say"."""
         backend = env.get("KEV_BACKEND") or None
         if backend not in cls.BACKENDS: raise ValueError(f"KEV_BACKEND must be one of torch, mlx, auto; got {backend!r}")
         return cls(dtype={"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}.get(env.get("KEV_DTYPE", "")),
-                   merge=env.get("KEV_MERGE", "1") != "0", attn=env.get("KEV_ATTN") or None,
+                   merge=env.get("KEV_MERGE", "1") != "0", merge_device=env.get("KEV_MERGE_DEVICE") or None,
+                   attn=env.get("KEV_ATTN") or None,
                    lora_scale=float(env.get("KEV_LORA_SCALE", "1")),
                    temperature=float(env["KEV_TEMPERATURE"]) if env.get("KEV_TEMPERATURE") else None, backend=backend)
 
@@ -191,9 +197,11 @@ class Checkpoint:
             # the same way and keep the fp32 adapter unmerged rather than folding it into bf16 weights.
             dtype, merge = torch.bfloat16, False
         merge = merge and not self.adapter_config().get("trainable_token_indices")   # token-trained adapters stay unmerged
-        m = DecisionModel(meta.base, tok, device, lora=None, revision=meta.base_revision, head_dim=meta.head_dim,
-                          option_isolation=meta.option_isolation, dtype=torch.float32 if merge else dtype, attn=opts.attn)
-        m.lm = PeftModel.from_pretrained(m.lm, self.path, torch_device=str(device)).to(device)   # trainable token embeddings, if any, live in the adapter
+        stage = opts.merge_device if merge and opts.merge_device else device   # where the fp32 weights live until the cast
+        m = DecisionModel(meta.base, tok, stage, lora=None, revision=meta.base_revision, head_dim=meta.head_dim,
+                          option_isolation=meta.option_isolation, dtype=torch.float32 if merge else dtype,
+                          attn=opts.attn or default_attn(device))
+        m.lm = PeftModel.from_pretrained(m.lm, self.path, torch_device=str(stage)).to(stage)   # trainable token embeddings, if any, live in the adapter
         if opts.lora_scale != 1:
             for module in m.lm.modules():
                 if isinstance(getattr(module, "scaling", None), dict):
@@ -201,6 +209,7 @@ class Checkpoint:
             m.lora_scale = opts.lora_scale
         if merge: m.lm = m.lm.merge_and_unload()     # in fp32: exact
         if dtype != torch.float32: m.lm = m.lm.to(dtype)
+        if str(stage) != str(device): m.to(device); m.device = device
         return m
 
     COMPAT_FIELDS = ("base", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings")

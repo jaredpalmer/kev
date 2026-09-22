@@ -246,7 +246,7 @@ The server caches every state prefix for these models, so a repeated document pa
 
 For the attention-only models the server merges the LoRA weights in fp32 before casting, uses SDPA attention on Apple GPUs, pads MPS inputs to 64-token buckets, and caches the state prefix for repeated requests (four states of at least 384 tokens by default). With a repeated 772-token state, Kev-4B (Qwen3) answers in 242 ms instead of 861 ms.
 
-You can disable these with `KEV_MERGE=0`, `KEV_ATTN=eager`, `KEV_SHAPE_BUCKET=1`, and `KEV_PREFIX_CACHE=0`. On 24 new-source records, bf16 probabilities differed from fp32 by at most 0.017, with no change in the highest-probability answer. That is a small check, not a guarantee for every input.
+You can disable these with `KEV_MERGE=0`, `KEV_ATTN=eager`, `KEV_SHAPE_BUCKET=1`, and `KEV_PREFIX_CACHE=0`. The merge loads the backbone in fp32 on the GPU first, which needs twice the memory of the bf16 model it produces; if that runs out of memory (Kev-4B on a 16 GB card), set `KEV_MERGE_DEVICE=cpu` to merge in host memory and move only the bf16 weights to the GPU. On 24 new-source records, bf16 probabilities differed from fp32 by at most 0.017, with no change in the highest-probability answer. That is a small check, not a guarantee for every input.
 
 ## Training
 

@@ -52,6 +52,12 @@ def pad_id(tok):
     return tok.pad_token_id if tok.pad_token_id is not None else 0
 
 
+def default_attn(device):
+    """eager on MPS/CPU (known-good with our float 4D mask); SDPA on CUDA (accepts arbitrary additive masks). Follows the
+    device the model serves on, not where it is built: Checkpoint.load can build on the CPU and move to CUDA afterwards."""
+    return "sdpa" if str(device).startswith("cuda") else "eager"
+
+
 def is_hybrid(config):
     """Whether a (text) config has Gated DeltaNet layers (Qwen3.5). Such backbones cannot honour the block-causal mask and
     run the row form; on Apple Silicon they are what the MLX backend is for."""
@@ -196,8 +202,7 @@ class DecisionModel(nn.Module):
     def __init__(self, name, tok, device, lora=None, revision=None, attn=None, head_dim=256, option_isolation=False, special_embeddings=False, lora_targets="all", dtype=torch.float32):
         super().__init__()
         # backbone only (no vocab head): we never generate text.
-        # eager on MPS/CPU (known-good with our float 4D mask); SDPA on CUDA (accepts arbitrary additive masks).
-        attn = attn or ("sdpa" if str(device).startswith("cuda") else "eager")
+        attn = attn or default_attn(device)
         # dtype: fp32 for training and exact evaluation; bf16 is a serving option for large backbones (8B on a 32 GB Mac)
         self.lm = AutoModelForCausalLM.from_pretrained(name, revision=revision, dtype=dtype, attn_implementation=attn).model
         self.pad_id = pad_id(tok)
