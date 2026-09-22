@@ -39,7 +39,7 @@ export const api = {
   models: async () => {
     const r = await fetch("/kev/v1/models");
     if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
-    return r.json() as Promise<{ models: { id: string; run: string; base: string }[] }>;
+    return r.json() as Promise<{ models: { name: string; run: string; base: string }[] }>;
   },
 };
 

@@ -89,7 +89,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   gradio_client `/decide` endpoint; the Space is also in the Kev collection and needs PRO to exist.
 - Serve: `uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009` (`--run` defaults to runs/kev and falls back to runs/smoke;
   the playground proxies :8009)
-  - TypeSafe-compatible: `POST /v1/systemone`, `GET /v1/models` (no auth; also reports device, dtype, temperature and prefix-cache stats).
+  - TypeSafe-compatible: `POST /v1/systemone`, `GET /v1/models` (model cards for `kev-latest` and `jev-latest`, plus device, dtype, temperature and prefix-cache stats), an `x-typesafe-request-id` header on every response, and bearer auth when `KEV_API_KEY` is set (unset = open server).
   - SDK: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8009", model="kev-latest")`
 - Extra endpoints for the demo: `POST /v1/systemone/permute` (one Choice under n option orders), `POST /v1/systemone/separate`
   (each question alone; packed-vs-separate comparison). `/v1/systemone` also returns `latency_ms`.

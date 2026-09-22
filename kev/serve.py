@@ -2,17 +2,20 @@
 
 Run: uv run --extra serve python -m kev.serve --run runs/kev --port 8008
 
-TypeSafe-compatible: POST /v1/systemone, GET /v1/models (no auth). Demo extras: POST /v1/systemone/permute (one Choice
+TypeSafe-compatible: POST /v1/systemone, GET /v1/models, the `x-typesafe-request-id` response header, and bearer auth
+when KEV_API_KEY is set (unset = open server, the local default). Demo extras: POST /v1/systemone/permute (one Choice
 under several option orders) and POST /v1/systemone/separate (each question in its own pass, for the packed-vs-separate
 comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS size the state-prefix cache; KEV_DATE_FACTS=1 opts into the
 date preprocessing (api.with_date_facts). Backend and precision follow LoadOptions (KEV_BACKEND, KEV_DTYPE, ...): on Apple
 Silicon the hybrid Qwen3.5 checkpoints run on MLX by default, elsewhere on torch in bf16.
 """
-import argparse, os, random, threading, time
+import argparse, os, random, threading, time, uuid
 import torch
 from dataclasses import dataclass, field, replace
+from datetime import date
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
 from .checkpoint import Checkpoint, LoadOptions, is_hub_id
@@ -22,6 +25,8 @@ from .model import SERVE_MAX_BRANCH, SERVE_MAX_STATE
 PREFIX_CACHE_SIZE = int(os.environ.get("KEV_PREFIX_CACHE", "4"))          # states kept (KV + hidden); 0 disables
 PREFIX_MIN_TOKENS = os.environ.get("KEV_PREFIX_MIN_TOKENS")               # states shorter than this are not cached; default = the model's prefix_min_tokens (0 for hybrid backbones and MLX, 384 for attention-only torch models)
 DATE_FACTS = os.environ.get("KEV_DATE_FACTS", "0") == "1"
+API_KEY = os.environ.get("KEV_API_KEY")                                  # unset = open server; set = require Authorization: Bearer <key>, as the TypeSafe clients always send
+MODEL_NAMES = ("kev-latest", "jev-latest")                               # both names serve this checkpoint; jev-latest is the TypeSafe SDK default model, so an unconfigured client works
 
 
 @dataclass
@@ -78,7 +83,18 @@ def prepare(req):
 
 
 app = FastAPI(title="kev")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["x-typesafe-request-id"])
+
+
+@app.middleware("http")
+async def typesafe(request, call_next):
+    """Bearer auth (when API_KEY is set) and the request id every TypeSafe client reads off the response."""
+    if API_KEY and request.url.path.startswith("/v1") and request.headers.get("authorization") != f"Bearer {API_KEY}":
+        resp = JSONResponse({"detail": "missing or invalid API key; send Authorization: Bearer <KEV_API_KEY>"}, 401, {"www-authenticate": "Bearer"})
+    else:
+        resp = await call_next(request)
+    resp.headers["x-typesafe-request-id"] = request.headers.get("x-typesafe-request-id") or uuid.uuid4().hex
+    return resp
 
 
 def server() -> Server:
@@ -126,11 +142,17 @@ def systemone_separate(req: SystemOneRequest):
 
 @app.get("/v1/models")
 def models():
+    """One TypeSafe model card (name, description, release_date) per accepted model name, plus the Kev serving details
+    a client may ignore: the run, the base, the device, the backend and precision, the temperature, prefix-cache stats."""
     s = server()
-    return {"models": [{"id": "kev-latest", "aliases": ["jev-latest"], "run": s.checkpoint.requested, "base": s.checkpoint.meta.base,
-                        "lora": s.checkpoint.meta.lora, "device": s.device, "backend": s.model.backend, "dtype": s.model.dtype, "temperature": s.model.head.temperature,
-                        "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": s.prefix_min_tokens, "hits": s.prefix_hits,
-                                         "misses": s.prefix_misses, "cached_states": len(s.prefix_cache)}}]}
+    ck, meta = s.checkpoint, s.checkpoint.meta
+    card = {"description": f"Kev pointer head on {meta.base}, serving {ck.requested} at temperature {s.model.head.temperature:.2f}",
+            "release_date": date.fromtimestamp(ck.file("head.pt").stat().st_mtime).isoformat(),   # when head.pt was written (a Hub checkpoint: when it was cached); Kev has no release train
+            "run": ck.requested, "base": meta.base, "lora": meta.lora, "device": s.device, "backend": s.model.backend, "dtype": s.model.dtype,
+            "temperature": s.model.head.temperature,
+            "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": s.prefix_min_tokens, "hits": s.prefix_hits,
+                             "misses": s.prefix_misses, "cached_states": len(s.prefix_cache)}}
+    return {"models": [{"name": name, **card} for name in MODEL_NAMES]}
 
 
 def main():

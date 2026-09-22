@@ -54,6 +54,7 @@ def test_to_answers_choice_probabilities_sum_within_typesafe_tolerance(p):
 
 def test_confidence_edge_cases():
     assert choice_confidence([1.0]) == 1.0
+    assert score_confidence([1.0]) == 1.0          # a one-level score: the SDK allows it, and there is nowhere else to be
     assert choice_confidence([0.5, 0.5]) == 0.0
     assert math.isclose(choice_confidence([1.0, 0.0, 0.0]), 1.0)
     assert score_confidence([0.0, 1.0, 0.0]) == 1.0
@@ -61,7 +62,7 @@ def test_confidence_edge_cases():
 
 
 @pytest.mark.parametrize("bad", [
-    {"q": {"type": "score", "instructions": "i", "criteria": ["only one"]}},
+    {"q": {"type": "score", "instructions": "i", "criteria": []}},
     {"q": {"type": "bogus", "instructions": "i"}},
     {"q": {"type": "choice", "instructions": "i", "criteria": {f"o{i}": None for i in range(256)}}},
     {},
@@ -173,6 +174,18 @@ def test_head_temperature_scales_logits_at_eval_only():
     head.eval(); raw = head(hd, ho); head.temperature = 2.0; cal = head(hd, ho)
     assert torch.allclose(raw_train, raw) and torch.allclose(cal, raw / 2.0) and cal.argmax() == raw.argmax()
     head.train(); assert torch.allclose(head(hd, ho), raw), "training must not be tempered"
+
+
+def test_bearer_auth_and_request_id(monkeypatch):
+    """KEV_API_KEY (kev.serve.API_KEY) gates /v1/*; every response carries the request id the TypeSafe clients read."""
+    from fastapi.testclient import TestClient
+    from kev import serve
+    with TestClient(serve.app) as client:
+        assert client.get("/openapi.json").headers["x-typesafe-request-id"]
+        monkeypatch.setattr(serve, "API_KEY", "secret")
+        assert client.get("/v1/models").status_code == 401
+        assert client.get("/v1/models", headers={"authorization": "Bearer wrong"}).status_code == 401
+        assert client.get("/openapi.json").status_code == 200   # only /v1 is gated
 
 
 def test_option_isolation_mask_rule():

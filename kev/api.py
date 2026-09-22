@@ -16,13 +16,13 @@ MAX_OPTIONS = 255
 
 class Noul(BaseModel):
     type: Literal["noul"]
-    instructions: JSONContent
+    instructions: JSONContent = None
     criteria: dict[str, JSONContent] | None = None
 
 
 class Choice(BaseModel):
     type: Literal["choice"]
-    instructions: JSONContent
+    instructions: JSONContent = None
     criteria: dict[str, JSONContent]
 
     @model_validator(mode="after")
@@ -33,8 +33,8 @@ class Choice(BaseModel):
 
 class Score(BaseModel):
     type: Literal["score"]
-    instructions: JSONContent
-    criteria: list[JSONContent] = Field(min_length=2, max_length=MAX_OPTIONS)
+    instructions: JSONContent = None
+    criteria: list[JSONContent] = Field(min_length=1, max_length=MAX_OPTIONS)
 
 
 Question = Union[Noul, Choice, Score]
@@ -126,7 +126,7 @@ def score_confidence(p: list[float]) -> float:
     """Approximation of TypeSafe's 'distance from the modal level' statistic (exact formula unpublished):
     1 - E|level - mode| / (L - 1)."""
     L = len(p); mode = max(range(L), key=lambda i: p[i])
-    return 1.0 - sum(pi * abs(i - mode) for i, pi in enumerate(p)) / (L - 1)
+    return 1.0 if L == 1 else 1.0 - sum(pi * abs(i - mode) for i, pi in enumerate(p)) / (L - 1)
 
 
 def round_prob(x: float) -> float:

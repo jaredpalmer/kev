@@ -174,7 +174,7 @@ The original [Kev-0.5B](https://huggingface.co/jaredpalmer/kev-0.5b) used Qwen2.
   "questions": {
     "<id>": {                            // you choose the id; the model never sees it
       "type": "noul" | "choice" | "score",
-      "instructions": "…",               // string | object | array
+      "instructions": "…",               // string | object | array, optional
       "criteria": …                      // noul: {true?, false?}  choice: {option: description|null}  score: [level, …]
     }
   }
@@ -185,7 +185,7 @@ The original [Kev-0.5B](https://huggingface.co/jaredpalmer/kev-0.5b) used Qwen2.
 |---|---|---|
 | `noul` | Optional descriptions for `true` and `false` | `noul`: probability of yes |
 | `choice` | 1–255 option names, each with a description or `null` | `choice`: most likely option; `probabilities` and `confidence` |
-| `score` | 2–255 descriptions, ordered from lowest to highest | `score`: mean level index, starting at 0; `legend`, `probabilities`, and `confidence` |
+| `score` | 1–255 descriptions, ordered from lowest to highest | `score`: mean level index, starting at 0; `legend`, `probabilities`, and `confidence` |
 
 For Choice with `K > 1` options, confidence is `(p_max − 1/K) / (1 − 1/K)`. A single option has confidence 1. Score confidence measures how close the distribution is to its most likely level. It's an approximation of TypeSafe's formula, which isn't public. Neither field is a measured accuracy rate.
 
@@ -193,11 +193,11 @@ Objects and arrays are converted to labeled text. Delimiter-like strings in user
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/v1/models` | Loaded model and checkpoint information |
+| `GET` | `/v1/models` | Model cards (`name`, `description`, `release_date`) plus the loaded checkpoint's details |
 | `POST` | `/v1/systemone/permute` | Run one Choice question with different option orders |
 | `POST` | `/v1/systemone/separate` | Run each question in its own forward pass |
 
-The server binds to `127.0.0.1` and has no authentication. Keep it local unless you add authentication yourself.
+Every response carries an `x-typesafe-request-id` header. The server binds to `127.0.0.1` and is open by default; set `KEV_API_KEY` to require `Authorization: Bearer <key>` on `/v1/*`, as the TypeSafe clients always send it.
 
 ## How It Works
 

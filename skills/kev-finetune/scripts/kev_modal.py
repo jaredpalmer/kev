@@ -418,8 +418,7 @@ class Serve:
     @modal.enter()
     def load(self):
         import torch
-        from fastapi import Request
-        from fastapi.responses import JSONResponse
+        from kev import serve as kev_serve
         from kev.api import SystemOneRequest
         from kev.checkpoint import Checkpoint, LoadOptions
         from kev.serve import Server, app as api
@@ -427,13 +426,7 @@ class Serve:
         ck = Checkpoint(resolve_checkpoint(run))
         tok, model = ck.load("cuda", LoadOptions(dtype=torch.bfloat16))
         api.state.server = Server(ck, tok, model, "cuda")
-        key = os.environ.get("KEV_SERVE_API_KEY")
-        if key:
-            @api.middleware("http")
-            async def bearer(request: Request, call_next):
-                if request.headers.get("authorization") != f"Bearer {key}":
-                    return JSONResponse({"error": "unauthorized; send Authorization: Bearer <KEV_SERVE_API_KEY>"}, status_code=401)
-                return await call_next(request)
+        kev_serve.API_KEY = os.environ.get("KEV_SERVE_API_KEY")   # the bearer check lives in kev.serve; the Modal secret only supplies the key
         started = time.time()
         api.state.server.answer(SystemOneRequest.model_validate(WARMUP))   # compiles the DeltaNet kernels now, not on the first user request (~1 min uncached)
         hf_cache.commit()                                                    # keep the compiled kernels for the next cold start
