@@ -3,11 +3,14 @@
 
 docs/claims.json lists claim records: {"printed": exact string in the docs, "in": text files where it must literally
 appear, "source": JSON/JSONL under the repo, "select": key/value filter for JSONL rows (must match exactly one row),
-"path": dotted key path (or list of paths with "derive": "macro_mean"; "derive": "over_requested" rescales an accuracy over
-evaluated questions to all requested questions, counting rejected ones wrong), optional "scale" multiplier}.
+"path": key path with "/" between keys (keys themselves may contain dots: models/Kev-0.8B/temperature), or a list of
+paths with "derive": "macro_mean"; "derive": "over_requested" rescales an accuracy over evaluated questions to all
+requested questions, counting rejected ones wrong; optional "scale" multiplier}.
 
-A claim passes when the printed string literally occurs in every `in` file and the source value, scaled and formatted
-to the printed precision, equals the printed digits. Run: uv run python scripts/verify_claims.py [--claims PATH].
+A claim passes when the printed string occurs in every `in` file and the source value, scaled and formatted to the
+printed precision, equals the printed digits. The text check is presence, not position: it proves the number is
+published and traces to evidence, not that every occurrence of those digits means this claim.
+Run: uv run python scripts/verify_claims.py [--claims PATH].
 """
 import argparse
 from pathlib import Path
@@ -17,17 +20,9 @@ from kev.suite import read_json, read_jsonl
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _dig(obj, dotted):
-    parts = dotted.split(".")  # keys can contain dots (models.Kev-0.8B.temperature): match the longest prefix
-    while parts:
-        for n in range(len(parts), 0, -1):
-            key = ".".join(parts[:n])
-            if key in obj:
-                obj = obj[key]
-                parts = parts[n:]
-                break
-        else:
-            raise KeyError(".".join(parts))
+def _dig(obj, path):
+    for key in path.split("/"):
+        obj = obj[key]
     return obj
 
 
@@ -39,7 +34,8 @@ def _value(claim, source):
     value = _dig(source, claim["path"])
     if derive == "over_requested":
         return value * source["coverage"]["evaluated_questions"] / source["coverage"]["requested_questions"]
-    assert derive is None, claim
+    if derive is not None:
+        raise ValueError(f"unknown derive {derive!r} in claim {claim['printed']}")
     return value
 
 
