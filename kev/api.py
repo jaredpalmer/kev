@@ -16,13 +16,13 @@ MAX_OPTIONS = 255
 
 class Noul(BaseModel):
     type: Literal["noul"]
-    instructions: JSONContent
+    instructions: JSONContent = None
     criteria: dict[str, JSONContent] | None = None
 
 
 class Choice(BaseModel):
     type: Literal["choice"]
-    instructions: JSONContent
+    instructions: JSONContent = None
     criteria: dict[str, JSONContent]
 
     @model_validator(mode="after")
@@ -33,8 +33,8 @@ class Choice(BaseModel):
 
 class Score(BaseModel):
     type: Literal["score"]
-    instructions: JSONContent
-    criteria: list[JSONContent] = Field(min_length=2, max_length=MAX_OPTIONS)
+    instructions: JSONContent = None
+    criteria: list[JSONContent] = Field(min_length=1, max_length=MAX_OPTIONS)
 
 
 Question = Union[Noul, Choice, Score]
@@ -126,24 +126,26 @@ def score_confidence(p: list[float]) -> float:
     """Approximation of TypeSafe's 'distance from the modal level' statistic (exact formula unpublished):
     1 - E|level - mode| / (L - 1)."""
     L = len(p); mode = max(range(L), key=lambda i: p[i])
-    return 1.0 - sum(pi * abs(i - mode) for i, pi in enumerate(p)) / (L - 1)
+    return 1.0 if L == 1 else 1.0 - sum(pi * abs(i - mode) for i, pi in enumerate(p)) / (L - 1)
 
 
-def r2(x: float) -> float:
-    return round(float(x), 2)
+def round_prob(x: float) -> float:
+    """Serialization precision for probabilities and derived scalars. 4 decimals keeps the sum of a rounded distribution
+    within TypeSafe's tolerance (|sum - 1| < 0.02) at the 255-option maximum: 255 * 0.00005 < 0.02."""
+    return round(float(x), 4)
 
 
 def to_answers(probs: list[list[float]], meta: list[dict]) -> dict[str, Any]:
     out = {}
     for p, m in zip(probs, meta):
         if m["type"] == "noul":
-            out[m["id"]] = {"type": "noul", "noul": r2(p[1])}
+            out[m["id"]] = {"type": "noul", "noul": round_prob(p[1])}
         elif m["type"] == "choice":
-            dist = {k: r2(v) for k, v in zip(m["keys"], p)}
-            out[m["id"]] = {"type": "choice", "choice": m["keys"][max(range(len(p)), key=lambda i: p[i])], "confidence": r2(choice_confidence(p)), "probabilities": dist}
+            dist = {k: round_prob(v) for k, v in zip(m["keys"], p)}
+            out[m["id"]] = {"type": "choice", "choice": m["keys"][max(range(len(p)), key=lambda i: p[i])], "confidence": round_prob(choice_confidence(p)), "probabilities": dist}
         else:
             score = sum(i * pi for i, pi in enumerate(p))
-            out[m["id"]] = {"type": "score", "score": r2(score), "legend": m["legend"], "probabilities": {str(i): r2(v) for i, v in enumerate(p)}, "confidence": r2(score_confidence(p))}
+            out[m["id"]] = {"type": "score", "score": round_prob(score), "legend": m["legend"], "probabilities": {str(i): round_prob(v) for i, v in enumerate(p)}, "confidence": round_prob(score_confidence(p))}
     return out
 
 

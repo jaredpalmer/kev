@@ -7,6 +7,7 @@ import torch
 
 from kev import evaluate
 from kev.data import materialize
+from kev.suite import record_digest
 from kev.train import question_loss
 
 
@@ -140,6 +141,32 @@ def test_failed_prediction_cannot_produce_partial_score(tmp_path):
     assert failure["coverage"]["evaluated_records"] == 0
     assert failure["coverage"]["rejected_records"] == 1
     assert not (out / "report.json").exists()
+
+
+def test_overlong_records_are_rejected_only_for_suites_scored_as_published(tmp_path):
+    """ContextOverflow from the encoder (any of its three limits) is a counted rejection under skip_overlong and an abort
+    otherwise; every other ValueError still aborts either way."""
+    from kev.benchmark import evaluate_records
+    from kev.model import ContextOverflow
+    from kev.suite import read_json
+    records = [frozen_request(0), frozen_request(1), frozen_request(2)]
+    keys = list(records[0]["questions"]["reason"]["criteria"])
+
+    def predictor(record):
+        if record["_meta"]["id"] == "item-1": raise ContextOverflow("branch too long: 1590 tokens with a 7000-token state (row limit 8192)")
+        return {"probabilities": {"reason": {k: 1.0 / len(keys) for k in keys}}, "latency_ms": 1.0}
+
+    report, _ = evaluate_records(records, predictor, tmp_path / "published", skip_overlong=True)
+    assert report["coverage"]["evaluated_records"] == 2 and report["coverage"]["rejected_records"] == 1
+    assert [r["id"] for r in read_json(tmp_path / "published" / "rejected.json")] == ["item-1"]
+    with pytest.raises(ContextOverflow):
+        evaluate_records(records, predictor, tmp_path / "admitted")
+    assert read_json(tmp_path / "admitted" / "failure.json")["error_type"] == "ContextOverflow"
+
+    def other(record):
+        raise ValueError("answer IDs differ from request IDs")
+    with pytest.raises(ValueError):
+        evaluate_records(records, other, tmp_path / "other", skip_overlong=True)
 
 
 def test_missing_answers_and_nonfinite_probabilities_fail():
@@ -434,6 +461,93 @@ def test_temperature_fit_requires_raw_rows_and_uses_true_logit_nll():
         fit_temperature([{**row, "inference_temperature": 2.0}])
 
 
+def test_cross_validated_temperature_is_group_disjoint_and_reports_intervals():
+    import numpy as np
+    from kev.metrics import cross_validated_temperature
+    weights = np.exp([3.0, 0.0]); p = (weights / weights.sum()).tolist()
+    rows = []
+    for source in ("a", "b"):
+        for group in range(10):
+            for _ in range(2):
+                i = len(rows)
+                rows.append({"id": str(i), "source": source, "group": f"g{group}", "task": "t", "type": "choice",
+                             "variant": "clean", "question": "q", "keys": ["x", "y"],
+                             "label": 1 if i % 4 == 3 else 0, "logits": [3.0, 0.0], "p": p, "inference_temperature": 1.0})
+    from kev.metrics import grouped_folds
+    fold_id = grouped_folds(rows, 5, 0)
+    fold_of = {(r["source"], r["group"]): f for r, f in zip(rows, fold_id)}
+    assert all(fold_of[(r["source"], r["group"])] == f for r, f in zip(rows, fold_id))   # a group never straddles folds
+    for source in ("a", "b"):
+        assert {fold_of[(source, f"g{g}")] for g in range(10)} == set(range(5))   # every source in every fold
+    result = cross_validated_temperature(rows, folds=5, samples=200)
+    assert len(result["temperatures"]) == 5 and all(t > 1 for t in result["temperatures"])
+    assert result["out_of_fold"]["ece"] < result["raw"]["ece"]
+    lo, hi = result["ece_ci95"]["delta"]
+    assert lo <= hi and isinstance(result["separated"], bool)
+    assert result["raw"]["n"] == result["out_of_fold"]["n"] == 40
+
+
+def test_raw_row_inverts_the_served_temperature():
+    import numpy as np
+    from kev.metrics import fit_temperature, raw_row, tempered_row
+    raw = {"variant": "clean", "source": "s", "task": "t", "type": "choice", "label": 0, "logits": [2.0, -1.0, 0.5],
+           "p": (np.exp([2.0, -1.0, 0.5]) / np.exp([2.0, -1.0, 0.5]).sum()).tolist(), "inference_temperature": 1.0}
+    served = tempered_row(raw, 2.3)
+    back = raw_row(served)
+    assert back["inference_temperature"] == 1.0 and np.allclose(back["p"], raw["p"])
+    assert np.allclose(np.asarray(back["logits"]) - max(back["logits"]), np.asarray(raw["logits"]) - max(raw["logits"]))
+    assert raw_row(raw) is raw
+    fit_temperature([back], aggregation="micro")   # accepted as raw
+    with pytest.raises(ValueError, match="raw logits"):
+        fit_temperature([served])
+    with pytest.raises(ValueError, match="recorded none"):
+        raw_row({"p": [0.6, 0.4], "inference_temperature": 2.0})
+    twice = tempered_row(served, 1.5)                        # a second temperature composes, and raw_row still restores T=1
+    assert twice["inference_temperature"] == pytest.approx(2.3 * 1.5) and np.allclose(raw_row(twice)["p"], raw["p"])
+
+
+def test_workload_report_refuses_rows_without_logits():
+    from kev.calibrate import workload_report
+    rows = [{"id": str(i), "source": "jev", "group": f"g{i}", "task": "t", "type": "choice", "variant": "clean",
+             "question": "q", "keys": ["x", "y"], "label": 0, "p": [0.7, 0.3]} for i in range(10)]
+    with pytest.raises(ValueError, match="logits"):
+        workload_report(rows, folds=2, samples=10)
+
+
+def test_workload_report_recovers_a_shared_temperature_and_keeps_accuracy():
+    import numpy as np
+    from kev.calibrate import format_report, workload_report
+    from kev.metrics import tempered_row
+    rng = np.random.default_rng(0)
+    rows = []
+    for source in ("a", "b"):
+        for group in range(12):
+            for k in range(2):
+                i = len(rows)
+                label = int(rng.integers(0, 3))
+                z = rng.normal(0, 1, 3); z[label] += 1.5          # informative, over-confident at T=1
+                p = np.exp(z - z.max()); p /= p.sum()
+                raw = {"id": str(i), "source": source, "group": f"g{group}", "task": "t", "type": "choice", "variant": "clean",
+                       "question": "q", "keys": ["x", "y", "z"], "label": label, "logits": z.tolist(), "p": p.tolist(), "inference_temperature": 1.0}
+                rows.append(tempered_row(raw, 1.7))                # served at the checkpoint's temperature
+    report = workload_report(rows, folds=4, seed=0, samples=50)
+    arms = report["arms"]
+    assert report["shipped_temperature"] == [1.7] and len(report["fold_temperatures"]) == 4
+    assert len({round(arms[a]["acc"], 12) for a in arms}) == 1                      # temperature never moves accuracy
+    assert arms["workload"]["nll"] <= arms["raw"]["nll"] and arms["workload"]["nll"] <= arms["shipped"]["nll"]   # in-sample fit is optimal on the grid
+    assert set(report["oof_vs_shipped"]) == {"ece", "brier", "coverage_at_5pct_error", "aurc"}
+    assert all(b["ci95"][0] <= b["ci95"][1] for b in report["oof_vs_shipped"].values())
+    assert "workload_oof" in format_report(report)
+
+
+def test_cross_validated_temperature_rejects_too_few_groups():
+    from kev.metrics import cross_validated_temperature
+    rows = [{"id": str(i), "source": "a", "group": f"g{i}", "task": "t", "type": "choice", "variant": "clean",
+             "label": 0, "logits": [1.0, 0.0], "p": [0.73, 0.27], "inference_temperature": 1.0} for i in range(3)]
+    with pytest.raises(ValueError, match="fewer"):
+        cross_validated_temperature(rows, folds=5)
+
+
 def test_training_plan_matches_registered_screen():
     import json
     from pathlib import Path
@@ -649,3 +763,189 @@ def test_frozen_suites_load_under_any_locale(tmp_path):
     assert out.stdout.strip().endswith(record["state"]) and "UTF-8" not in out.stdout.split()[0].upper(), out.stdout
     attributes = (pathlib.Path(__file__).resolve().parents[1] / ".gitattributes").read_text(encoding="utf-8")
     assert "*.jsonl text eol=lf" in attributes and "*.json text eol=lf" in attributes
+
+
+def test_semif_external_rows_convert_to_typed_requests():
+    """SemIf's build_*.py rows become Kev requests: WANLI as a 3-way choice in SemIf's per-row option order, TypeSafe rows keep
+    their primitive with the reference/published distributions keyed by option id (Kev's option_text adds the `id: ` prefix
+    SemIf bakes into descriptions, so it is stripped)."""
+    from scripts.freeze_semif_external import convert
+    wanli = {"id": "w1", "group_id": "g1", "split": "external_test", "family": "evidence_interpretation", "state": "premise", "question": "Assess: claim",
+             "options": [{"id": "insufficient", "description": "insufficient: neither"}, {"id": "supported", "description": "supported: yes"}, {"id": "contradicted", "description": "contradicted: no"}],
+             "label": 1, "provenance": {"source": "WANLI", "source_revision": "abc", "rights": "CC-BY-4.0"}}
+    rec = convert(wanli, "wanli")
+    q = rec["questions"]["decision"]
+    assert q == {"type": "choice", "instructions": "Assess: claim", "criteria": {"insufficient": "neither", "supported": "yes", "contradicted": "no"}, "label": "supported", "src": "wanli_nli"}
+    assert rec["_meta"]["id"] == "wanli/w1" and rec["_meta"]["group_id"] == "wanli/g1" and rec["_meta"]["variant"] == "clean"
+    ts = {"id": "t1", "group_id": "c1", "split": "external_typesafe_selected", "family": "typesafe_customer_service", "state": '{"ticket": "hi"}', "question": "Angry?",
+          "primitive": "noul", "options": [{"id": "true", "description": "true: yes"}, {"id": "false", "description": "false: no"}], "label": 1, "target_distribution": [0.1, 0.9],
+          "published_models": {"typesafe": {"model": "typesafe:v13", "distribution": [0.2, 0.8]}}, "provenance": {"workflow": "customer_service", "snapshot_sha256": "0" * 64}}
+    rec = convert(ts, "typesafe")
+    assert rec["state"] == {"ticket": "hi"}
+    assert rec["questions"]["decision"] == {"type": "noul", "instructions": "Angry?", "criteria": {"true": "yes", "false": "no"}, "label": False, "src": "typesafe_customer_service"}
+    assert rec["_meta"]["target"] == {"true": 0.1, "false": 0.9} and rec["_meta"]["published"]["typesafe"]["p"] == {"true": 0.2, "false": 0.8}
+    assert rec["_meta"]["row_sha256"] == record_digest({"state": rec["state"], "questions": rec["questions"]})
+
+
+def test_typesafe_equal_case_agreement_and_tvd():
+    """Rows average within a case, cases average equally; a row the model never answered scores agreement 0 / TVD 1."""
+    from scripts.compare_typesafe import case_means, score
+    assert score({"true": 0.7, "false": 0.3}, {"true": 1.0, "false": 0.0}) == (1.0, pytest.approx(0.3))
+    records = [{"_meta": {"id": f"r{i}", "group_id": g}} for i, g in enumerate(["a", "a", "b"])]
+    scores = {"r0": (1.0, 0.0), "r1": (0.0, 0.5)}  # case b unanswered
+    out = case_means(scores, records)
+    assert out["rows"] == 3 and out["cases"] == 2
+    assert out["equal_case_modal_agreement"] == pytest.approx((0.5 + 0.0) / 2)
+    assert out["equal_case_total_variation"] == pytest.approx((0.25 + 1.0) / 2)
+
+
+@pytest.mark.parametrize("suite, rows, tasks", [("wanli-v1", 256, {"wanli_nli"}),
+                                                 ("typesafe-v1", 102, {"typesafe_agent_trace_observability", "typesafe_customer_service", "typesafe_invoice_processing", "typesafe_security_incidents"})])
+def test_semif_external_suites_are_frozen_as_scored(suite, rows, tasks):
+    """The committed selections match SemIf's manifest sizes, are eval-only, carry the unique reference argmax the comparison relies on
+    and record the context they were admitted under (TypeSafe documents need the serving context; 13 of 102 exceed even that)."""
+    from kev.suite import load_split, read_manifest
+    root = pathlib.Path(__file__).resolve().parents[1] / "evals" / "external" / suite
+    manifest = read_manifest(root)
+    records = load_split(root, "development")
+    assert len(records) == rows and manifest["eval_only"] and manifest["holdout_sources"] == [] and set(manifest["tasks"]) == tasks
+    assert len({r["_meta"]["id"] for r in records}) == rows and all(r["_meta"]["variant"] == "clean" for r in records)
+    assert all(r["_meta"]["row_sha256"] == record_digest({"state": r["state"], "questions": r["questions"]}) for r in records)
+    if suite == "typesafe-v1":
+        assert len({r["_meta"]["group_id"] for r in records}) == 20
+        for r in records:
+            target = r["_meta"]["target"]
+            top = sorted(target.values(), reverse=True)
+            assert top[0] > top[1], r["_meta"]["id"]
+            assert set(target) == set(r["questions"]["decision"]["criteria"])
+
+
+def test_rotation_averaging_cancels_a_position_bias():
+    import math
+    from kev.api import question_keys
+    from kev.predictors import RotationAveraged
+    content = {"a": 1.0, "b": 0.0, "c": -1.0}; position = [2.0, 0.0, 0.0]         # the first slot is favoured by +2 logits
+
+    def biased(record):
+        out = {"probabilities": {}, "logits": {}, "inference_temperature": 1.0, "latency_ms": 1.0}
+        for qid, q in record["questions"].items():
+            keys = question_keys(q["type"], q.get("criteria"))
+            z = {k: (content.get(k, 0.0) + position[i] if q["type"] == "choice" else float(i)) for i, k in enumerate(keys)}
+            s = sum(math.exp(v) for v in z.values())
+            out["logits"][qid] = z; out["probabilities"][qid] = {k: math.exp(v) / s for k, v in z.items()}
+        return out
+
+    record = {"state": "s", "questions": {"c": {"type": "choice", "criteria": {"a": None, "b": None, "c": None}}, "n": {"type": "noul"}}}
+    shifted = RotationAveraged.rotated(record, 1)
+    assert list(shifted["questions"]["c"]["criteria"]) == ["b", "c", "a"] and shifted["questions"]["n"] == record["questions"]["n"]
+    avg = RotationAveraged(biased, 3)
+    one, other = avg(record), avg(shifted)
+    assert one["rotations"] == 3 and one["latency_ms"] == 3.0
+    for k in "abc":                                                               # order no longer matters after a full cycle
+        assert one["probabilities"]["c"][k] == pytest.approx(other["probabilities"]["c"][k])
+    z = one["logits"]["c"]; assert z["a"] - z["b"] == pytest.approx(1.0) and z["b"] - z["c"] == pytest.approx(1.0)   # the bias is a constant
+    assert one["probabilities"]["n"] == pytest.approx(biased(record)["probabilities"]["n"])   # noul untouched
+    with pytest.raises(ValueError):
+        RotationAveraged(biased, 1)
+
+
+def _leaderboard_row(study, trial, acc, seed=0, cfg="c1"):
+    return {"study": study, "trial": trial, "base": "B", "seed": seed, "config": {"k": cfg, "seed": seed}, "config_sha256": f"{cfg}:{seed}", "legacy": False,
+            "gates": {"complete_coverage": True, "isolation_and_packing": True}, "transfer_acc": acc, "transfer_brier": 0.3,
+            "dev_acc": 0.8, "suite_sha256": None, "transfer_suite_sha256": None}
+
+
+def _transfer_rows(correct):
+    from kev.api import question_keys
+    return [{"id": f"r{i}", "question": "q", "group": f"g{i}", "source": "s", "task": "t", "type": "noul", "variant": "clean",
+             "keys": question_keys("noul", None), "label": 1, "p": [0.2, 0.8] if ok else [0.8, 0.2]} for i, ok in enumerate(correct)]
+
+
+def test_challenger_needs_a_noninferior_paired_interval(tmp_path, monkeypatch):
+    from kev import autoresearch
+    from kev.suite import write_json
+    monkeypatch.setattr(autoresearch, "ROOT", tmp_path)
+    n = 400
+    champion_ok = [i % 5 != 0 for i in range(n)]                    # 0.80
+    tiny_lead = [ok or i == 0 for i, ok in enumerate(champion_ok)]  # +1 question: positive delta, lower bound within the margin
+    big_lead = [ok or i % 10 == 0 for i, ok in enumerate(champion_ok)]   # +10 pp
+    for trial, correct in (("champ", champion_ok), ("tiny", tiny_lead), ("big", big_lead), ("worse", [False] * 40 + champion_ok[40:])):
+        (tmp_path / "runs/s" / trial / "transfer").mkdir(parents=True)
+        write_json(tmp_path / "runs/s" / trial / "transfer/rows.json", _transfer_rows(correct))
+    rows = [_leaderboard_row("s", t, 0.8, cfg=t) for t in ("champ", "tiny", "big", "worse", "missing")]
+    champion = autoresearch.as_incumbent([rows[0]])
+    tiny, big, worse, missing = (autoresearch.challenge(champion, r, rows, samples=300) for r in rows[1:])
+    assert tiny["aggregation"] == "macro" and tiny["delta"] > 0 and tiny["ci95"][0] >= -0.01 and tiny["accepted"]
+    assert big["accepted"] and big["ci95"][0] > 0
+    assert not worse["accepted"] and worse["delta"] < 0
+    assert not missing["accepted"] and "error" in missing                          # recorded, never raised after a paid round
+    after, decision = autoresearch.next_incumbent(champion, rows[2], rows)
+    assert decision["accepted"] and after["trials"] == ["s/big"]
+    after, decision = autoresearch.next_incumbent(champion, rows[3], rows)
+    assert not decision["accepted"] and after is champion
+
+
+def test_replication_joins_the_champion_instead_of_challenging_it():
+    from kev.autoresearch import as_incumbent, next_incumbent
+    rows = [_leaderboard_row("s", "a0", 0.80, seed=0, cfg="a"), _leaderboard_row("s", "a1", 0.84, seed=1, cfg="a")]
+    after, decision = next_incumbent(as_incumbent(rows[:1]), rows[1], rows)
+    assert decision is None and after["seeds"] == [0, 1] and after["transfer_acc"] == pytest.approx(0.82)
+
+
+def test_incumbent_is_the_ledger_champion_until_challenged():
+    from kev.autoresearch import incumbent
+    rows = [_leaderboard_row("s", "a", 0.80, cfg="a"), _leaderboard_row("s", "b", 0.81, cfg="b"), _leaderboard_row("t", "a", 0.78, seed=1, cfg="a")]
+    assert incumbent(rows[:2], "B", None, None)["trials"] == ["s/b"]                     # seeding: point estimate
+    history = [{"base": "B", "incumbent_after": {"trials": ["s/a"]}}]
+    assert incumbent(rows, "B", None, None, history)["trials"] == ["s/a", "t/a"]         # sticky champion, plus its later replication
+    assert incumbent(rows[:2], "B", None, None, [{"base": "B", "incumbent_after": {"trials": ["gone/x"]}}])["trials"] == ["s/b"]   # stale ledger falls back
+
+
+def test_max_state_lifts_row_and_packed_limits_together():
+    from kev.experiment import validated_trial
+    from kev.model import MAX_BRANCH, MAX_PACKED, MAX_STATE, MAX_TRAIN_STATE, SERVE_MAX_BRANCH, training_context
+    from kev.suite import CONTEXT
+    assert training_context() == {k: v for k, v in CONTEXT.items() if k != "truncate"} == {"max_state": MAX_STATE, "max_branch": MAX_BRANCH, "max_packed": MAX_PACKED}
+    long = 12 * MAX_STATE                                                              # the 4.12 delta's state limit
+    lifted = training_context(long)
+    assert lifted["max_branch"] - MAX_BRANCH == lifted["max_packed"] - MAX_PACKED == long - MAX_STATE
+    assert training_context(MAX_TRAIN_STATE)["max_branch"] == SERVE_MAX_BRANCH          # the served row limit still fits a training branch
+    with pytest.raises(ValueError):
+        training_context(MAX_TRAIN_STATE + 1)
+    manifest = {"base_revisions": {"model": "pinned"}}
+    assert validated_trial({"base": "model", "max_state": long}, manifest)["max_state"] == long
+    assert "max_state" not in validated_trial({"base": "model"}, manifest)          # optional: existing recipe digests are unchanged
+    for bad in (MAX_STATE - 1, MAX_TRAIN_STATE + 1, float(long), True):
+        with pytest.raises(ValueError, match="max_state"):
+            validated_trial({"base": "model", "max_state": bad}, manifest)
+
+
+def test_none_pair_leaves_soft_target_questions_alone():
+    import random
+    from kev.data import none_pair
+    q = {"type": "choice", "criteria": {"a": None, "b": None, "c": None}, "label": "a", "src": "s"}
+    req = {"state": "x", "questions": {"q": q}}
+    assert len(none_pair(req, random.Random(0))) == 2
+    assert none_pair({"state": "x", "questions": {"q": {**q, "target": {"a": 0.5, "b": 0.5}}}}, random.Random(0)) == []
+
+
+def test_served_fits_on_raw_rows_and_cluster_resamples_keep_groups_together():
+    import numpy as np
+    from kev.metrics import TEMPERATURE_FIT, cluster_resamples, fit_temperature, served, served_at, tempered_row
+    rng = np.random.default_rng(1)
+    rows = []
+    for g in range(20):
+        for q in range(2):
+            z = rng.normal(0, 1, 3); y = int(rng.integers(0, 3)); z[y] += 2.0; p = np.exp(z - z.max()); p /= p.sum()
+            rows.append({"id": f"r{g}", "question": f"q{q}", "source": "s" if g % 2 else "t", "group": f"g{g}", "task": "k", "type": "choice",
+                         "variant": "clean", "label": y, "logits": z.tolist(), "p": p.tolist(), "inference_temperature": None})
+    temperature, out = served(rows, rows)
+    raw = [{**r, "inference_temperature": 1.0} for r in rows]
+    assert temperature == fit_temperature(raw, **TEMPERATURE_FIT)                      # None = recorded raw
+    assert out == [tempered_row(r, temperature) for r in raw] == served_at(rows, temperature)
+    assert served(out, rows)[0] == temperature                                         # fitting on served rows restores raw logits first
+    assert np.allclose([r["p"] for r in served_at(out, temperature)], [r["p"] for r in out])   # re-serving served rows does not temper twice
+    for idx in cluster_resamples(rows, 20, 0):
+        drawn = [rows[i]["group"] for i in idx]
+        assert all(drawn.count(g) % 2 == 0 for g in set(drawn))                        # both questions of a record move together
+        assert sum(rows[i]["source"] == "s" for i in idx) == 20                        # stratified: each source keeps its size

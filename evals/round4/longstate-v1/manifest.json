@@ -1,0 +1,94 @@
+{
+  "version": "longstate-v1",
+  "parent": "evals/v7/decision-v7",
+  "parent_manifest_sha256": "a8f50e481b7d90b97da049e0ff6a01cee2f1ed204aed61a8265af0edbb5514d2",
+  "seed": "round4-longstate-v1",
+  "tokenizer": {
+    "model": "Qwen/Qwen3.5-4B-Base",
+    "revision": "1001bb4d826a52d1f399e183466143f4da7b741b"
+  },
+  "lengths": [
+    1024,
+    2048,
+    4096
+  ],
+  "state_tokens": {
+    "1024": {
+      "train_median": 1081,
+      "dev_median": 1074
+    },
+    "2048": {
+      "train_median": 2106,
+      "dev_median": 2105
+    },
+    "4096": {
+      "train_median": 4150,
+      "dev_median": 4133
+    }
+  },
+  "rendered_state_tokens": {
+    "1024": {
+      "train": {
+        "min": 1019,
+        "median": 1083,
+        "max": 1277
+      },
+      "development": {
+        "min": 1017,
+        "median": 1079,
+        "max": 1285
+      }
+    },
+    "2048": {
+      "train": {
+        "min": 2027,
+        "median": 2115,
+        "max": 2349
+      },
+      "development": {
+        "min": 2037,
+        "median": 2123,
+        "max": 2392
+      }
+    },
+    "4096": {
+      "train": {
+        "min": 4091,
+        "median": 4174,
+        "max": 4425
+      },
+      "development": {
+        "min": 4102,
+        "median": 4164,
+        "max": 4373
+      }
+    }
+  },
+  "eval_only": true,
+  "context": {
+    "max_state": 8192,
+    "max_branch": 8192,
+    "max_packed": 16384,
+    "truncate": false
+  },
+  "holdout_sources": [],
+  "base_revisions": {
+    "Qwen/Qwen3-0.6B-Base": "da87bfb608c14b7cf20ba1ce41287e8de496c0cd",
+    "Qwen/Qwen3-4B-Base": "906bfd4b4dc7f14ee4320094d8b41684abff8539"
+  },
+  "files": {
+    "train.jsonl": {
+      "sha256": "ee5c812278d9ebba3caed83bdc4cf6176d801b2928dfd586f537785069c9c293",
+      "records": 1800
+    },
+    "train_control.jsonl": {
+      "sha256": "84400162aabe930bdae177c81dafee0d289bd5de2e312640b990ff0342f13767",
+      "records": 1800
+    },
+    "development.jsonl": {
+      "sha256": "efb8c47995d5146a58f1b562f55884b0a2166fef611e3dab8085f0031a051c4b",
+      "records": 576
+    }
+  },
+  "protocol": "development = decision-v7/development primaries buried at each length + the same primaries unburied (longstate_control); train = decision-v7/train primaries buried (delta data, never scored). Scored under the serving context."
+}

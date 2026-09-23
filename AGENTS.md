@@ -1,51 +1,84 @@
-# Kev — prototype of a Jev-style decision model
+# Kev — small Jev-style decision models
 
-Causal LM (Qwen2.5-0.5B + LoRA) run prefill-only with a block-causal mask (shared state prefix,
-isolated question branches) and a pointer readout over option boundary tokens, trained with log loss
-on converted public datasets (Banking77, BoolQ, AG News, MNLI, SST-5, Yelp). No text generation.
-See README.md (deep dive) and docs/model-cards/ (one card per checkpoint: recipe + metrics; kev-0.5b.md is the superseded prototype). README follows the Vercel Labs house style (tagline, for-the-badge badges, Highlights, Title Case sections, API tables, Authors + License); MODEL_CARD.md is formal.
+Causal LM + LoRA run prefill-only with a block-causal mask (shared state prefix, isolated question branches) and a
+pointer readout over option boundary tokens, trained with log loss on public datasets plus generated policy and rule
+records. No text generation. The released family is Qwen3.5 (0.8B / 4B / 9B); `kev-0.5b` (Qwen2.5-0.5B, the prototype
+this started as) and the Qwen3 generation are superseded but still published.
+See README.md (deep dive), PLAN.md (living research plan + dated history) and docs/model-cards/ (one card per
+checkpoint: recipe + metrics). README follows the Vercel Labs house style (tagline, for-the-badge badges, Highlights,
+Title Case sections, API tables, Authors + License); model cards are formal.
 
 ## Commands
-- Env: `uv sync` (torch MPS, transformers, peft, datasets)
-- Train: `uv run python -m kev.train --n_per_source 1500 --epochs 2 --out runs/kev` (~1h45m on M5 32GB)
-  - `--holdout mnli,sst5` excludes sources (out-of-source eval); `--perm_kl/--perm_frac` permutation-consistency KL;
-    `--ord_w` ordinal term for Score. Only one training process at a time: two on MPS slow each other ~10x.
-- Eval:  `uv run python -m kev.evaluate --run runs/kev --n_per_source 150 --baseline --baseline_instruct Qwen/Qwen2.5-0.5B-Instruct`
-  -> `runs/kev/eval.json` (acc/ECE/NLL per source, temperature scaling, permutation, IIA, isolation, packed-vs-separate, held-out sources)
-- Smoke: `--n_per_source 40 --accum 4 --out runs/smoke` (~1 min)
-- Research suite: `evals/decision-v1` (frozen, checksummed; train/calibration/development/test; manifest pins dataset + base
-  revisions). `kev.suite` freezes; `kev.benchmark --run X --suite evals/decision-v1 --out runs/...` scores development;
-  `--allow-test` is the only way to read the locked test. `kev.experiment --plan experiments/*.json` runs config-only trials
-  (bounded allowlist, provenance, coverage/isolation gates, results.jsonl ledger, `--wait-pid` to queue behind a training job).
-  `kev.jev` scores Jev via Vercel AI Gateway (AI SDK 7 `experimental_evaluate`, node worker in `playground/scripts/`;
-  needs `AI_GATEWAY_API_KEY` or `--provision-scope`; budget-capped). `kev.compare` pairs two result dirs (record-clustered
-  bootstrap). Historical checkpoints (`runs/kev`, `runs/kev2`) overlap the suite's training data: exploratory only.
-  `--ord_w` is now the ranked probability score (proper); the old |E[level]-y| term was removed. `--perm_kl`/`--ord_w` default 0.
-- Modal (default for anything beyond smoke): `modal_app.py`; `uv run modal run modal_app.py::{smoke,study,evaluate,base_probe,benchmarks,smoke_base}` (probes, external-eval benches and new-base fit checks lived in `modal_probe35.py` until 2026-09-21; see the `kev-modal-study` skill). Image = `uv_sync`
-  of pyproject/uv.lock (Linux torch wheel is CUDA) + `kev/` + `evals/`; Volumes `kev-hf-cache` (HF_HOME) and `kev-runs` (trial outputs,
-  pulled to runs/<study> then ranked by `kev.experiment --aggregate`). `KEV_GPU` picks the GPU type (H100 default). Legacy checkpoints:
-  Hub id, or `modal volume put kev-runs runs/<run> /legacy/<run>` then `--existing /runs/legacy/<run>`. Eval on CUDA is fp32-exact
-  (TF32 + fused SDPA off in `LocalPredictor`); training keeps TF32 and may use `--dtype bf16`. `--transfer <suite>` scores OOD per trial.
-- Frozen suites: `evals/<version>/<suite>/{manifest.json, *.jsonl}`. Manifests pin dataset/base revisions and the sha256 of every
-  partition. Partitions over ~10 MB are not in git; they are mirrored at the Hub dataset `jaredpalmer/kev-suites` (revision pinned in
-  `kev/suite.py: SUITES_REVISION`) and `load_split` fetches + verifies them on first use. After freezing a new suite:
-  `hf upload jaredpalmer/kev-suites evals . --type dataset --include "*.jsonl" --include "*.json"`, bump `SUITES_REVISION`, gitignore
-  the large partitions. Never modify a frozen file; new data = new version.
-- Figures: `uv run python scripts/plot_family.py` and `uv run python scripts/plot_tweet.py` regenerate docs/kev-family.png and docs/kev-benchmark.png from
+- Env: `uv sync` (add `--extra serve` for FastAPI + the TypeSafe SDK; on Apple Silicon it also pulls `mlx-lm` for the MLX backend, `--extra mlx` alone for library use). `kev` is a real package (setuptools, installed
+  editable by `uv sync` since #14), Python 3.12 or 3.13 (`requires-python = ">=3.12,<3.14"`; 3.14 has no wheels for the pinned torch, `.python-version` selects 3.13,
+  `uv sync --extra serve --python 3.13` overrides explicitly), `transformers>=5.17,<6`, `peft>=0.21`, `torch>=2.6,<2.9`. The dev
+  group carries pytest, matplotlib and `modal==1.5.5`.
+- Train: `uv run python -m kev.train --suite evals/v7/decision-v7 --base Qwen/Qwen3.5-4B-Base --base_revision <sha> --epochs 2
+  --lr 5e-5 --batch 4 --accum 2 --dtype bf16 --checkpointing 1 --p_none_pair 0.25 --device cuda --out runs/kev-4b`
+  (the released 4B/9B recipe; 0.8B uses `--lr 1e-4 --batch 8`). Records come from `--suite` (its training partition),
+  `--data` (your own JSONL, optionally `+ --suite --replay N`), or built on the fly from the public sources
+  (`--n_per_source`, the smoke path). `--help` lists everything; the knobs that matter:
+  - losses: `--perm_kl/--perm_frac` (permutation KL), `--ord_w` (ranked probability score for Score),
+    `--anchor/--anchor_w/--anchor_sources` (KL toward the frozen base's zero-shot answers, from `kev.anchors`),
+    `--label_smoothing/--brier_w/--focal_gamma` (the round-3 calibration screen; all default 0 and none is in a release).
+  - augmentation / mix: `--p_none`, `--p_none_distract`, `--p_distract`, `--p_none_pair`, `--synthetic_repeat`,
+    `--public_frac`, `--train_sources`, `--holdout`.
+  - architecture / precision: `--lora`, `--lora_targets all|dense|attn|qv` (`dense` freezes the DeltaNet projections on
+    hybrid bases), `--head_dim`, `--option_isolation`, `--special_embeddings`, `--dtype` (autocast) vs `--weights_dtype`
+    (frozen backbone; bf16 is required by the fused MoE experts of 35B-A3B).
+  - Only one training process at a time: two on MPS slow each other ~10x.
+- Smoke: `uv run python -m kev.train --n_per_source 40 --accum 4 --out runs/smoke` (~1 min).
+- Benchmark (the eval path for everything current): `uv run python -m kev.benchmark --run <run dir | Hub id[@rev]>
+  --suite evals/v4/transfer-v4 --out runs/<name>`; `--remote <url>` scores any System One endpoint, `--data x.jsonl` your
+  own labelled rows, `--date_facts` the opt-in preprocessing, `--allow-test` is the only way to read a locked test.
+  Writes `rows.json` (per question, with logits) + `report.json` (accuracy, ECE/Brier/NLL, selective coverage and AURC,
+  permutation, isolation). `kev.calibrate --rows <rows.json>` reports what one temperature fitted on those rows would do (raw / shipped / workload in-sample / workload group-disjoint OOF, paired bootstrap vs shipped; report only, writes `calibration.json` next to the rows); external-suite `rows.json` are committed for this. `kev.evaluate` is the legacy prototype eval (`runs/kev`, `eval.json`) and is not used for
+  releases. `kev.compare --candidate <dir> --reference <dir>` pairs two result dirs (record-clustered bootstrap).
+  `kev.jev --suite ... --out ...` scores Jev through Vercel AI Gateway (AI SDK `experimental_evaluate`, node worker in
+  `playground/scripts/jev-evaluate.mjs`; needs `AI_GATEWAY_API_KEY` or `--provision-scope`; budget-capped).
+- Studies: `kev.experiment --plan experiments/*.json --suite <suite> --out runs/<study>` runs config-only trials
+  (allowlist + ranges in `experiment.py: DEFAULTS/CHOICES/validated_trial`, provenance, coverage/isolation gates,
+  `results.jsonl` ledger, `--transfer <suite>` for an OOD read per trial, `--aggregate` to rank an existing directory,
+  `--resume` for interrupted trials, `--wait-pid` to queue behind a training job). `kev.autoresearch` wraps this in a
+  propose/round/loop with a spend cap and `runs/leaderboard.{jsonl,md}`.
+- Frozen suites: `evals/<version>/<suite>/{manifest.json, *.jsonl}` with partitions `train/calibration/development/test`.
+  Manifests pin dataset + base revisions and the sha256 of every partition. Current: `evals/v7/decision-v7` (the release
+  recipe), `evals/v8/decision-v8`, `evals/v4/transfer-v4` and `evals/v9/transfer-v9` (MMLU-Pro, buried states,
+  unknowable) for OOD, `evals/round3/{decision-r3,transfer-r3}` (calibration audit; the 1,260-record final panel is
+  unscored), `evals/smoke-v1` for tests, plus `evals/external/` (semif-v1, scienthoon-v1, ekzhang-mmlupro-v1, and SemIf's pinned third-party selections wanli-v1 + typesafe-v1 via
+  `scripts/freeze_semif_external.py`; `scripts/compare_typesafe.py` reports equal-case agreement/TVD against the reference and published answers, `--tokenizer` adds accuracy by state length; Kev-9B/4B scored 2026-09-22: WANLI 0.703/0.695 vs Jev 0.758, TypeSafe 0.809/0.856 agreement on 89 answered rows vs 0.891, `runs/kev-*-{wanli,typesafe}-v1`),
+  `evals/night2/` (delta training data, `scripts/build_night2_data.py`) and `evals/diagnostics/` (binding-v1).
+  Partitions over ~10 MB are not in git; they are mirrored at the Hub dataset `jaredpalmer/kev-suites` (revision pinned
+  in `kev/suite.py: SUITES_REVISION`) and `load_split` fetches + verifies them on first use. After freezing a new suite:
+  `hf upload jaredpalmer/kev-suites evals . --type dataset --include "*.jsonl" --include "*.json"`, bump
+  `SUITES_REVISION`, gitignore the large partitions. Never modify a frozen file; new data = new version.
+- Modal (default for anything beyond smoke): `modal_app.py`; `uv run modal run modal_app.py::{smoke,study,pull,resume,
+  locked_test,evaluate,base_probe,benchmarks,smoke_base,anchors}`; `uv run modal deploy modal_app.py` once so studies
+  survive a disconnect. Image = `uv_sync` of pyproject/uv.lock (Linux torch wheel is CUDA) + `kev/` + `evals/`; Volumes
+  `kev-hf-cache` (HF_HOME) and `kev-runs` (trial outputs, pulled to `runs/<study>` then ranked by
+  `kev.experiment --aggregate`). `KEV_GPU` picks the GPU type (H100 default; T4 for the free tier), `KEV_APP_NAME`
+  isolates a research deployment, `worker_environment` propagates app/GPU/secret settings (a dependency list that
+  differs inside the container fails with "Function has N dependencies but container got M"). Legacy checkpoints: Hub id,
+  or `modal volume put kev-runs runs/<run> /legacy/<run>` then `--existing /runs/legacy/<run>`. Eval on CUDA is
+  fp32-exact (TF32 + fused SDPA off in `LocalPredictor`); training keeps TF32 and may use `--dtype bf16`. Probes,
+  external benches and new-base fit checks lived in `modal_probe35.py` until 2026-09-21 (folded in at 90990a5); the
+  how-to is the `kev-modal-study` skill.
+- Figures: `uv run python scripts/plot_family.py` and `uv run python scripts/plot_tweet.py` regenerate docs/kev-family.png and docs/kev-benchmark{,-dark}.png from
   saved result files. Style lives in `scripts/chartstyle.py` (Geist type, Vercel color tokens, direct labels, no legends, one label/plot/value lane per bar set);
   new figures should import it rather than set their own rcParams. `kev.plot` (loss curves from train logs) is a debugging aid, not a README figure.
 - Current family (2026-09-21, all Qwen3.5 + the dates/unknowable delta): `jaredpalmer/kev-9b` (`night2-9b-du/00-trial-0`), `jaredpalmer/kev-4b` (`night2-4b-du/00-trial-0`;
   Qwen3 weights at tag `qwen3`), `jaredpalmer/kev-0.8b` (`night2-08b-du2/00-trial-0`). Pre-delta v7 checkpoints at tag `v7-base` (`q35-9b/01-trial-1`, `q35-4b-s23/00-trial-0`, `q35-08b/02-trial-2`).
   Calibration is built into each checkpoint: `head.pt["temperature"]` (fitted by `scripts/calibrate_checkpoint.py` on the trial's development rows; 9B 2.30, 4B 2.14,
-  0.8B 2.41) is applied by `PointerHead` in eval mode; `KEV_TEMPERATURE=1.0` overrides to raw. Re-run the script after any new checkpoint before publishing. Opt-in: `KEV_DATE_FACTS=1` (day counts). Delta data: evals/night2/ (scripts/build_night2_data.py). Previous generation, kept for Mac latency: `kev-8b`, `kev-0.6b`, `kev-4b@qwen3` (cards `*-qwen3.md`). Qwen3.5 backbones are hybrid (Gated DeltaNet): `DecisionModel.hybrid`
+  0.8B 2.41) is applied by `PointerHead` in eval mode; `KEV_TEMPERATURE=1.0` overrides to raw. The script also reports an out-of-fold grouped-CV ECE with bootstrap CIs alongside the in-sample fit (4B: 0.075 raw -> 0.020 OOF, separated) and stores it under `head.pt["temperature_fit"]["cross_validation"]`; re-run it after any new checkpoint before publishing. Opt-in: `KEV_DATE_FACTS=1` (day counts). Delta data: evals/night2/ (scripts/build_night2_data.py). Previous generation, kept for Mac latency: `kev-8b`, `kev-0.6b`, `kev-4b@qwen3` (cards `*-qwen3.md`). Qwen3.5 backbones are hybrid (Gated DeltaNet): `DecisionModel.hybrid`
   routes them through `forward_rows_batch` (one causal row per question, state repeated) and `_branch_rows_from_prefix` for serving; the packed
   block-causal mask is only valid on attention-only bases. Needs transformers>=5.17, peft>=0.21; CUDA wants `flash-linear-attention` + `triton>=3.7.1`
-  (in the Modal image). MPS has no fast DeltaNet kernels (Kev-4B 0.78 s vs 0.17 s for the Qwen3 one); MLX is the planned fix. Plan and results: PLAN.md, History > "Qwen3.5 port".
+  (in the Modal image). MPS has no fast DeltaNet kernels, so on Apple Silicon `kev.serve` runs these checkpoints through `kev/mlx_model.py` (mlx-lm's Metal kernels; M5, 5 questions on a ~270-token state: Kev-4B 721 ms new state / 136 ms cached state vs 3302 / 847 ms for torch bf16; parity with fp32 torch on the full decision-v7 development partition: 4B max |dp| 0.025, 1 flip in 1,264 questions; 0.8B max 0.054, 4 flips (`runs/r4-mlx-parity-*`)). Plan and results: PLAN.md, History > "Qwen3.5 port".
 - Delta fine-tuning: `kev.train --init_from <run dir | Hub id[@rev]>` warm-starts LoRA + head (compatibility checked before load; source hashes in
   provenance; allowlisted in `kev/experiment.py` so studies can run cheap delta trials from a released checkpoint). Use lr <= 2e-5 for deltas.
-- Publish: `uv run python -m kev.publish --run runs/<run> --repo jaredpalmer/kev-<size> --card docs/model-cards/<name>.md` (needs `hf auth login`). Repos are named by
+- Publish: `uv run python -m kev.publish --run runs/<run> --repo jaredpalmer/kev-<size> --card docs/model-cards/<name>.md` (needs `hf auth login`;
+  `--private`, `--tag`, `--revision <branch>` for candidates). Repos are named by
   base model size (Kev-0.5B = Qwen2.5-0.5B); versions within a size are Hub tags (`hf repos tag create jaredpalmer/kev-0.5b vX.Y`).
-  Collection: huggingface.co/collections/jaredpalmer/kev-6aad9d0ea49f2589665e07cd. `--run` in serve/evaluate accepts a Hub id.
+  Collection: huggingface.co/collections/jaredpalmer/kev-6aad9d0ea49f2589665e07cd. `--run` in serve/benchmark accepts a Hub id.
 - HF Space (public demo, ZeroGPU): huggingface.co/spaces/jaredpalmer/kev. Source in `space/` (Gradio 6 `app.py`, `presets.py` mirrors the
   playground presets, `README.md` frontmatter `models:`/`datasets:` is what links the Space from the model and dataset pages). Publish with
   `scripts/publish_space.sh [repo] [message]`: it stages `space/` + `kev/{__init__,model,api,checkpoint}.py` into one `hf upload --type space` commit,
@@ -54,9 +87,10 @@ See README.md (deep dive) and docs/model-cards/ (one card per checkpoint: recipe
   fp32 (`PeftModel.from_pretrained(..., torch_device="cpu")`, otherwise peft picks the faked cuda device and crashes), merge, then
   `.to("cuda")` once at module scope; a restart reloads both models (~3 min). Check with `hf spaces logs jaredpalmer/kev` and the
   gradio_client `/decide` endpoint; the Space is also in the Kev collection and needs PRO to exist.
-- Serve: `uv run --extra serve python -m kev.serve --run runs/kev --port 8008` (falls back to runs/smoke)
-  - TypeSafe-compatible: `POST /v1/systemone`, `GET /v1/models` (no auth; also reports device, temperature and prefix-cache stats).
-  - SDK: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8008", model="kev-latest")`
+- Serve: `uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009` (`--run` defaults to runs/kev and falls back to runs/smoke;
+  the playground proxies :8009)
+  - TypeSafe-compatible: `POST /v1/systemone`, `GET /v1/models` (model cards for `kev-latest` and `jev-latest`, plus device, dtype, temperature and prefix-cache stats), an `x-typesafe-request-id` header on every response, and bearer auth when `KEV_API_KEY` is set (unset = open server).
+  - SDK: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8009", model="kev-latest")`
 - Extra endpoints for the demo: `POST /v1/systemone/permute` (one Choice under n option orders), `POST /v1/systemone/separate`
   (each question alone; packed-vs-separate comparison). `/v1/systemone` also returns `latency_ms`.
 - Web demo: `cd playground && npm run dev -- -p 3001` (:3000 is used by another project). Next 16 app router; `/kev/*` is
@@ -66,45 +100,72 @@ See README.md (deep dive) and docs/model-cards/ (one card per checkpoint: recipe
   - React Compiler lint forbids sync setState in effects; schedule via setTimeout or move into handlers.
   - Next 16 dev only trusts `localhost`; other hostnames need `allowedDevOrigins` or the page SSRs but never hydrates
     (no console errors). `127.0.0.1` is allowed in `next.config.ts`. Verify hydration with `agent-browser` (CDP), not curl.
-- Unit tests (no weights, CI): `uv run --extra serve python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py -q`.
-  Weight-backed parity tests (smoke checkpoint + Qwen2.5-0.5B download, ~2.5 min, local only): `tests/test_model.py`. `test_conventions.py` is a
-  table of "one canonical home" rules (head.pt via `kev.checkpoint`, option keys via `api.question_keys`, context via `model.fits`/`MAX_PACKED`, ...); add a row when a new helper becomes canonical.
+  - `playground/AGENTS.md` (regenerated by `next dev`) is the Next 16 rules file; read `node_modules/next/dist/docs/` before writing app code.
+- Unit tests (no weights; the CI `python` job): `uv run --extra serve python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py -q`.
+  `tests/test_skill_scripts.py` covers the kev-finetune stdlib scripts (stdlib only, no network). Weight-backed parity tests
+  (`runs/smoke-hl/00-trial-0/checkpoint` + a Qwen2.5-0.5B / Qwen3.5-0.8B-Base download, ~2.5 min, local only): `tests/test_model.py`; `tests/test_mlx.py` (Apple Silicon, ~30 s) for the MLX backend.
+  `test_conventions.py` is a table of "one canonical home" rules (head.pt via `kev.checkpoint`, `KEV_*` via `LoadOptions.from_env`,
+  option keys via `api.question_keys`, context via `model.fits`/`MAX_PACKED`, device via `kev.device`, ...); add a row when a new helper becomes canonical.
+  It also asserts every published README/model-card number in `docs/claims.json` traces to a committed report (`scripts/verify_claims.py`).
 - API tests (server must be up): `KEV_BASE_URL=http://127.0.0.1:8009 uv run --extra serve python -m pytest tests/test_api.py -q`
+- CI (.github/workflows/ci.yml) runs the unit job above and a `playground` job: `npm ci && npm run lint && npx next typegen && npx tsc --noEmit -p .`.
 
-## Skills (.agents/skills)
+## Skills
+Repo skills (`.agents/skills`, tracked in git):
 - `kev-verify`: how to prove a change has no regression (unit suites, weight-backed parity, worktree parity harness against main) and ship it as a stacked, reviewed, squash-merged PR.
-- `skills/kev-finetune` (published; `npx skills add jaredpalmer/kev@kev-finetune`): the user-facing fine-tuning skill (SKILL.md for agents, README.md is the
-  human cookbook). agentskills.io format (validate with `uvx --from skills-ref agentskills validate skills/kev-finetune`). Stdlib scripts: `extract_workload`
-  (find Jev/TypeSafe call sites + labelled files, draft the spec), `convert_data` (CSV/JSONL -> records), `generate_data` (OpenAI-compatible endpoint),
-  `plan_size` (paired McNemar sizing; `--from-result` post hoc), `split_data` (`--holdout` keeps real rows out of train). `scripts/kev_modal.py` is a
-  self-contained Modal app (app `kev-finetune`, volumes `kev-finetune-runs` + `kev-hf-cache`) whose image clones this repo at `KEV_REF` and pip-installs it, so
-  it needs no local clone; bump `KEV_REF` after merging a kev/ change the skill depends on. Launch-time settings go into the image env via `SETTINGS` (a Secret
-  list that differs inside the container fails with "Function has N dependencies but container got M"). `train` derives every architecture flag from the init
-  checkpoint's `head.pt`; results are the skill's own `result.json` shape (not a research trial's); `publish` is private by default; `teardown` removes runs /
-  the endpoint / the volumes. Tests for the stdlib scripts: `tests/test_skill_scripts.py`.
-- `thermonuclear-code-review`: how to apply the installed `thermo-nuclear-code-quality-review` standards to this repo; its table lists the canonical home of each shared rule.
-- `kev-modal-study`: launching and pulling Modal studies.
+- `kev-pr-description`: how to write the PR title and body (the acdlite / sebmarkbage essay style, with a weak/strong pair from a real Kev PR). Read it before opening any PR.
+- `kev-modal-study`: launching, monitoring and pulling Modal studies, base probes, remote benchmarks and new-base smoke checks.
+- `thermonuclear-code-review`: the strict structural review (standards adapted from cursor-team-kit's thermo-nuclear review, the approval bar, and the table of canonical homes for shared rules).
+
+Installed from other repos by `npx skills add` and pinned in `skills-lock.json` (`deslop`, `unslop` from cursor/plugins,
+`grill-me` from mattpocock/skills); `.agents/skills/modal/` is gitignored and reinstalled with `uv run modal skills install`.
+
+Published from this repo (`skills/kev-finetune`, `npx skills add jaredpalmer/kev@kev-finetune`): the user-facing fine-tuning skill (SKILL.md for agents,
+README.md is the human cookbook, `references/` the long-form docs). agentskills.io format (validate with `uvx --from skills-ref agentskills validate skills/kev-finetune`).
+Stdlib scripts: `extract_workload` (find Jev/TypeSafe call sites + labelled files, draft the spec), `convert_data` (CSV/JSONL -> records),
+`generate_data` (OpenAI-compatible endpoint), `plan_size` (paired McNemar sizing; `--from-result` post hoc), `split_data` (`--holdout` keeps real rows out of train).
+`scripts/kev_modal.py` is a self-contained Modal app (app `kev-finetune`, volumes `kev-finetune-runs` + `kev-hf-cache`) whose image clones this repo at `KEV_REF`
+and pip-installs it, so it needs no local clone; bump `KEV_REF` after merging a kev/ change the skill depends on. Launch-time settings go into the image env via
+`SETTINGS` (a Secret list that differs inside the container fails with "Function has N dependencies but container got M"). `train` derives every architecture flag
+from the init checkpoint's `head.pt`; results are the skill's own `result.json` shape (not a research trial's); `publish` is private by default; `teardown` removes
+runs / the endpoint / the volumes. Tests: `tests/test_skill_scripts.py`.
 
 ## Layout
-- `kev/data.py`      dataset -> typed records, permutation / none-of-the-above / distractor augmentation
-- `kev/suite.py`     frozen suites: digest/manifest/load_split (Hub mirror), CONTEXT + admission, `validate_training` (trainable/eval-only policy), `semantic_hash`, freeze CLI
-- `kev/model.py`     encode(), branch_mask(), PointerHead, DecisionModel
+- `kev/data.py`      dataset -> typed records (`Source`, `build`, `materialize`, `load_records`), trainable/eval-only source policy, permutation / none-of-the-above / distractor augmentation
+- `kev/composition.py` generated rule structures (atoms, shapes, groups) behind the compositional training and eval records
+- `kev/contrastive.py` programmatic contrastive pairs with code labels: one sentence changed flips the label
+- `kev/suite.py`     frozen suites: digest/manifest/read_manifest/load_split (Hub mirror), CONTEXT + admission, `validate_training` (trainable/eval-only policy), `semantic_hash`, UTF-8 JSON helpers, freeze CLI
+- `kev/study_v3.py`  builds the v3+ decision/transfer suites (public pool + generated families, grouped splits)
+- `kev/transfer_v9.py` transfer-v9: transfer-v4 byte-for-byte plus MMLU-Pro, buried states and unknowable items
+- `kev/model.py`     encode(), branch_mask(), `fits`/MAX_STATE/MAX_BRANCH/MAX_PACKED, PointerHead (carries the temperature), DecisionModel (packed mask, or `hybrid` row batches)
 - `kev/train.py`     LoRA fine-tune: `training_requests` (suite / built / --data+--replay, context filter, policy checks, mix ablations),
-                     `encode_batch` + `batch_loss` (CE, anchor KL, permutation KL), `main` orchestration. Grad accumulation over small padded batches.
-- `kev/checkpoint.py` Checkpoint (resolve run dir or Hub id, `head.pt` schema = `Meta`, load with `LoadOptions`, `warm_start` for deltas)
-- `kev/evaluate.py`  acc/ECE, permutation stability, IIA shift, isolation probe, packed-vs-separate (legacy prototype eval)
+                     `encode_batch` + `batch_loss` (CE, anchor KL, permutation KL, RPS, smoothing/Brier/focal), `main` orchestration. Grad accumulation over small padded batches.
+- `kev/anchors.py`   frozen-base zero-shot distributions per training question, the target for `--anchor_w`
+- `kev/checkpoint.py` Checkpoint (resolve run dir or Hub id, `head.pt` schema = `Meta`, load with `LoadOptions` -> torch `DecisionModel` or, with `backend="mlx"`/`"auto"`, `MLXDecisionModel`; `warm_start` for deltas)
+- `kev/mlx_model.py` Apple Silicon backend: mlx-lm Qwen3.5 backbone, LoRA merged in fp32 on the CPU stream (`merge_lora`), Kev's encoder/rows and the torch PointerHead unchanged; state prefix = mlx-lm prompt cache, branches on a replicated copy
 - `kev/device.py`    default_device / sync / empty_cache / allocated_bytes for cuda, mps, cpu
-- `kev/metrics.py`   pure-numpy scoring of benchmark rows: ECE, Brier, NLL, selective prediction (coverage@error, AURC), temperature fit, paired bootstrap
+- `kev/metrics.py`   pure-numpy scoring of benchmark rows: ECE, Brier, NLL, selective prediction (tie-aware coverage@error, AURC), temperature fit, out-of-fold CV calibration report (`cross_validated_temperature`), paired bootstrap
 - `kev/predictors.py` LocalPredictor (checkpoint), RemotePredictor (System One endpoint), JevPredictor (AI SDK worker)
 - `kev/benchmark.py` rows from predictions, summarize(), evaluate_records(), CLI
+- `kev/compare.py`   two saved result dirs -> paired bootstrap comparison + NLL sensitivity
+- `kev/jev.py`       Jev through Vercel AI Gateway (key provisioning, budget cap) scored on a frozen suite
+- `kev/experiment.py` config-only study runner: trial allowlist, gates, temperature fit, ledger, aggregate/resume
+- `kev/autoresearch.py` bounded propose/round/loop on top of experiment.py, plus the leaderboard
+- `kev/evaluate.py`  legacy prototype eval: acc/ECE, permutation stability, IIA shift, isolation probe, packed-vs-separate
 - `kev/plot.py`      loss curve(s) from train logs + accuracy-vs-baselines bars from eval.json
-- `kev/api.py`       TypeSafe request/response models; Noul/Choice/Score -> pointer options; confidence formulas
+- `kev/api.py`       TypeSafe request/response models; Noul/Choice/Score -> pointer options; `question_keys`; confidence formulas; `with_date_facts`
 - `kev/serve.py`     FastAPI: /v1/systemone (+ permute, separate) and /v1/models; `Server` holds the checkpoint and the prefix cache
+- `kev/publish.py`   run -> Hub repo: adapter, head.pt, tokenizer, trial result/provenance/log, the card as README.md; `--tag`, `--revision`, `--private`
+- `modal_app.py`     every GPU entrypoint: trials, locked tests, probes, benches, anchors, smoke
+- `scripts/`         one-off builders and read-outs: `calibrate_checkpoint.py`, `build_night2_data.py`, `build_binding_diagnostic.py`,
+                     `freeze_{semif,scienthoon,calibration_audit}.py`, `calibration_audit.py`, `review_calibration_screen.py`,
+                     `compare_{q35,night2}.py`, `temperature_groups.py`, `base_mmlu_probe.py`, `plot_*.py` + `chartstyle.py`, `publish_space.sh`
 - `tests/test_api.py` conformance against the docs' example requests + official SDK
 
 ## Notes
 - All JSON/JSONL is UTF-8 with LF endings regardless of platform locale: read/write through `kev.suite.read_json/read_jsonl/write_json/write_jsonl`
   (or pass `encoding=`), and `.gitattributes` pins `*.json`/`*.jsonl` to LF so sha256-checked partitions survive a Windows checkout (issue #12).
+- `runs/` is gitignored except ledgers, reports, provenance and training logs (see .gitignore); never commit weights, prediction dumps or regenerated `runs/leaderboard.*`.
 - Delimiters reuse existing Qwen special tokens (`<|fim_prefix|>` etc.) to avoid resizing embeddings;
   peft `trainable_token_indices` leaked memory on MPS.
 - `output_hidden_states=True` on MPS blows memory; use the bare `.model` backbone's `last_hidden_state`.
@@ -113,19 +174,28 @@ See README.md (deep dive) and docs/model-cards/ (one card per checkpoint: recipe
   option/branch delimiter tokens (the fast tokenizer ignores `split_special_tokens`).
 - Training data is built as TypeSafe-shaped requests and goes through `api.to_record()` (`data.materialize`),
   so train and serve text are identical.
-- Serving path (`kev.checkpoint.Checkpoint.load` + `kev.serve`; `LoadOptions.from_env()` reads the `KEV_*` variables at CLI entry points only): LoRA merged in fp32 then cast (`KEV_MERGE=0` to keep unmerged), `KEV_ATTN=sdpa` default on MPS,
-  `KEV_SHAPE_BUCKET=64` on MPS, state-prefix KV LRU (`KEV_PREFIX_CACHE=4`, `KEV_PREFIX_MIN_TOKENS=384`). Any change here must keep the parity
-  tests in tests/test_model.py (merged vs unmerged, prefix vs full pass, bucket padding) passing; report numbers with the fp32 unmerged path.
+- Serving path (`kev.checkpoint.Checkpoint.load` + `kev.serve`; `LoadOptions.from_env()` reads the `KEV_*` variables at CLI entry points only): backend `auto` (MLX for hybrid checkpoints on MPS when mlx-lm is installed and fp32 was not asked for; `KEV_BACKEND=torch|mlx` to force; library callers get torch unless they ask; `SCORING_INTERFACE` in kev/model.py names what both implementations expose), LoRA merged in fp32 then cast (`KEV_MERGE=0` to keep unmerged, torch only), bf16 by default on CUDA/MPS (`KEV_DTYPE=fp32` for the exact path; L4 numbers in README "Serving Performance"), `KEV_ATTN=sdpa` default on MPS,
+  `KEV_SHAPE_BUCKET=64` on MPS, state-prefix LRU (`KEV_PREFIX_CACHE=4`; `KEV_PREFIX_MIN_TOKENS` defaults to the model's `prefix_min_tokens`: 384 for attention-only torch models, 0 for hybrid and MLX ones because their miss path would recompute the state per question). Checkpoints trained with
+  `--weights_dtype bf16` always load bf16 with the adapter unmerged. Any change here must keep the parity
+  tests in tests/test_model.py (merged vs unmerged, prefix vs full pass, bucket padding) and tests/test_mlx.py (MLX vs fp32 torch, prefix form vs row form, isolation; Apple Silicon only) passing; report numbers with the fp32 unmerged path.
+  `scripts/mlx_parity.py --run <ckpt>` is the fuller read (60 records, latency of every path); MLX's fp32 GPU matmul is a reduced-precision fast path (~1e-3 relative on an M5), which is why the LoRA merge runs on `mx.cpu`.
+- Serving context is 8,192 tokens for the state and 8,192 for a question branch (`kev.model.SERVE_MAX_*`); training used 384 / 1,024, so longer inputs are untested. No limit on questions per request: the row form runs `rows_per_pass` rows per forward pass (a 16,384-token budget counting the cached state per row), and an attention-only model switches from the packed mask to rows above `SERVE_MAX_PACKED` (`DecisionModel.rows_form`). Kev-4B on MLX, 64 questions on a 4.8k-token state: 4.3 s / 9.4 GB peak instead of 18.5 s / 24.7 GB in one pass. `n_perm` on `/permute` is 1..64.
 
 ## Calibration Research
 
 - Metric version 2 accepts whole equal-confidence groups. `paired_bootstrap(..., aggregation="micro")` recomputes non-additive coverage/AURC for each paired record-group resample; default `macro` is equal task weight.
 - `confident_error_rate` divides confident errors by all questions. `error_rate_at_0_9` divides by accepted questions. The empirical coverage-at-error envelope is not an unseen-data guarantee; freeze thresholds on a separate calibration set.
 - Local benchmarks save logits and effective inference temperature. Research studies explicitly score raw logits, fit on the calibration partition for both parent and candidate, and report raw/recalibrated metrics separately. Temperature can reorder confidence across multiclass questions, even at fixed option count.
-- Registered screen: `experiments/calibration-audit-protocol.json`; `scripts/review_calibration_screen.py --study <name> --out runs/<new-review>` verifies matched updates/tokens and gates against both unchanged parent and CE continuation.
+- Registered screen: `experiments/calibration-audit-protocol.json`; `scripts/review_calibration_screen.py --study <name> --out runs/<new-review>` verifies matched updates/tokens and gates against both unchanged parent and CE continuation. The screen ran and no candidate passed (PLAN.md, round 3): the `--label_smoothing/--brier_w/--focal_gamma` losses exist but ship in nothing.
 - `evals/round3/transfer-r3/test.jsonl` is a fresh final panel, not a search set. The first loss screen found no qualifying candidate, so it remains unscored. Select and record a candidate before evaluating it; do not reuse previously inspected test partitions as untouched confirmation.
 - Isolate research deployments with `KEV_APP_NAME=kev-calibration-audit`. `worker_environment` propagates app/GPU/secret-name settings to prevent Modal dependency-count startup failures; secret values stay in Modal Secrets.
 - Verify live spend/rates with `uv run modal billing summary --json` and `uv run modal billing rates --json`. Training admission uses the actual configured CPU and maximum host memory, not the old 2-CPU/48-GiB assumptions. Initial cancelled startup calls and successful jobs are recorded separately.
 
 ## Writing
 - Use simple technical English. For README tone, use Jared's older Formik, TSDX, Razzle, and Backpack READMEs as references: explain the developer's problem, address the reader directly, and show code early. Avoid slogans, canned contrasts, and repeated claims. Keep detailed experiment history in PLAN.md and the model cards rather than repeating it in the README.
+- Pull requests teach. Write the body the way Andrew Clark (`acdlite`) and Sebastian Markbåge (`sebmarkbage`) wrote theirs on facebook/react before 2023: the
+  problem as it exists today first, then the mechanism as an argument with one concrete artifact per idea, then what is uncertain and what was left out. Define
+  the one term the change hinges on (pointer head, temperature, flip rate, AURC, prefix cache) the first time it appears, so an engineer who is not an ML
+  researcher can follow. Numbers carry their provenance (checkpoint, suite + partition, n, report path); the decision rule is written before the result. A list
+  of files changed is the diff again, not a description. Length follows novelty: one sentence for a one-line fix, headings for a new loss or serving path.
+  The title becomes the squash commit subject. The `kev-pr-description` skill has the reference PRs and a weak/strong pair.

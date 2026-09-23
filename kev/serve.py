@@ -2,25 +2,30 @@
 
 Run: uv run --extra serve python -m kev.serve --run runs/kev --port 8008
 
-TypeSafe-compatible: POST /v1/systemone, GET /v1/models (no auth). Demo extras: POST /v1/systemone/permute (one Choice
+TypeSafe-compatible: POST /v1/systemone, GET /v1/models, the `x-typesafe-request-id` response header, and bearer auth
+when KEV_API_KEY is set (unset = open server, the local default). Demo extras: POST /v1/systemone/permute (one Choice
 under several option orders) and POST /v1/systemone/separate (each question in its own pass, for the packed-vs-separate
-comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS size the state-prefix KV cache; KEV_DATE_FACTS=1 opts into the
-date preprocessing (api.with_date_facts).
+comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS size the state-prefix cache; KEV_DATE_FACTS=1 opts into the
+date preprocessing (api.with_date_facts). Backend and precision follow LoadOptions (KEV_BACKEND, KEV_DTYPE, ...): on Apple
+Silicon the hybrid Qwen3.5 checkpoints run on MLX by default, elsewhere on torch in bf16.
 """
-import argparse, os, random, threading, time
+import argparse, hmac, os, random, threading, time, uuid
+import torch
 from dataclasses import dataclass, field, replace
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
 from .checkpoint import Checkpoint, LoadOptions, is_hub_id
 from .device import default_device, sync
+from .model import SERVE_MAX_BRANCH, SERVE_MAX_STATE
 
-# inference limits (training used 384/1024); per-branch cap mirrors Jev's ~32k, bounded by the base model window
-INFER_MAX_STATE, INFER_MAX_BRANCH = 8192, 8192
 PREFIX_CACHE_SIZE = int(os.environ.get("KEV_PREFIX_CACHE", "4"))          # states kept (KV + hidden); 0 disables
-PREFIX_MIN_TOKENS = int(os.environ.get("KEV_PREFIX_MIN_TOKENS", "384"))   # below this the branch-only pass is not faster on MPS (per-op overhead dominates)
+PREFIX_MIN_TOKENS = os.environ.get("KEV_PREFIX_MIN_TOKENS")               # states shorter than this are not cached; default = the model's prefix_min_tokens (0 for hybrid backbones and MLX, 384 for attention-only torch models)
 DATE_FACTS = os.environ.get("KEV_DATE_FACTS", "0") == "1"
+API_KEY = os.environ.get("KEV_API_KEY")                                  # unset = open server; set = require Authorization: Bearer <key>, as the TypeSafe clients always send
+MODEL_NAMES = ("kev-latest", "jev-latest")                               # both names serve this checkpoint; jev-latest is the TypeSafe SDK default model, so an unconfigured client works
 
 
 @dataclass
@@ -34,17 +39,25 @@ class Server:
     prefix_cache: dict = field(default_factory=dict)   # (state token ids, option_isolation) -> prefix, in LRU order
     prefix_hits: int = 0
     prefix_misses: int = 0
+    release_date: str = field(default="")   # for the TypeSafe model card; resolved once (may ask the Hub)
+
+    def __post_init__(self):
+        self.release_date = self.release_date or self.checkpoint.release_date()
+
+    @property
+    def prefix_min_tokens(self):
+        return int(PREFIX_MIN_TOKENS) if PREFIX_MIN_TOKENS else self.model.prefix_min_tokens
 
     def probs(self, rec):
         """One forward pass. The state prefix (tokens up to the first question) is cached across requests, so a repeated
         state only pays for its question branches. Exact: the state's activations do not depend on the branches."""
-        try: enc = self.model.encode(self.tok, rec, max_state=INFER_MAX_STATE, max_branch=INFER_MAX_BRANCH)
+        try: enc = self.model.encode(self.tok, rec, max_state=SERVE_MAX_STATE, max_branch=SERVE_MAX_BRANCH)
         except ValueError as e: raise HTTPException(422, str(e))
         Ls = enc["seg"].count(0); key = (tuple(enc["ids"][:Ls]), bool(enc.get("option_isolation")))
         cache, hit = self.prefix_cache, False
         with self.lock:
             sync(self.device); t = time.time()
-            eligible = PREFIX_CACHE_SIZE and Ls >= PREFIX_MIN_TOKENS
+            eligible = PREFIX_CACHE_SIZE and Ls >= self.prefix_min_tokens
             if eligible and key in cache:
                 prefix = cache.pop(key)                            # pop + reinsert = LRU order
                 ps = self.model.probs_with_prefix(enc, prefix); cache[key] = prefix
@@ -73,7 +86,18 @@ def prepare(req):
 
 
 app = FastAPI(title="kev")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["x-typesafe-request-id"])
+
+
+@app.middleware("http")
+async def typesafe(request, call_next):
+    """Bearer auth (when API_KEY is set) and the request id every TypeSafe client reads off the response."""
+    if API_KEY and request.url.path.startswith("/v1") and not hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {API_KEY}"):
+        resp = JSONResponse({"detail": "missing or invalid API key; send Authorization: Bearer <KEV_API_KEY>"}, 401, {"www-authenticate": "Bearer"})
+    else:
+        resp = await call_next(request)
+    resp.headers["x-typesafe-request-id"] = request.headers.get("x-typesafe-request-id") or uuid.uuid4().hex
+    return resp
 
 
 def server() -> Server:
@@ -89,7 +113,7 @@ def systemone(req: SystemOneRequest):
 class PermuteSystemOne(BaseModel):
     request: SystemOneRequest
     question: str
-    n_perm: int = 6
+    n_perm: int = Field(default=6, ge=1, le=64)   # each order is a forward pass; 0 divided by nothing, unbounded counts ran forever (#30)
     seed: int = 0
 
 
@@ -121,11 +145,17 @@ def systemone_separate(req: SystemOneRequest):
 
 @app.get("/v1/models")
 def models():
+    """One TypeSafe model card (name, description, release_date) per accepted model name, plus the Kev serving details
+    a client may ignore: the run, the base, the device, the backend and precision, the temperature, prefix-cache stats."""
     s = server()
-    return {"models": [{"id": "kev-latest", "aliases": ["jev-latest"], "run": s.checkpoint.requested, "base": s.checkpoint.meta.base,
-                        "lora": s.checkpoint.meta.lora, "device": s.device, "temperature": s.model.head.temperature,
-                        "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": PREFIX_MIN_TOKENS, "hits": s.prefix_hits,
-                                         "misses": s.prefix_misses, "cached_states": len(s.prefix_cache)}}]}
+    ck, meta = s.checkpoint, s.checkpoint.meta
+    card = {"description": f"Kev pointer head on {meta.base}, serving {ck.requested} at temperature {s.model.head.temperature:.2f}",
+            "release_date": s.release_date,
+            "run": ck.requested, "base": meta.base, "lora": meta.lora, "device": s.device, "backend": s.model.backend, "dtype": s.model.dtype,
+            "temperature": s.model.head.temperature,
+            "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": s.prefix_min_tokens, "hits": s.prefix_hits,
+                             "misses": s.prefix_misses, "cached_states": len(s.prefix_cache)}}
+    return {"models": [{"name": name, **card} for name in MODEL_NAMES]}
 
 
 def main():
@@ -139,10 +169,12 @@ def main():
     dev = default_device()
     opts = LoadOptions.from_env()
     if dev == "mps" and opts.attn is None: opts = replace(opts, attn="sdpa")   # serving default on Apple GPUs (parity measured)
+    if dev != "cpu" and opts.dtype is None: opts = replace(opts, dtype=torch.bfloat16)   # serving default: 2-4.5x faster than fp32 on an L4, same answers (LoadOptions.dtype); KEV_DTYPE=fp32 for the exact path
+    if opts.backend is None: opts = replace(opts, backend="auto")   # serving default: MLX for the hybrid Qwen3.5 checkpoints on Apple Silicon (LoadOptions.backend); KEV_BACKEND=torch to decline
     ck = Checkpoint(run)
     tok, model = ck.load(dev, opts)
     app.state.server = Server(ck, tok, model, dev)
-    print(f"serving {ck.requested} ({ck.path}) on {dev} :{a.port}")   # /v1/models reports the run as given, not the resolved cache path
+    print(f"serving {ck.requested} ({ck.path}) on {dev} via {model.backend} ({model.dtype}) :{a.port}")   # /v1/models reports the run as given, not the resolved cache path
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=a.port)
 

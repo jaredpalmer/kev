@@ -172,7 +172,7 @@ def run_tool(cmd, out):
 
 @app.function(image=image, gpu=GPU, cpu=2, memory=(32768, 131072), retries=0, timeout=3600,
               volumes={RUNS_MOUNT: runs_volume, HF_MOUNT: hf_cache}, secrets=secrets)
-def run_base_probe(base, suite, name, tasks="all", prompt="plain", split="development", revision=None, adapter=None):
+def run_base_probe(base, suite, name, tasks="all", prompt="plain", split="development", revision=None, adapter=None, all_questions=False):
     """Untrained baseline: the base model's zero-shot letter-logit readout on a frozen suite partition
     (scripts/base_mmlu_probe.py; --adapter measures a Kev adapter through the same readout). Writes benchmark-compatible
     rows/report under /runs/probes/<name>."""
@@ -180,6 +180,7 @@ def run_base_probe(base, suite, name, tasks="all", prompt="plain", split="develo
     cmd = [sys.executable, "/root/scripts/base_mmlu_probe.py", "--base", base, "--suite", f"/root/{suite}", "--tasks", tasks, "--device", "cuda", "--out", out, "--prompt", prompt, "--split", split]
     if revision: cmd += ["--revision", revision]
     if adapter: cmd += ["--adapter", adapter]
+    if all_questions: cmd += ["--all_questions"]
     return run_tool(cmd, out)
 
 
@@ -253,14 +254,14 @@ def pull_volume(remote, local_parent):
 
 
 @app.local_entrypoint()
-def base_probe(bases: str, suite: str = "evals/v4/transfer-v4", tasks: str = "all", prompt: str = "plain", split: str = "development", revision: str = "", adapter: str = "", tag: str = "", gpu: str = GPU):
+def base_probe(bases: str, suite: str = "evals/v4/transfer-v4", tasks: str = "all", prompt: str = "plain", split: str = "development", revision: str = "", adapter: str = "", tag: str = "", gpu: str = GPU, all_questions: bool = False):
     """Untrained-base rows (the same items as every README row). Names are derived (<base>-base[-semif][-<tag>]-<suite>[-<split>]);
     results are pulled to runs/probes/<name>. e.g. KEV_GPU=H200 ... --bases Qwen/Qwen3.5-35B-A3B-Base --revision <sha>"""
     jobs = []
     for base in bases.split(","):
         name = base.split("/")[-1].lower().replace(".", "") + ("-semif" if prompt == "semif" else "-base") + (f"-{tag}" if tag else "") + "-" + suite.split("/")[-1] + ("" if split == "development" else f"-{split}")
         if (ROOT / "runs/probes" / name).exists(): print(f"skip {name}: exists locally"); continue
-        jobs.append((base, suite, name, tasks, prompt, split, revision or None, adapter or None))
+        jobs.append((base, suite, name, tasks, prompt, split, revision or None, adapter or None, all_questions))
     for (base, _, name, *_), result in zip(jobs, run_base_probe.with_options(gpu=gpu).starmap(jobs, return_exceptions=True)):
         if isinstance(result, Exception): print(f"{name}: FAILED {type(result).__name__}: {str(result)[:200]}"); continue
         pull_volume(f"/probes/{name}", ROOT / "runs/probes")
@@ -268,12 +269,13 @@ def base_probe(bases: str, suite: str = "evals/v4/transfer-v4", tasks: str = "al
 
 
 @app.local_entrypoint()
-def benchmarks(jobs: str, gpu: str = GPU):
+def benchmarks(jobs: str, gpu: str = GPU, timeout: int = 3600):
     """Score checkpoints on suites or --data .jsonl files: comma-separated run@suite@name[@flags] entries, e.g.
     "jaredpalmer/kev-9b@evals/external/semif-v1@kev-9b-semif,/runs/X/00-trial-0/checkpoint@evals/v9/transfer-v9@x-v9@--date_facts".
-    Results are pulled to runs/<name>."""
+    Results are pulled to runs/<name>. Raise --timeout for long-state suites: fp32 evaluation of a 9B on 6k-token rows
+    takes over an hour for ~900 records."""
     entries = [(j.split("@") + [""])[:4] for j in jobs.split(",")]
-    for (run, suite, name, _), result in zip(entries, run_bench.with_options(gpu=gpu).starmap(entries, return_exceptions=True)):
+    for (run, suite, name, _), result in zip(entries, run_bench.with_options(gpu=gpu, timeout=timeout).starmap(entries, return_exceptions=True)):
         if isinstance(result, Exception): print(f"{name}: FAILED {type(result).__name__}: {str(result)[:300]}"); continue
         pull_volume(f"/bench/{name}", ROOT / "runs")
         print(f"{name}: acc {result['acc']:.3f} brier {result['brier']:.3f}")

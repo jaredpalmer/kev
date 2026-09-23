@@ -3,7 +3,7 @@
 ## Modal endpoint
 
 ```bash
-modal secret create kev-serve-key KEV_SERVE_API_KEY=$(openssl rand -hex 24)
+modal secret create kev-serve-key KEV_API_KEY=$(openssl rand -hex 24)
 KEV_SERVE_SECRET=kev-serve-key KEV_SERVE_RUN=x-v1 modal deploy scripts/kev_modal.py
 ```
 
@@ -19,7 +19,7 @@ minutes for the 4B; `KEV_SERVE_MIN_CONTAINERS=1` at deploy time keeps one warm (
 | kev-9b | `A100-80GB` or `H100` (the fp32 merge needs 36 GB) |
 
 Without `KEV_SERVE_SECRET` the endpoint is public (the URL is the only secret); with it, requests need
-`Authorization: Bearer <KEV_SERVE_API_KEY>` and everything else gets 401. Redeploying with another `KEV_SERVE_RUN`
+`Authorization: Bearer <KEV_API_KEY>` and everything else gets 401. Redeploying with another `KEV_SERVE_RUN`
 replaces the model behind the same URL. Several models at once: `KEV_APP_NAME=kev-support modal deploy ...` (new app,
 new URL label).
 

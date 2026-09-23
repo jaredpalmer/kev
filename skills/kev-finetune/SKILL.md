@@ -118,7 +118,7 @@ The lever is data: read `errors.jsonl`, fix `guidance`, generate targeted record
 ## Phase 4: deploy and wire in
 
 ```bash
-modal secret create kev-serve-key KEV_SERVE_API_KEY=$(openssl rand -hex 24)      # recommended
+modal secret create kev-serve-key KEV_API_KEY=$(openssl rand -hex 24)      # recommended
 KEV_SERVE_SECRET=kev-serve-key KEV_SERVE_RUN=x-v1 modal deploy scripts/kev_modal.py
 ```
 

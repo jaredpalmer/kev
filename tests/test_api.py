@@ -13,6 +13,7 @@ DEPARTMENT = {"returns": "Exchanges, refunds, wrong or damaged items", "shipping
 
 def post(body):
     r = httpx.post(f"{BASE}/v1/systemone", json=body, timeout=120)
+    assert r.headers["x-typesafe-request-id"]   # every TypeSafe client exposes it as response.request_id
     return r.status_code, r.json()
 
 
@@ -59,8 +60,17 @@ def test_noul_score_and_object_state():
     assert math.isclose(s["score"], sum(int(k) * v for k, v in s["probabilities"].items()), abs_tol=0.05)
 
 
+def test_optional_instructions_and_one_level_score():
+    """The SDK omits `instructions` when it is not given and accepts a score with a single level."""
+    code, r = post({"state": "I was charged twice.", "model": "jev-latest",
+                    "questions": {"billing": {"type": "noul", "criteria": {"true": "About charges", "false": "Not about charges"}},
+                                  "urgency": {"type": "score", "instructions": "How urgent is this?", "criteria": ["today"]}}})
+    assert code == 200 and 0 <= r["answers"]["billing"]["noul"] <= 1
+    assert r["answers"]["urgency"] == {"type": "score", "score": 0.0, "legend": {"0": "today"}, "probabilities": {"0": 1.0}, "confidence": 1.0}
+
+
 def test_validation_422():
-    assert post({"state": "x", "model": "m", "questions": {"q": {"type": "score", "instructions": "i", "criteria": ["only one"]}}})[0] == 422
+    assert post({"state": "x", "model": "m", "questions": {"q": {"type": "score", "instructions": "i", "criteria": []}}})[0] == 422
     assert post({"state": "x", "model": "m", "questions": {"q": {"type": "bogus", "instructions": "i"}}})[0] == 422
     assert post({"state": "x", "model": "m", "questions": {}})[0] == 422
     assert post({"state": "x", "model": "m", "questions": {"q": {"type": "choice", "instructions": "i", "criteria": {f"o{i}": None for i in range(256)}}}})[0] == 422
@@ -88,3 +98,26 @@ def test_sdk_client():
     assert 0 <= resp.nouls["billing"].noul <= 1
     assert resp.choices["tone"].choice in {"calm", "frustrated", "angry"}
     assert 0 <= resp.scores["urgency"].score <= 2
+    assert resp.request_id and resp.usage.input_tokens > 0
+
+
+def test_sdk_models():
+    """models.list() parses only when every card carries name, description and release_date."""
+    pytest.importorskip("typesafe_sdk")
+    from typesafe_sdk import TypeSafeClient
+    with TypeSafeClient(api_key="local", base_url=BASE, model="kev-latest") as client:
+        cards = client.models.list().models
+    assert {"kev-latest", "jev-latest"} <= {c.name for c in cards}   # jev-latest is the SDK's default model
+    assert all(c.description and c.release_date for c in cards)
+
+
+def test_sdk_async_client():
+    pytest.importorskip("typesafe_sdk")
+    import asyncio
+    from typesafe_sdk import AsyncTypeSafeClient, Noul
+
+    async def go():
+        async with AsyncTypeSafeClient(api_key="local", base_url=BASE, model="kev-latest") as client:
+            return await client.system_one(state="I was charged twice.", questions={"billing": Noul(instructions="Is this about billing?")})
+
+    assert 0 <= asyncio.run(go()).nouls["billing"].noul <= 1

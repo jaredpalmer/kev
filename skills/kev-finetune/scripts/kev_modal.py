@@ -14,7 +14,7 @@ kev.benchmark / kev.serve code the released checkpoints were built and measured 
 volume `kev-finetune-runs` under /runs/<name> (names are immutable: a new attempt needs a new name); base weights are
 cached on `kev-hf-cache`. Environment (read at launch time): KEV_GPU (training GPU, default H100), KEV_SERVE_GPU (default L4;
 Kev-9B needs A100-80GB or H100), KEV_SERVE_RUN (run name on the volume or a Hub id), KEV_SERVE_SECRET (Modal secret holding
-KEV_SERVE_API_KEY for bearer auth), KEV_HF_SECRET (Modal secret holding HF_TOKEN, needed by publish), KEV_APP_NAME, KEV_REF.
+KEV_API_KEY for bearer auth, read by kev.serve itself), KEV_HF_SECRET (Modal secret holding HF_TOKEN, needed by publish), KEV_APP_NAME, KEV_REF.
 """
 import json
 import os
@@ -29,7 +29,7 @@ import modal
 # Launch-time settings that the container must see identically: they travel in the image env (names only, never secret
 # values). The module is re-evaluated inside the container, and a Secret list or a served run that differs there either
 # fails the container ("Function has N dependencies but got M") or serves the wrong model.
-SETTINGS = {"KEV_APP_NAME": "kev-finetune", "KEV_REF": "524c357b53b4b140ac1261190f2b93ec576f5056", "KEV_SERVE_RUN": "jaredpalmer/kev-4b", "KEV_HF_SECRET": "", "KEV_SERVE_SECRET": ""}
+SETTINGS = {"KEV_APP_NAME": "kev-finetune", "KEV_REF": "32d8b7583f65a5f7fa9f1dda899d3b36013e1f08", "KEV_SERVE_RUN": "jaredpalmer/kev-4b", "KEV_HF_SECRET": "", "KEV_SERVE_SECRET": ""}
 SETTINGS = {k: os.environ.get(k, v) for k, v in SETTINGS.items()}
 APP_NAME, KEV_REF, SERVE_RUN = SETTINGS["KEV_APP_NAME"], SETTINGS["KEV_REF"], SETTINGS["KEV_SERVE_RUN"]
 KEV_REPO = "https://github.com/jaredpalmer/kev.git"
@@ -418,8 +418,6 @@ class Serve:
     @modal.enter()
     def load(self):
         import torch
-        from fastapi import Request
-        from fastapi.responses import JSONResponse
         from kev.api import SystemOneRequest
         from kev.checkpoint import Checkpoint, LoadOptions
         from kev.serve import Server, app as api
@@ -427,13 +425,6 @@ class Serve:
         ck = Checkpoint(resolve_checkpoint(run))
         tok, model = ck.load("cuda", LoadOptions(dtype=torch.bfloat16))
         api.state.server = Server(ck, tok, model, "cuda")
-        key = os.environ.get("KEV_SERVE_API_KEY")
-        if key:
-            @api.middleware("http")
-            async def bearer(request: Request, call_next):
-                if request.headers.get("authorization") != f"Bearer {key}":
-                    return JSONResponse({"error": "unauthorized; send Authorization: Bearer <KEV_SERVE_API_KEY>"}, status_code=401)
-                return await call_next(request)
         started = time.time()
         api.state.server.answer(SystemOneRequest.model_validate(WARMUP))   # compiles the DeltaNet kernels now, not on the first user request (~1 min uncached)
         hf_cache.commit()                                                    # keep the compiled kernels for the next cold start

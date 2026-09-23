@@ -10,12 +10,14 @@ from pathlib import Path
 from kev.composition import DEV_SHAPES, HELD_OUT_KEYS, TEST_SHAPES, TRAIN_SHAPES
 from kev.contrastive import FAMILIES, generate
 from kev.data import ALL_REPOS, ALL_SOURCES, EVAL_ONLY, REPOS, SOURCES, TRAINABLE, TRANSFER_REPOS, TRANSFER_SOURCES, build, dataset_ref, materialize, source_seed
-from kev.model import MAX_BRANCH, MAX_PACKED, MAX_STATE, fits, load_tokenizer
+from kev.model import MAX_BRANCH, SERVE_MAX_BRANCH, SERVE_MAX_PACKED, SERVE_MAX_STATE, fits, load_tokenizer, training_context
 
 SPLITS = ("train", "calibration", "development", "test")
 BASES = ("Qwen/Qwen2.5-0.5B", "Qwen/Qwen3-0.6B-Base")
 # the encoder limits every frozen record satisfies, as written into manifests ("context")
-CONTEXT = {"max_state": MAX_STATE, "max_branch": MAX_BRANCH, "max_packed": MAX_PACKED, "truncate": False}
+CONTEXT = {**training_context(), "truncate": False}
+# what a manifest records for an eval-only suite frozen as published rather than admitted to the training context
+SERVING_CONTEXT = {"max_state": SERVE_MAX_STATE, "max_branch": SERVE_MAX_BRANCH, "max_packed": SERVE_MAX_PACKED, "truncate": False}
 # Clean records are admitted with this many branch tokens to spare, so the variants that add an option (contrast_cases'
 # none-of-these, training-time none/distractor augmentation) still encode under MAX_BRANCH.
 ADMISSION_BRANCH_HEADROOM = 64

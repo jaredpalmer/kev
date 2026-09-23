@@ -64,7 +64,7 @@ Kev-4B is a **decision model**: one document (the *state*) and a set of typed qu
 | in-distribution accuracy (decision-v7 dev, 1,204 records) | 0.854 | 0.877 | 0.872 | 0.872 | 0.845 |
 | out-of-domain accuracy (transfer-v4 dev, 764 records) | 0.790 | 0.794 | **0.797** | 0.797 | 0.857 |
 | out-of-domain Brier | 0.328 | 0.316 | 0.299 | **0.264** | 0.211 |
-| out-of-domain ECE | 0.102 | 0.130 | 0.122 | **0.041** | 0.049 |
+| out-of-domain ECE | 0.102 | 0.130 | 0.122 | **0.040** | 0.049 |
 | confident errors out of domain (p ≥ 0.9 and wrong) | 8.2% | 8.2% | 6.9% | **2.6%** | 3.7% |
 | coverage at ≤ 5% error (share of decisions automatable) | 0.31 | 0.54 | 0.54 | 0.57 | 0.70 |
 | held-out policy structures, both siblings correct | 0.73 | 0.78 | 0.78 | 0.78 | 0.86 |
@@ -80,9 +80,9 @@ Per-source out-of-domain accuracy (Kev-4B / Jev): QNLI 0.91 / 0.93, SciQ 0.97 / 
 
 **What the delta cost.** MMLU-Pro fell 0.500 → 0.490 and scienthoon's ECE rose 0.086 → 0.116; coverage at ≤ 5% error was unchanged (0.54 development, 0.67 → 0.68 locked test) and confident errors fell (8.2% → 6.9%). The pre-registered criteria for the delta (`PLAN.md`, "Tonight's autoresearch") were met for dates and for the unknowable-confidence behaviour; the coverage criterion asked for +5 pp and got 0; the locked read decided promotion.
 
-**Newer evaluation columns** (`transfer-v9` development, Kev-4B / Jev): MMLU-Pro (10-way) 0.490 / 0.840; state buried among unrelated records 0.68 / 0.70; unknowable share at ≥ 0.9 confidence 0.00 / 0.09 (intact controls 0.94).
+**Newer evaluation columns** (`transfer-v9` development, Kev-4B / Jev): MMLU-Pro (10-way) 0.490 / 0.840; state buried among unrelated records 0.67 / 0.70; unknowable share at ≥ 0.9 confidence 0.00 / 0.09 (intact controls 0.94).
 
-**External suites** (same items as their published Jev numbers): SemIf's authored 144 — 0.896 before the delta (live Jev 0.965; SemIf's untrained Qwen3.5-4B 0.813); scienthoon's 900 tickets — queue 0.918, angry 0.790, ECE 0.116 (Jev 0.897, 0.914, 0.105). On ekzhang's 1,000-question MMLU-Pro sample the pre-delta checkpoint scores 0.468 (Jev 0.829).
+**External suites** (same items as their published Jev numbers): SemIf's authored 144 — 0.896 before the delta (live Jev 0.965; SemIf's untrained Qwen3.5-4B 0.813); scienthoon's 900 tickets — queue 0.918, angry 0.790, ECE 0.116 (Jev 0.897, 0.914, 0.105). On ekzhang's 1,000-question MMLU-Pro sample the shipped checkpoint scores 0.468 over all 1,000 questions (8 exceed the state limit and count as wrong; live Jev 0.835 on the same items, ekzhang reports 0.829). On SemIf's pinned third-party selections (`evals/external/{wanli,typesafe}-v1`): WANLI-256 accuracy 0.695 (live Jev 0.758); TypeSafe-102 equal-case agreement / total-variation distance 0.856 / 0.231 over the 89 rows within the 8,192-token serving context (13 rejected), 0.770 / 0.308 over all 102 with rejected rows scored as wrong (live Jev 0.891 / 0.125; published TypeSafe answers 0.883 / 0.127); plain accuracy on the answered rows 0.843, coverage at <= 5% error 0.02 (Jev 0.892, 0.84). The shipped temperature is fitted in distribution and does not transfer to every workload. On WANLI, a single temperature fitted on the workload's own labelled rows (`python -m kev.calibrate`, group-disjoint out-of-fold) lowers ECE from 0.166 as shipped to 0.052 (workload T 3.91 against the shipped 2.14). Accuracy is unchanged and coverage at <= 5% error does not improve. On TypeSafe the shipped temperature already fits and refitting does not help (ECE 0.158 as shipped, 0.175 out of fold).
 
 ## How it was built
 

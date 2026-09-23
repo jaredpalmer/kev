@@ -347,8 +347,9 @@ def none_pair(req, rng):
     """Minimal pair for the none-of-the-above shortcut: the same state and question rendered twice, once with the true
     option present (a none option is wrong) and once with it removed (the same none option is right). Everything else,
     including option order, is identical, so the only difference the model can use is whether the evidence matches an
-    option. Returns [] when the request has no eligible Choice (>=3 options, no none key already present)."""
-    eligible = [(qid, q) for qid, q in req["questions"].items() if q["type"] == "choice" and len(q["criteria"]) >= 3]
+    option. Returns [] when the request has no eligible Choice (>=3 options, no none key already present, no soft target:
+    removing the labelled option or adding a none option would change what the target means, as in augment)."""
+    eligible = [(qid, q) for qid, q in req["questions"].items() if q["type"] == "choice" and len(q["criteria"]) >= 3 and q.get("target") is None]
     if not eligible: return []
     qid, q = rng.choice(eligible)
     nk, nd = rng.choice([o for o in NONE_OPTIONS if o[0] not in q["criteria"]] or [("none_of_these", None)])

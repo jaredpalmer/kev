@@ -40,13 +40,21 @@ def test_to_answers_shapes_and_formulas():
     ans = to_answers([[0.3, 0.7], [0.8, 0.15, 0.05], [0.1, 0.3, 0.6]], meta)
     assert ans["n"] == {"type": "noul", "noul": 0.7}
     assert ans["c"]["choice"] == "a" and ans["c"]["probabilities"] == {"a": 0.8, "b": 0.15, "c": 0.05}
-    assert ans["c"]["confidence"] == round((0.8 - 1 / 3) / (1 - 1 / 3), 2)
+    assert ans["c"]["confidence"] == round((0.8 - 1 / 3) / (1 - 1 / 3), 4)
     assert ans["s"]["score"] == 1.5 and ans["s"]["probabilities"] == {"0": 0.1, "1": 0.3, "2": 0.6}
     assert ans["s"]["legend"] == {"0": "lo", "1": "mid", "2": "hi"}
 
 
+@pytest.mark.parametrize("p", [[0.79] + [0.21 / 39] * 39, [1 / 255] * 255])
+def test_to_answers_choice_probabilities_sum_within_typesafe_tolerance(p):
+    meta = [{"id": "target", "type": "choice", "keys": [str(i) for i in range(len(p))]}]
+    served = to_answers([p], meta)["target"]["probabilities"]
+    assert len(served) == len(p) and abs(sum(served.values()) - 1) < 0.02
+
+
 def test_confidence_edge_cases():
     assert choice_confidence([1.0]) == 1.0
+    assert score_confidence([1.0]) == 1.0          # a one-level score: the SDK allows it, and there is nowhere else to be
     assert choice_confidence([0.5, 0.5]) == 0.0
     assert math.isclose(choice_confidence([1.0, 0.0, 0.0]), 1.0)
     assert score_confidence([0.0, 1.0, 0.0]) == 1.0
@@ -54,7 +62,7 @@ def test_confidence_edge_cases():
 
 
 @pytest.mark.parametrize("bad", [
-    {"q": {"type": "score", "instructions": "i", "criteria": ["only one"]}},
+    {"q": {"type": "score", "instructions": "i", "criteria": []}},
     {"q": {"type": "bogus", "instructions": "i"}},
     {"q": {"type": "choice", "instructions": "i", "criteria": {f"o{i}": None for i in range(256)}}},
     {},
@@ -151,6 +159,10 @@ def test_checkpoint_meta_round_trip_and_defaults(tmp_path):
     assert LoadOptions.from_env({}) == LoadOptions()
     opts = LoadOptions.from_env({"KEV_DTYPE": "bf16", "KEV_MERGE": "0", "KEV_ATTN": "sdpa", "KEV_TEMPERATURE": "1.0", "KEV_LORA_SCALE": "0.5"})
     assert opts == LoadOptions(dtype=torch.bfloat16, merge=False, attn="sdpa", lora_scale=0.5, temperature=1.0)
+    assert LoadOptions.from_env({"KEV_DTYPE": "fp32"}).dtype is torch.float32   # explicit fp32 survives, so kev.serve's bf16 default can be declined
+    assert LoadOptions.from_env({}).backend is None and LoadOptions.from_env({"KEV_BACKEND": "mlx"}).backend == "mlx"
+    with pytest.raises(ValueError, match="KEV_BACKEND"):
+        LoadOptions.from_env({"KEV_BACKEND": "metal"})
 
 
 def test_head_temperature_scales_logits_at_eval_only():
@@ -162,6 +174,40 @@ def test_head_temperature_scales_logits_at_eval_only():
     head.eval(); raw = head(hd, ho); head.temperature = 2.0; cal = head(hd, ho)
     assert torch.allclose(raw_train, raw) and torch.allclose(cal, raw / 2.0) and cal.argmax() == raw.argmax()
     head.train(); assert torch.allclose(head(hd, ho), raw), "training must not be tempered"
+
+
+@pytest.mark.parametrize("n_perm, code", [(0, 422), (-1, 422), (65, 422), (1, 200), (64, 200)])
+def test_permute_bounds_n_perm(n_perm, code, monkeypatch):
+    """Each option order is a forward pass: 0 divided by nothing and unbounded counts ran forever (#30, @53Abdeali)."""
+    from types import SimpleNamespace
+    from fastapi.testclient import TestClient
+    from kev import serve
+    answer = lambda req: {"answers": {"q": {"probabilities": {"a": 0.75, "b": 0.25}, "choice": "a"}}, "latency_ms": 1.0}
+    monkeypatch.setattr(serve, "server", lambda: SimpleNamespace(answer=answer))
+    body = {"request": {"state": "s", "questions": {"q": {"type": "choice", "instructions": "Pick", "criteria": {"a": None, "b": None}}}}, "question": "q", "n_perm": n_perm}
+    with TestClient(serve.app) as client:
+        r = client.post("/v1/systemone/permute", json=body)
+    assert r.status_code == code
+    if code == 200: assert len(r.json()["runs"]) == n_perm and r.json()["argmax_stable"]
+
+
+def test_rows_per_pass_is_a_token_budget():
+    from kev.model import rows_per_pass
+    assert rows_per_pass([[0] * 30] * 5, prefix_len=270) == 16384 // 300     # a short state: every question of a normal request batches
+    assert rows_per_pass([[0] * 20] * 64, prefix_len=4802) == 3            # a long state: a few cache copies per pass
+    assert rows_per_pass([[0] * 8192], prefix_len=8192) == 1               # a maximal row still runs
+
+
+def test_bearer_auth_and_request_id(monkeypatch):
+    """KEV_API_KEY (kev.serve.API_KEY) gates /v1/*; every response carries the request id the TypeSafe clients read."""
+    from fastapi.testclient import TestClient
+    from kev import serve
+    with TestClient(serve.app) as client:
+        assert client.get("/openapi.json").headers["x-typesafe-request-id"]
+        monkeypatch.setattr(serve, "API_KEY", "secret")
+        assert client.get("/v1/models").status_code == 401
+        assert client.get("/v1/models", headers={"authorization": "Bearer wrong"}).status_code == 401
+        assert client.get("/openapi.json").status_code == 200   # only /v1 is gated
 
 
 def test_option_isolation_mask_rule():

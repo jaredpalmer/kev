@@ -1,0 +1,143 @@
+{
+  "trials": {
+    "candidate": "runs/r4-soft/00-trial-0",
+    "control": "runs/r4-deltas/01-trial-1",
+    "released": "runs/night2-9b-du/00-trial-0"
+  },
+  "temperature": {
+    "candidate": 1.1224620483093728,
+    "control": 1.5874010519681994,
+    "released": 2.2973967099940698
+  },
+  "transfer": {
+    "candidate": {
+      "n": 656,
+      "acc": 0.8262195121951219,
+      "brier": 0.25168822015187814,
+      "ece": 0.02065585490172402,
+      "coverage_at_5pct_error": 0.49390243902439024,
+      "aurc": 0.060301677666792355,
+      "confident_error_rate": 0.01676829268292683
+    },
+    "control": {
+      "n": 656,
+      "acc": 0.8064024390243902,
+      "brier": 0.27615511995624975,
+      "ece": 0.03633297179563047,
+      "coverage_at_5pct_error": 0.4253048780487805,
+      "aurc": 0.07064275023950677,
+      "confident_error_rate": 0.036585365853658534
+    },
+    "released": {
+      "n": 656,
+      "acc": 0.8216463414634146,
+      "brier": 0.2639921507322667,
+      "ece": 0.041952590722893146,
+      "coverage_at_5pct_error": 0.44664634146341464,
+      "aurc": 0.06358025230939436,
+      "confident_error_rate": 0.039634146341463415
+    }
+  },
+  "candidate_minus": {
+    "released": {
+      "acc": {
+        "micro_acc_delta": 0.004573170731707266,
+        "ci95": [
+          -0.007621951219512146,
+          0.0167682926829269
+        ],
+        "samples": 1000,
+        "groups": 544,
+        "aggregation": "micro",
+        "unit": "source-stratified original record; sibling questions stay together",
+        "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+      },
+      "coverage_at_5pct_error": {
+        "micro_coverage_at_5pct_error_delta": 0.047256097560975596,
+        "ci95": [
+          -0.2301829268292683,
+          0.19516006097560967
+        ],
+        "samples": 1000,
+        "groups": 544,
+        "aggregation": "micro",
+        "unit": "source-stratified original record; sibling questions stay together",
+        "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+      },
+      "aurc": {
+        "micro_aurc_delta": -0.0032785746426020057,
+        "ci95": [
+          -0.01526837152606733,
+          0.011569431609449421
+        ],
+        "samples": 1000,
+        "groups": 544,
+        "aggregation": "micro",
+        "unit": "source-stratified original record; sibling questions stay together",
+        "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+      },
+      "brier": {
+        "micro_brier_delta": -0.0123039305803887,
+        "ci95": [
+          -0.0224913840647614,
+          -0.0019646365790434136
+        ],
+        "samples": 1000,
+        "groups": 544,
+        "aggregation": "micro",
+        "unit": "source-stratified original record; sibling questions stay together",
+        "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+      }
+    },
+    "control": {
+      "acc": {
+        "micro_acc_delta": 0.01981707317073167,
+        "ci95": [
+          0.004573170731707377,
+          0.03658536585365846
+        ],
+        "samples": 1000,
+        "groups": 544,
+        "aggregation": "micro",
+        "unit": "source-stratified original record; sibling questions stay together",
+        "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+      },
+      "coverage_at_5pct_error": {
+        "micro_coverage_at_5pct_error_delta": 0.06859756097560976,
+        "ci95": [
+          -0.1392149390243902,
+          0.274390243902439
+        ],
+        "samples": 1000,
+        "groups": 544,
+        "aggregation": "micro",
+        "unit": "source-stratified original record; sibling questions stay together",
+        "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+      },
+      "aurc": {
+        "micro_aurc_delta": -0.01034107257271441,
+        "ci95": [
+          -0.018997720675351736,
+          0.0010248003485802517
+        ],
+        "samples": 1000,
+        "groups": 544,
+        "aggregation": "micro",
+        "unit": "source-stratified original record; sibling questions stay together",
+        "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+      },
+      "brier": {
+        "micro_brier_delta": -0.024466899804371667,
+        "ci95": [
+          -0.03635843054078704,
+          -0.01299966503002619
+        ],
+        "samples": 1000,
+        "groups": 544,
+        "aggregation": "micro",
+        "unit": "source-stratified original record; sibling questions stay together",
+        "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+      }
+    }
+  }
+}

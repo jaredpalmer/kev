@@ -1,0 +1,80 @@
+{
+  "trials": [
+    "runs/q35-4b-s23/00-trial-0",
+    "runs/q35-4b-s23/01-trial-1"
+  ],
+  "temperature": {
+    "reference": 1.9999999999999998,
+    "ensemble": 1.8660659830736146
+  },
+  "reference": {
+    "n": 656,
+    "acc": 0.7942073170731707,
+    "brier": 0.2772337616970989,
+    "nll": 0.48418818904727917,
+    "ece": 0.05471932231600934,
+    "confident_error_rate": 0.028963414634146343,
+    "coverage_at_5pct_error": 0.5487804878048781,
+    "aurc": 0.059446504422296306
+  },
+  "ensemble": {
+    "n": 656,
+    "acc": 0.7911585365853658,
+    "brier": 0.28775814350866097,
+    "nll": 0.5015822111616839,
+    "ece": 0.0620868044437592,
+    "confident_error_rate": 0.028963414634146343,
+    "coverage_at_5pct_error": 0.538109756097561,
+    "aurc": 0.06616621904183881
+  },
+  "ensemble_minus_reference": {
+    "acc": {
+      "micro_acc_delta": -0.0030487804878048808,
+      "ci95": [
+        -0.012195121951219523,
+        0.006135670731707286
+      ],
+      "samples": 1000,
+      "groups": 544,
+      "aggregation": "micro",
+      "unit": "source-stratified original record; sibling questions stay together",
+      "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+    },
+    "brier": {
+      "micro_brier_delta": 0.010524381811562067,
+      "ci95": [
+        0.003152443915113822,
+        0.017699528602018674
+      ],
+      "samples": 1000,
+      "groups": 544,
+      "aggregation": "micro",
+      "unit": "source-stratified original record; sibling questions stay together",
+      "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+    },
+    "coverage_at_5pct_error": {
+      "micro_coverage_at_5pct_error_delta": -0.010670731707317138,
+      "ci95": [
+        -0.10373475609756096,
+        0.01981707317073167
+      ],
+      "samples": 1000,
+      "groups": 544,
+      "aggregation": "micro",
+      "unit": "source-stratified original record; sibling questions stay together",
+      "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+    },
+    "aurc": {
+      "micro_aurc_delta": 0.006719714619542502,
+      "ci95": [
+        0.003209393928593378,
+        0.010285959787564329
+      ],
+      "samples": 1000,
+      "groups": 544,
+      "aggregation": "micro",
+      "unit": "source-stratified original record; sibling questions stay together",
+      "method": "paired cluster percentile bootstrap; full statistic recomputed in each resample"
+    }
+  }
+}

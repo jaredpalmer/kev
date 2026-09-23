@@ -93,6 +93,33 @@ def test_rows_match_packed():
     for a, b in zip(packed, rowed):
         assert (a - b).abs().max() < 1e-4, (a, b)
 
+def test_row_batching_and_packed_fallback_do_not_change_answers(smoke_run, monkeypatch):
+    """Serving bounds memory by running rows a token budget at a time (rows_per_pass) and by switching an attention-only
+    backbone from the packed mask to rows once the packed sequence exceeds one serving row. Neither may move a probability:
+    one row per pass against the default, and the forced row form (full pass, prefix miss and prefix hit) against the packed
+    pass, on many questions."""
+    import torch
+    from kev import model as M
+    from kev.checkpoint import load
+    from kev.data import materialize
+    from kev.suite import load_split
+    tok, m = load(smoke_run, "cpu")
+    base = materialize(load_split("evals/smoke-v1", "development")[0])
+    rec = {**base, "questions": base["questions"] * 5}                  # 5x the questions: several ROW_BATCH chunks
+    enc = m.encode(tok, rec)
+    with torch.no_grad():
+        packed = torch.cat(m.probs(enc)); prefix_packed = m.prefix(enc)
+        monkeypatch.setattr(M, "SERVE_MAX_PACKED", len(enc["ids"]) - 1)   # now "too long to pack": every path takes the row form
+        assert m.rows_form([enc])
+        rows_full = torch.cat(m.probs(enc)); rows_miss, prefix_rows = m.probs_and_prefix(enc)
+        rows_hit_from_packed_prefix = torch.cat(m.probs_with_prefix(enc, prefix_packed))   # a prefix made by the packed pass, reused by rows
+        rows_hit = torch.cat(m.probs_with_prefix(enc, prefix_rows))
+        monkeypatch.setattr(M, "rows_per_pass", lambda rows, prefix_len=0, budget=0: 1)   # one row per pass
+        one_at_a_time = torch.cat(m.probs(enc)); one_at_a_time_hit = torch.cat(m.probs_with_prefix(enc, prefix_rows))
+    for got in (rows_full, torch.cat(rows_miss), rows_hit_from_packed_prefix, rows_hit, one_at_a_time, one_at_a_time_hit):
+        assert (got - packed).abs().max() < 1e-4
+
+
 def test_hybrid_rows_isolation_and_prefix():
     """Qwen3.5 (Gated DeltaNet + attention): the row form isolates questions exactly, and the serving prefix path
     (state once, cache replicated per question) reproduces it. Uses the 0.8B base; slow reference kernels on CPU."""
@@ -109,8 +136,12 @@ def test_hybrid_rows_isolation_and_prefix():
         alone = [m.probs(m.encode(tok, {"state": rec["state"], "questions": [q]}))[0] for q in rec["questions"]]
         cached, prefix = m.probs_and_prefix(enc)
         again = m.probs_with_prefix(enc, prefix); again2 = m.probs_with_prefix(enc, prefix)
-    for a, b, c, d, e in zip(together, alone, cached, again, again2):
-        assert (a - b).abs().max() < 1e-4 and (a - c).abs().max() < 1e-4 and (a - d).abs().max() < 1e-4 and (a - e).abs().max() < 1e-4
+        import kev.model as M
+        saved, M.rows_per_pass = M.rows_per_pass, lambda rows, prefix_len=0, budget=0: 1   # one row per pass: same answers, bounded memory
+        try: chunked = m.probs_with_prefix(enc, prefix)
+        finally: M.rows_per_pass = saved
+    for a, b, c, d, e, f in zip(together, alone, cached, again, again2, chunked):
+        assert (a - b).abs().max() < 1e-4 and (a - c).abs().max() < 1e-4 and (a - d).abs().max() < 1e-4 and (a - e).abs().max() < 1e-4 and (a - f).abs().max() < 1e-4
 
 def test_init_from_warm_start_and_compatibility_checks(tmp_path):
     """PR #9: --init_from loads an existing adapter + pointer head before training and refuses incompatible sources.
