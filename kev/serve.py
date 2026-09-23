@@ -6,9 +6,10 @@ TypeSafe-compatible: POST /v1/systemone, GET /v1/models, the `x-typesafe-request
 when KEV_API_KEY is set (unset = open server, the local default). Demo extras: POST /v1/systemone/permute (one Choice
 under several option orders) and POST /v1/systemone/separate (each question in its own pass, for the packed-vs-separate
 comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS size the state-prefix cache; KEV_MAX_STATE / KEV_MAX_BRANCH raise
-the serving context caps; KEV_DATE_FACTS=1 opts into the date preprocessing (api.with_date_facts). Backend and precision
-follow LoadOptions (KEV_BACKEND, KEV_DTYPE, ...): on Apple Silicon the hybrid Qwen3.5 checkpoints run on MLX by default,
-elsewhere on torch in bf16.
+the serving context caps; KEV_GPU_MEMORY_FRACTION caps this process's share of a CUDA card it shares with another server;
+KEV_DATE_FACTS=1 opts into the date preprocessing (api.with_date_facts). Backend and precision follow LoadOptions
+(KEV_BACKEND, KEV_DTYPE, ...): on Apple Silicon the hybrid Qwen3.5 checkpoints run on MLX by default, elsewhere on torch
+in bf16.
 """
 import argparse, hmac, os, random, threading, time, uuid
 import torch
@@ -19,7 +20,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
 from .checkpoint import Checkpoint, LoadOptions, is_hub_id
-from .device import default_device, empty_cache, sync
+from .device import default_device, empty_cache, limit_memory, sync
 from . import model as _model
 
 # serving context caps: deployment policy, not a checkpoint property, so a host with the memory for longer states raises
@@ -193,6 +194,8 @@ def main():
     run = a.run if is_hub_id(a.run) or os.path.exists(f"{a.run}/head.pt") else a.fallback
     if run != a.run: print(f"{a.run} not found, falling back to {run}")
     dev = default_device()
+    capped = limit_memory(dev)
+    if capped: print(f"capped at {capped:.3f} of the card (KEV_GPU_MEMORY_FRACTION)")
     opts = LoadOptions.from_env()
     if dev == "mps" and opts.attn is None: opts = replace(opts, attn="sdpa")   # serving default on Apple GPUs (parity measured)
     if dev != "cpu" and opts.dtype is None: opts = replace(opts, dtype=torch.bfloat16)   # serving default: 2-4.5x faster than fp32 on an L4, same answers (LoadOptions.dtype); KEV_DTYPE=fp32 for the exact path
