@@ -20,8 +20,8 @@ from . import full_ft
 from .checkpoint import Checkpoint, Meta, write_meta
 from .device import allocated_bytes, default_device, empty_cache, sync
 from .data import EVAL_ONLY, build, augment, load_records, materialize, none_pair, source_seed
-from .suite import SYNTHETIC_SOURCES, digest, load_split, read_json, read_manifest, validate_training, write_json
-from .model import MAX_STATE, MAX_TRAIN_STATE, DecisionModel, fits, load_tokenizer, rows_of, training_context
+from .suite import ADMISSION_BRANCH_HEADROOM, SYNTHETIC_SOURCES, digest, load_split, read_json, read_manifest, validate_training, write_json
+from .model import MAX_STATE, MAX_TRAIN_STATE, SPECIAL, DecisionModel, delimiter_ids, fits, load_tokenizer, rows_of, training_context
 
 
 # --- losses -----------------------------------------------------------------------------------------------------------
@@ -99,16 +99,21 @@ def training_requests(a, tok, manifest, holdout):
         reqs = load_split(a.suite, "train"); validate_training(reqs, manifest)
     else:
         reqs = build(a.n_per_source, "train", a.seed, exclude=holdout)
-    if not manifest or a.data or a.base not in manifest["base_revisions"]:
-        # frozen suites are filtered to the training context when they are frozen (kev.suite.select_unique), under the
-        # tokenizers of the bases they pin; records built on the fly here are not, and neither is a base the suite does not
-        # pin (Gemma 4 on decision-v7: 1 of 12,576 overflows), so apply the same rule instead of letting the strict encoder
-        # abort the run (issue #5)
-        kept = [r for r in reqs if fits(materialize(r), tok, **training_context(a.max_state))]
+    # every frozen suite is admitted under a Qwen tokenizer (its base_revisions, or the tokenizer its manifest names); a base
+    # from another tokenizer family (Gemma 4: its own delimiters, <bos>, a different vocabulary) was never admitted
+    foreign = bool(manifest) and not a.data and delimiter_ids(tok) != [tok.convert_tokens_to_ids(t) for t in SPECIAL]
+    if not manifest or a.data or foreign:
+        # frozen suites are filtered to the training context when they are frozen (kev.suite.select_unique); records built
+        # on the fly here are not, so apply the same rule instead of letting the strict encoder abort the run (issue #5).
+        # A foreign tokenizer gets the suite's own admission rule, branch headroom included, since augmentation (a none
+        # option or distractor, <= 18 Gemma tokens) grows branches after this check (Gemma 4 on decision-v7: 70 of 12,576
+        # dropped; without the headroom a run died at step 2490 of 3144)
+        c = training_context(a.max_state)
+        limits = {**c, "max_branch": c["max_branch"] - ADMISSION_BRANCH_HEADROOM} if foreign else c
+        kept = [r for r in reqs if fits(materialize(r), tok, **limits)]
         if len(kept) < len(reqs):
-            c = training_context(a.max_state)
             print(f"dropped {len(reqs) - len(kept)} of {len(reqs)} records that exceed the training context "
-                  f"({c['max_state']} state / {c['max_branch']} branch / {c['max_packed']} packed tokens)", flush=True)
+                  f"({c['max_state']} state / {limits['max_branch']} branch / {c['max_packed']} packed tokens)", flush=True)
         reqs = kept
     if not reqs:
         raise ValueError("empty training set")
