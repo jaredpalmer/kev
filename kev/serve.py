@@ -5,9 +5,10 @@ Run: uv run --extra serve python -m kev.serve --run runs/kev --port 8008
 TypeSafe-compatible: POST /v1/systemone, GET /v1/models, the `x-typesafe-request-id` response header, and bearer auth
 when KEV_API_KEY is set (unset = open server, the local default). Demo extras: POST /v1/systemone/permute (one Choice
 under several option orders) and POST /v1/systemone/separate (each question in its own pass, for the packed-vs-separate
-comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS size the state-prefix cache; KEV_DATE_FACTS=1 opts into the
-date preprocessing (api.with_date_facts). Backend and precision follow LoadOptions (KEV_BACKEND, KEV_DTYPE, ...): on Apple
-Silicon the hybrid Qwen3.5 checkpoints run on MLX by default, elsewhere on torch in bf16.
+comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS size the state-prefix cache; KEV_MAX_STATE / KEV_MAX_BRANCH raise
+the serving context caps; KEV_DATE_FACTS=1 opts into the date preprocessing (api.with_date_facts). Backend and precision
+follow LoadOptions (KEV_BACKEND, KEV_DTYPE, ...): on Apple Silicon the hybrid Qwen3.5 checkpoints run on MLX by default,
+elsewhere on torch in bf16.
 """
 import argparse, hmac, os, random, threading, time, uuid
 import torch
@@ -19,8 +20,13 @@ from pydantic import BaseModel, Field
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
 from .checkpoint import Checkpoint, LoadOptions, is_hub_id
 from .device import default_device, empty_cache, sync
-from .model import SERVE_MAX_BRANCH, SERVE_MAX_STATE
+from . import model as _model
 
+# serving context caps: deployment policy, not a checkpoint property, so a host with the memory for longer states raises
+# them here rather than editing kev.model (whose values also define the training and suite contexts). The base window
+# is the real ceiling (Qwen3.5 carries 262,144 positions; each question's position ids restart after the state).
+SERVE_MAX_STATE = int(os.environ.get("KEV_MAX_STATE", _model.SERVE_MAX_STATE))
+SERVE_MAX_BRANCH = int(os.environ.get("KEV_MAX_BRANCH", _model.SERVE_MAX_BRANCH))   # state + one question, so keep it >= KEV_MAX_STATE
 PREFIX_CACHE_SIZE = int(os.environ.get("KEV_PREFIX_CACHE", "4"))          # states kept (KV + hidden); 0 disables
 PREFIX_MIN_TOKENS = os.environ.get("KEV_PREFIX_MIN_TOKENS")               # states shorter than this are not cached; default = the model's prefix_min_tokens (0 for hybrid backbones and MLX, 384 for attention-only torch models)
 DATE_FACTS = os.environ.get("KEV_DATE_FACTS", "0") == "1"
