@@ -338,7 +338,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--existing", nargs="*", default=[])
     ap.add_argument("--wait-pid", type=int)
-    ap.add_argument("--device", choices=["cpu", "mps", "cuda"], default=default_device())
+    ap.add_argument("--device", choices=["cpu", "mps", "cuda", "xpu"], default=default_device())
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--aggregate", action="store_true", help="rank an existing study directory (e.g. after Modal trials)")
     ap.add_argument("--transfer", help="eval-only suite whose development partition is scored for every trial (out-of-domain check)")

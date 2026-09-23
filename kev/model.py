@@ -183,8 +183,9 @@ class DecisionModel(nn.Module):
     def __init__(self, name, tok, device, lora=None, revision=None, attn=None, head_dim=256, option_isolation=False, special_embeddings=False, lora_targets="all", dtype=torch.float32):
         super().__init__()
         # backbone only (no vocab head): we never generate text.
-        # eager on MPS/CPU (known-good with our float 4D mask); SDPA on CUDA (accepts arbitrary additive masks).
-        attn = attn or ("sdpa" if str(device).startswith("cuda") else "eager")
+        # eager on MPS/CPU (known-good with our float 4D mask); SDPA on CUDA/XPU (accepts arbitrary additive masks;
+        # on XPU, eager is ~2x slower than SDPA on the same request, verified on Arc 130T, torch 2.8.0+xpu).
+        attn = attn or ("sdpa" if str(device).startswith(("cuda", "xpu")) else "eager")
         # dtype: fp32 for training and exact evaluation; bf16 is a serving option for large backbones (8B on a 32 GB Mac)
         self.lm = AutoModelForCausalLM.from_pretrained(name, revision=revision, dtype=dtype, attn_implementation=attn).model
         self.pad_id = pad_id(tok)

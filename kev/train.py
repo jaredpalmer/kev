@@ -211,7 +211,7 @@ def parse_args():
     ap.add_argument("--focal_gamma", type=float, default=0.0, help="hard-label CE multiplier (1-p_y)^gamma; 0 is ordinary CE")
     ap.add_argument("--suite", help="frozen suite directory; train only on its training partition")
     ap.add_argument("--train_sources", default="", help="comma-separated subset of the suite's trainable sources (ablations); default all")
-    ap.add_argument("--device", choices=["cpu", "mps", "cuda"], default=None)
+    ap.add_argument("--device", choices=["cpu", "mps", "cuda", "xpu"], default=None)
     ap.add_argument("--batch", type=int, default=1, help="records per forward pass (padded batch); optimizer step every --accum micro-batches")
     ap.add_argument("--dtype", choices=["fp32", "bf16"], default="fp32", help="bf16 = autocast forward with fp32 master weights (CUDA only)")
     ap.add_argument("--weights_dtype", choices=["fp32", "bf16"], default="fp32", help="dtype of the frozen backbone weights. bf16 halves memory and is required by the fused MoE experts "
