@@ -1,5 +1,5 @@
 """Decision model: causal LM backbone + block-causal branch mask + pointer readout."""
-import copy, math, os, re
+import copy, functools, math, os, re
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,6 +9,11 @@ from transformers.cache_utils import LinearAttentionCacheLayerMixin
 # Reuse existing rarely-used Qwen special tokens as delimiters (state, q, opt, /opt, decide) so no
 # embedding rows need to be added/trained; LoRA adapts their meaning.
 SPECIAL = ["<|fim_prefix|>", "<|fim_middle|>", "<|box_start|>", "<|box_end|>", "<|fim_suffix|>"]
+# Gemma 4 has none of the Qwen tokens (they map to <unk>); its reserved <unusedN> rows are distinct unit-norm embeddings
+# that caller text cannot produce (the tokenizer does not match them as added tokens), so they play the same role.
+GEMMA_SPECIAL = ["<unused0>", "<unused1>", "<unused2>", "<unused3>", "<unused4>"]
+DELIMITERS = (SPECIAL, GEMMA_SPECIAL)
+_SPECIAL_RE = re.compile(r"<\|([A-Za-z0-9_]+)\|>")
 # training context: state tokens, tokens per question branch, and the whole packed record. Frozen suites are admitted with
 # this rule (kev.suite) and training applies it to records built on the fly, so train and eval see the same population.
 MAX_STATE, MAX_BRANCH, MAX_PACKED = 384, 1024, 2048
@@ -48,6 +53,28 @@ def load_tokenizer(name, revision=None):
     return AutoTokenizer.from_pretrained(name, revision=revision)
 
 
+@functools.cache
+def layout(tok):
+    """(leading ids, delimiter ids, escape) for a tokenizer: the ids the tokenizer puts before any text (Gemma's <bos>,
+    which its attention relies on; nothing for Qwen, whose encodings are unchanged), the first delimiter set (DELIMITERS)
+    whose five tokens all exist in its vocabulary, and a pattern for its special tokens that are not of the `<|name|>` form
+    user_tokens already escapes (Gemma's <bos>, <pad>, <|turn> ...; None for Qwen)."""
+    leading = tok("", add_special_tokens=True).input_ids
+    others = sorted({t for t in getattr(tok, "all_special_tokens", []) if not _SPECIAL_RE.fullmatch(t)}, key=len, reverse=True)
+    escape = re.compile("|".join(map(re.escape, others))) if others else None
+    unk = getattr(tok, "unk_token_id", None)
+    for names in DELIMITERS:
+        ids = [tok.convert_tokens_to_ids(n) for n in names]
+        if None not in ids and (unk is None or unk not in ids):
+            return leading, ids, escape
+    raise ValueError(f"no delimiter set in kev.model.DELIMITERS exists in the {type(tok).__name__} vocabulary")
+
+
+def delimiter_ids(tok):
+    """The five delimiter ids (state, q, opt, /opt, decide) this tokenizer encodes with."""
+    return layout(tok)[1]
+
+
 def pad_id(tok):
     """The id used to right-pad token rows (never attended to); Qwen tokenizers define one, others fall back to 0."""
     return tok.pad_token_id if tok.pad_token_id is not None else 0
@@ -59,12 +86,18 @@ def is_hybrid(config):
     return "linear_attention" in set(getattr(config, "layer_types", None) or [])
 
 
-_SPECIAL_RE = re.compile(r"<\|([A-Za-z0-9_]+)\|>")
+def sliding_window(config):
+    """The local-attention window of a (text) config with sliding layers (Gemma 4: 512), else None. The packed form then
+    needs a second mask for those layers (branch_masks), since one additive mask would give every layer global reach."""
+    return config.sliding_window if "sliding_attention" in set(getattr(config, "layer_types", None) or []) else None
 
 
 def user_tokens(tok, text):
     """Tokenize caller-supplied text so it can never produce delimiter/control tokens (option boundaries are unforgeable).
-    The fast tokenizer ignores split_special_tokens, so `<|name|>` is rewritten to `<¦name¦>` before tokenizing."""
+    The fast tokenizer ignores split_special_tokens, so `<|name|>` is rewritten to `<¦name¦>` before tokenizing, and any
+    other special token of this tokenizer (layout) gets a `¦` after its first character."""
+    escape = layout(tok)[2]
+    if escape is not None: text = escape.sub(lambda m: m[0][0] + "¦" + m[0][1:], text)
     return tok(_SPECIAL_RE.sub(r"<¦\1¦>", text), add_special_tokens=False).input_ids
 
 
@@ -72,7 +105,7 @@ OPT_NONE, OPT_DECIDE = -1, -2   # values of enc["opt"]: instruction/state tokens
 
 
 def encode(tok, rec, max_state=MAX_STATE, max_branch=MAX_BRANCH, strict=False, option_isolation=False):
-    """Pack one record: [<state> ...] then per-question [<q> instr <opt> o </opt>... <decide>].
+    """Pack one record: [leading ids (Gemma's <bos>) <state> ...] then per-question [<q> instr <opt> o </opt>... <decide>].
 
     Returns ids, seg (0 = state, k = question k), pos (branch positions restart after state),
     decide_idx [Q], opt_idx [Q][K] (index of </opt> token for each option), opt (per-token option index within its
@@ -83,11 +116,12 @@ def encode(tok, rec, max_state=MAX_STATE, max_branch=MAX_BRANCH, strict=False, o
     per-option representations and <decide>'s attention over them are permutation-invariant by construction.
     """
     state_tokens = user_tokens(tok, rec["state"])
-    if strict and len(state_tokens) + 1 > max_state:
-        raise ContextOverflow(f"state exceeds {max_state} tokens: {len(state_tokens) + 1}")
-    S = [tok.convert_tokens_to_ids(SPECIAL[0])] + state_tokens[: max_state - 1]
+    leading, (s_id, q_id, o_id, c_id, d_id), _ = layout(tok)
+    head = leading + [s_id]
+    if strict and len(state_tokens) + len(head) > max_state:
+        raise ContextOverflow(f"state exceeds {max_state} tokens: {len(state_tokens) + len(head)}")
+    S = head + state_tokens[: max_state - len(head)]
     ids, seg, pos, opt = list(S), [0] * len(S), list(range(len(S))), [OPT_NONE] * len(S)
-    q_id, o_id, c_id, d_id = (tok.convert_tokens_to_ids(t) for t in SPECIAL[1:])
     decide_idx, opt_idx = [], []
     for k, q in enumerate(rec["questions"], start=1):
         instr = [q_id] + user_tokens(tok, q["instr"])
@@ -108,7 +142,7 @@ def encode(tok, rec, max_state=MAX_STATE, max_branch=MAX_BRANCH, strict=False, o
         ids += br; seg += [k] * len(br); pos += br_pos; opt += br_opt
         decide_idx.append(base + len(br) - 1); opt_idx.append([base + e for e in ends])
     return {"ids": ids, "seg": seg, "pos": pos, "opt": opt, "option_isolation": option_isolation, "decide_idx": decide_idx, "opt_idx": opt_idx,
-            "labels": [q["label"] for q in rec["questions"]], "state_truncated": len(state_tokens) + 1 > max_state}
+            "labels": [q["label"] for q in rec["questions"]], "state_truncated": len(state_tokens) + len(head) > max_state}
 
 
 def fits(rec, *tokenizers, max_state=MAX_STATE, max_branch=MAX_BRANCH, max_packed=MAX_PACKED):
@@ -152,6 +186,21 @@ def branch_mask_batch(segs, device, dtype=torch.float32, opts=None, length=None)
         allow = allow & (~key_is_option | query_is_decide | same_option)
     allow = allow | torch.eye(L, dtype=torch.bool, device=device)[None]
     return torch.zeros(len(segs), L, L, dtype=dtype, device=device).masked_fill(~allow, torch.finfo(dtype).min)[:, None]
+
+
+def branch_masks(encs, device, dtype, window, length=None):
+    """The packed mask for a backbone: branch_mask_batch, and for one with sliding layers (window) a {layer type: mask}
+    dict whose sliding entry also drops keys `window` or more positions back. Distance is in position ids, which restart
+    per branch after the state, so each question sees exactly the keys it would as its own causal row (rows_of)."""
+    isolate = any(e.get("option_isolation") for e in encs)
+    mask = branch_mask_batch([e["seg"] for e in encs], device, dtype=dtype, opts=[e["opt"] for e in encs] if isolate else None, length=length)
+    if window is None: return mask
+    L = mask.shape[-1]
+    p = torch.zeros((len(encs), L), dtype=torch.long, device=device)
+    for b, e in enumerate(encs):
+        p[b, : len(e["pos"])] = torch.tensor(e["pos"], device=device)
+    far = (p[:, :, None] - p[:, None, :] >= window) & ~torch.eye(L, dtype=torch.bool, device=device)[None]
+    return {"full_attention": mask, "sliding_attention": mask.masked_fill(far[:, None], torch.finfo(dtype).min)}
 
 
 def rows_of(enc):
@@ -224,6 +273,9 @@ class DecisionModel(nn.Module):
         load = {"dtype": dtype, "attn_implementation": attn}
         if direct_load: load["device_map"] = {"": torch.cuda.current_device() if device == "cuda" else device}   # "cuda": under torchrun, this rank's GPU
         self.lm = AutoModel.from_pretrained(weights, **load) if weights else AutoModelForCausalLM.from_pretrained(name, revision=revision, **load).model
+        # multimodal checkpoints (Gemma 4) load as a wrapper around the text model: keep the text model only, so the vision and
+        # audio towers are neither held in memory nor matched by the LoRA target names
+        self.lm = getattr(self.lm, "language_model", self.lm)
         self.pad_id = pad_id(tok)
         # hybrid backbones (Qwen3.5: Gated DeltaNet layers, recurrent) cannot honour the block-causal mask, so every
         # question runs as its own causal row continuing from the state (rows_of). Attention-only backbones keep the
@@ -231,9 +283,10 @@ class DecisionModel(nn.Module):
         self.hybrid = is_hybrid(self.lm.config)
         if self.hybrid and option_isolation: raise ValueError("option_isolation needs the packed mask; not available on hybrid backbones")
         self.option_isolation = option_isolation
+        self.sliding_window = sliding_window(self.lm.config)   # Gemma 4: the packed form carries a second mask (branch_masks)
         if lora:
             from peft import LoraConfig, get_peft_model
-            extra = {"trainable_token_indices": {"embed_tokens": [tok.convert_tokens_to_ids(t) for t in SPECIAL]}} if special_embeddings else {}
+            extra = {"trainable_token_indices": {"embed_tokens": delimiter_ids(tok)}} if special_embeddings else {}
             targets = {"all": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
                        "dense": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],   # "all" minus the DeltaNet projections on hybrids (retention ablation)
                        "attn": ["q_proj", "k_proj", "v_proj", "o_proj"], "qv": ["q_proj", "v_proj"]}[lora_targets]
@@ -288,9 +341,17 @@ class DecisionModel(nn.Module):
         isolate = any(e.get("option_isolation") for e in encs)
         if isolate and not all(e.get("option_isolation") for e in encs):
             raise ValueError("cannot mix option-isolated and plain encodings in one batch")
-        lm_dtype = next(self.lm.parameters()).dtype
-        mask = branch_mask_batch([e["seg"] for e in encs], self.device, dtype=lm_dtype, opts=[e["opt"] for e in encs] if isolate else None, length=ids.shape[1])
+        mask = self._packed_mask(encs, length=ids.shape[1])
         return self.lm(input_ids=ids, position_ids=pos, attention_mask=mask).last_hidden_state.float()   # head stays fp32
+
+    def _packed_mask(self, encs, length=None):
+        return branch_masks(encs, self.device, next(self.lm.parameters()).dtype, self.sliding_window, length=length)
+
+    def _new_cache(self):
+        """An empty KV cache for the state prefix. Hybrid backbones need the config's layer types (recurrent + conv states per
+        DeltaNet layer). Sliding-window backbones must NOT get them: a sliding layer's cache keeps only the last window, but
+        the packed branch pass hands those layers the full-length mask (branch_masks), so every layer caches the whole state."""
+        return DynamicCache(config=self.lm.config) if self.hybrid else DynamicCache()
 
     def _readout(self, h, enc):
         return [self.head(h[d], h[torch.tensor(oi, device=self.device)]) for d, oi in zip(enc["decide_idx"], enc["opt_idx"])]
@@ -376,7 +437,7 @@ class DecisionModel(nn.Module):
         Ls = enc["seg"].count(0)
         ids = torch.tensor([enc["ids"][:Ls]], device=self.device); pos = torch.tensor([enc["pos"][:Ls]], device=self.device)
         # the cache must know the layer types (hybrid backbones keep recurrent + conv states per DeltaNet layer)
-        out = self.lm(input_ids=ids, position_ids=pos, past_key_values=DynamicCache(config=self.lm.config), use_cache=True)
+        out = self.lm(input_ids=ids, position_ids=pos, past_key_values=self._new_cache(), use_cache=True)
         return Ls, out.past_key_values, out.last_hidden_state[0].float()
 
     @torch.no_grad()
@@ -390,9 +451,7 @@ class DecisionModel(nn.Module):
             Ls, cache, h_state = self.prefix(enc)
             return self._branch_rows_from_prefix(enc, cache), (Ls, cache, h_state)
         ids = torch.tensor([enc["ids"]], device=self.device); pos = torch.tensor([enc["pos"]], device=self.device)
-        dt = next(self.lm.parameters()).dtype
-        mask = branch_mask_batch([enc["seg"]], self.device, dtype=dt, opts=[enc["opt"]] if enc.get("option_isolation") else None)
-        out = self.lm(input_ids=ids, position_ids=pos, attention_mask=mask, past_key_values=DynamicCache(config=self.lm.config), use_cache=True)
+        out = self.lm(input_ids=ids, position_ids=pos, attention_mask=self._packed_mask([enc]), past_key_values=self._new_cache(), use_cache=True)
         h = out.last_hidden_state[0].float()
         out.past_key_values.crop(-(len(enc["ids"]) - Ls))     # keep the state only (negative = drop that many trailing tokens; positive form deprecated in transformers 5)
         return [F.softmax(z, -1).cpu() for z in self._readout(h, enc)], (Ls, out.past_key_values, h[:Ls].clone())
@@ -406,8 +465,8 @@ class DecisionModel(nn.Module):
         if self.rows_form([enc]):
             return self._branch_rows_from_prefix(enc, cache)
         ids = torch.tensor([enc["ids"][Ls:]], device=self.device); pos = torch.tensor([enc["pos"][Ls:]], device=self.device)
-        dt = next(self.lm.parameters()).dtype
-        mask = branch_mask_batch([enc["seg"]], self.device, dtype=dt, opts=[enc["opt"]] if enc.get("option_isolation") else None)[:, :, Ls:, :]
+        mask = self._packed_mask([enc])
+        mask = {k: m[:, :, Ls:, :] for k, m in mask.items()} if isinstance(mask, dict) else mask[:, :, Ls:, :]
         try:
             out = self.lm(input_ids=ids, position_ids=pos, past_key_values=cache, attention_mask=mask, use_cache=True)
             h = torch.cat([h_state, out.last_hidden_state[0].float()], 0)

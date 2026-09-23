@@ -205,3 +205,37 @@ def test_init_from_warm_start_and_compatibility_checks(tmp_path):
     assert hb.extra["init_source"]["weights_sha256"] and read_json(tmp_path / "b/training_config.json")["init_source"]["resolved"] == str(tmp_path / "a")
     bad = subprocess.run(base + ["--out", str(tmp_path / "c"), "--init_from", str(tmp_path / "a"), "--lora", "8"], capture_output=True, text=True, env=env)
     assert bad.returncode != 0 and "lora is 16 there and 8 here" in bad.stderr
+
+
+GEMMA = ("google/gemma-4-E2B", "d29ff6b45f081a49ee2733a859c9c9c2d95d1a6f")
+
+
+def test_gemma4_packed_sliding_mask_matches_rows_and_prefix(monkeypatch):
+    """Gemma 4 (sliding + global attention, KV-shared layers): the packed form with its per-layer-type masks (branch_masks)
+    must reproduce each question run as its own causal row, where transformers builds the sliding mask itself, on a state
+    longer than the 512-token window; so must the serving prefix paths, packed and forced into rows. Dropping the sliding
+    mask must visibly change the answers, or this test would not be testing it. E2B on CPU in fp32, ~20 GB of RAM."""
+    import torch
+    from kev import model as M
+    tok = M.load_tokenizer(*GEMMA); torch.manual_seed(0)
+    m = M.DecisionModel(GEMMA[0], tok, "cpu", revision=GEMMA[1]).eval()
+    assert type(m.lm).__name__ == "Gemma4TextModel" and m.sliding_window == 512 and not m.hybrid
+    state = " ".join(f"Line {i}: order {4400 + i} shipped late; the customer was charged twice and asked for a refund." for i in range(40))
+    rec = {"state": state, "questions": [{"instr": "Is there a billing problem?", "options": ["yes", "no"], "label": 0},
+                                         {"instr": "Which team should handle this?", "options": ["returns", "shipping", "billing", "other"], "label": 2}]}
+    enc = m.encode(tok, rec, max_state=M.SERVE_MAX_STATE, max_branch=M.SERVE_MAX_BRANCH)
+    assert enc["seg"].count(0) > 600 and not enc["state_truncated"]
+    close = lambda a, b: all((x - y).abs().max() < 1e-4 for x, y in zip(a, b))
+    with torch.no_grad():
+        packed = m.probs(enc)
+        rows = [torch.softmax(z, -1) for z in m.forward_rows_batch([enc])[0]]
+        alone = [m.probs(m.encode(tok, {"state": state, "questions": [q]}, max_state=M.SERVE_MAX_STATE, max_branch=M.SERVE_MAX_BRANCH))[0] for q in rec["questions"]]
+        miss, prefix = m.probs_and_prefix(enc); hit = m.probs_with_prefix(enc, prefix); hit2 = m.probs_with_prefix(enc, prefix)
+        monkeypatch.setattr(M, "SERVE_MAX_PACKED", len(enc["ids"]) - 1)   # rows continuing the cached state (2D mask + cache)
+        assert m.rows_form([enc])
+        rows_hit = m.probs_with_prefix(enc, prefix)
+        monkeypatch.undo()
+        m.sliding_window = None                                         # every layer global: no longer the model
+        unwindowed = m.probs(enc)
+    assert close(packed, rows) and close(packed, alone) and close(packed, miss) and close(packed, hit) and close(packed, hit2) and close(packed, rows_hit)
+    assert max((a - b).abs().max() for a, b in zip(packed, unwindowed)) > 1e-3

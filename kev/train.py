@@ -99,9 +99,11 @@ def training_requests(a, tok, manifest, holdout):
         reqs = load_split(a.suite, "train"); validate_training(reqs, manifest)
     else:
         reqs = build(a.n_per_source, "train", a.seed, exclude=holdout)
-    if not manifest or a.data:
-        # frozen suites are filtered to the training context when they are frozen (kev.suite.select_unique); records built
-        # on the fly here are not, so apply the same rule instead of letting the strict encoder abort the run (issue #5)
+    if not manifest or a.data or a.base not in manifest["base_revisions"]:
+        # frozen suites are filtered to the training context when they are frozen (kev.suite.select_unique), under the
+        # tokenizers of the bases they pin; records built on the fly here are not, and neither is a base the suite does not
+        # pin (Gemma 4 on decision-v7: 1 of 12,576 overflows), so apply the same rule instead of letting the strict encoder
+        # abort the run (issue #5)
         kept = [r for r in reqs if fits(materialize(r), tok, **training_context(a.max_state))]
         if len(kept) < len(reqs):
             c = training_context(a.max_state)
