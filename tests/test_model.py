@@ -143,6 +143,29 @@ def test_hybrid_rows_isolation_and_prefix():
     for a, b, c, d, e, f in zip(together, alone, cached, again, again2, chunked):
         assert (a - b).abs().max() < 1e-4 and (a - c).abs().max() < 1e-4 and (a - d).abs().max() < 1e-4 and (a - e).abs().max() < 1e-4 and (a - f).abs().max() < 1e-4
 
+def test_probs_routes_hybrid_through_prefix_not_forward_rows_batch(monkeypatch):
+    """probs() on a hybrid backbone must reach the state-prefix path (state encoded once), not forward_rows_batch
+    (state re-encoded per question): issue #77. The test above already shows the two paths agree numerically;
+    this one shows probs() actually takes the cheap one rather than merely matching it by coincidence."""
+    import torch
+    from kev import model as M
+    tok = M.load_tokenizer("Qwen/Qwen3.5-0.8B-Base"); m = M.DecisionModel("Qwen/Qwen3.5-0.8B-Base", tok, "cpu").eval()
+    assert m.hybrid
+    rec = {"state": "Order 4411 arrived late and the box was crushed.",
+           "questions": [{"instr": "Is there a billing problem?", "options": ["yes", "no"], "label": 0}]}
+    enc = m.encode(tok, rec)
+    calls = {"rows_batch": 0, "prefix": 0}
+    orig_rows, orig_prefix = M.DecisionModel.forward_rows_batch, M.DecisionModel.probs_and_prefix
+    def spy_rows(self, encs):
+        calls["rows_batch"] += 1; return orig_rows(self, encs)
+    def spy_prefix(self, enc):
+        calls["prefix"] += 1; return orig_prefix(self, enc)
+    monkeypatch.setattr(M.DecisionModel, "forward_rows_batch", spy_rows)
+    monkeypatch.setattr(M.DecisionModel, "probs_and_prefix", spy_prefix)
+    with torch.no_grad():
+        m.probs(enc)
+    assert calls == {"rows_batch": 0, "prefix": 1}
+
 def test_init_from_warm_start_and_compatibility_checks(tmp_path):
     """PR #9: --init_from loads an existing adapter + pointer head before training and refuses incompatible sources.
     Two tiny runs on Qwen2.5-0.5B: the second warm-starts from the first and must start with identical head weights."""

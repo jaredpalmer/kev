@@ -321,6 +321,8 @@ class DecisionModel(nn.Module):
 
     @torch.no_grad()
     def probs(self, enc):
+        # Hybrid backbones recompute the state per question in forward_rows_batch; probs_and_prefix does it once (#77).
+        if self.hybrid: return self.probs_and_prefix(enc)[0]
         return [F.softmax(z, -1).cpu() for z in self.forward(enc)]
 
     # --- state-prefix reuse (serving): the state is encoded once, question branches attend to its cached keys/values.
