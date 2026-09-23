@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
 from .checkpoint import Checkpoint, LoadOptions, is_hub_id
-from .device import default_device, sync
+from .device import default_device, empty_cache, sync
 from .model import SERVE_MAX_BRANCH, SERVE_MAX_STATE
 
 PREFIX_CACHE_SIZE = int(os.environ.get("KEV_PREFIX_CACHE", "4"))          # states kept (KV + hidden); 0 disables
@@ -39,6 +39,7 @@ class Server:
     prefix_cache: dict = field(default_factory=dict)   # (state token ids, option_isolation) -> prefix, in LRU order
     prefix_hits: int = 0
     prefix_misses: int = 0
+    oom_retries: int = 0
     release_date: str = field(default="")   # for the TypeSafe model card; resolved once (may ask the Hub)
 
     def __post_init__(self):
@@ -56,7 +57,17 @@ class Server:
         Ls = enc["seg"].count(0); key = (tuple(enc["ids"][:Ls]), bool(enc.get("option_isolation")))
         with self.lock:
             sync(self.device); t = time.time()
-            ps, hit = self._pass(enc, key, Ls)
+            try:
+                ps, hit = self._pass(enc, key, Ls)
+            except torch.OutOfMemoryError:
+                # The cache is holding a share of this process's budget that nothing else can reach, and the pass that
+                # just failed for want of memory is exactly the one that cannot free it. Drop all of it and take one
+                # more pass: without this the process stays wedged, because every later request meets the same
+                # resident prefix and fails the same way.
+                self.prefix_cache.clear()
+                empty_cache(self.device)
+                self.oom_retries += 1
+                ps, hit = self._pass(enc, key, Ls)
             sync(self.device); dt = time.time() - t
         return [p.tolist() for p in ps], {"tokens": len(enc["ids"]), "state_tokens": Ls, "latency_ms": round(dt * 1000, 1), "prefix_cache_hit": hit}
 
@@ -163,7 +174,7 @@ def models():
             "run": ck.requested, "base": meta.base, "lora": meta.lora, "device": s.device, "backend": s.model.backend, "dtype": s.model.dtype,
             "temperature": s.model.head.temperature,
             "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": s.prefix_min_tokens, "hits": s.prefix_hits,
-                             "misses": s.prefix_misses, "cached_states": len(s.prefix_cache)}}
+                             "misses": s.prefix_misses, "cached_states": len(s.prefix_cache), "oom_retries": s.oom_retries}}
     return {"models": [{"name": name, **card} for name in MODEL_NAMES]}
 
 

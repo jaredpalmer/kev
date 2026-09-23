@@ -5,6 +5,9 @@ replaces it doubles that, and on a card with a per-process ceiling the pass is w
 memory -- which leaves the displaced prefix in the cache, because the eviction is downstream of the
 failure. Every request after it then meets the same wall, and the process never recovers.
 """
+import pytest
+import torch
+
 import kev.serve as serve
 
 
@@ -19,6 +22,7 @@ class FakeModel:
 
     def __init__(self):
         self.server = None
+        self.fails = 0              # how many of the NEXT passes raise OutOfMemoryError; set it mid-test to aim it
         self.cache_at_pass = []
         self.passes = 0
 
@@ -32,6 +36,9 @@ class FakeModel:
     def probs_and_prefix(self, enc):
         self.cache_at_pass.append(len(self.server.prefix_cache))
         self.passes += 1
+        if self.fails:
+            self.fails -= 1
+            raise torch.OutOfMemoryError("CUDA out of memory (simulated)")
         return [Probs([0.5, 0.5])], f"prefix-{self.passes}"
 
     def probs_with_prefix(self, enc, prefix):
@@ -80,3 +87,25 @@ def test_a_state_below_the_threshold_is_never_cached(monkeypatch):
     server.probs(state(0, tokens=2))
     assert server.prefix_cache == {}
     assert model.cache_at_pass == []
+
+
+def test_a_pass_that_runs_out_of_memory_is_retried_with_the_cache_dropped(monkeypatch):
+    server, model = make_server(monkeypatch, size=3)
+    server.probs(state(0))
+    server.probs(state(1000))
+    assert len(server.prefix_cache) == 2
+    model.fails = 1                            # the next pass raises; the one after it is the retry
+    _, meta = server.probs(state(2000))
+    assert model.passes == 4                   # three states, one of them attempted twice
+    assert model.cache_at_pass[-1] == 0        # the retry ran with no other prefix resident
+    assert meta["prefix_cache_hit"] is False
+    assert server.oom_retries == 1
+
+
+def test_a_pass_that_fails_twice_still_leaves_the_cache_empty(monkeypatch):
+    server, model = make_server(monkeypatch, size=2)
+    server.probs(state(0))
+    model.fails = 2                            # the pass and its retry both raise
+    with pytest.raises(torch.OutOfMemoryError):
+        server.probs(state(1000))
+    assert server.prefix_cache == {}
