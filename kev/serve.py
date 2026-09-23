@@ -189,6 +189,10 @@ def build_server(run, dev, opts) -> Server:
     """Load `run` onto `dev` and return the Server that will answer requests from it."""
     ck = Checkpoint(run)
     tok, model = ck.load(dev, opts)
+    # Merging the LoRA builds the backbone in fp32 and casts it afterwards, and the allocator keeps every block it has
+    # ever taken. Handing the fp32 copy back here is the difference between a serving budget and a process that has
+    # already spent it on a tensor it no longer holds.
+    empty_cache(dev)
     return Server(ck, tok, model, dev)
 
 
