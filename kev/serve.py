@@ -54,23 +54,28 @@ class Server:
         try: enc = self.model.encode(self.tok, rec, max_state=SERVE_MAX_STATE, max_branch=SERVE_MAX_BRANCH)
         except ValueError as e: raise HTTPException(422, str(e))
         Ls = enc["seg"].count(0); key = (tuple(enc["ids"][:Ls]), bool(enc.get("option_isolation")))
-        cache, hit = self.prefix_cache, False
         with self.lock:
             sync(self.device); t = time.time()
-            eligible = PREFIX_CACHE_SIZE and Ls >= self.prefix_min_tokens
-            if eligible and key in cache:
-                prefix = cache.pop(key)                            # pop + reinsert = LRU order
-                ps = self.model.probs_with_prefix(enc, prefix); cache[key] = prefix
-                self.prefix_hits += 1; hit = True
-            elif eligible:
-                ps, prefix = self.model.probs_and_prefix(enc)      # one pass, and the state prefix is kept for next time
-                cache[key] = prefix
-                while len(cache) > PREFIX_CACHE_SIZE: cache.pop(next(iter(cache)))
-                self.prefix_misses += 1
-            else:
-                ps = self.model.probs(enc)
+            ps, hit = self._pass(enc, key, Ls)
             sync(self.device); dt = time.time() - t
         return [p.tolist() for p in ps], {"tokens": len(enc["ids"]), "state_tokens": Ls, "latency_ms": round(dt * 1000, 1), "prefix_cache_hit": hit}
+
+    def _pass(self, enc, key, state_tokens):
+        """One forward pass and whether the state prefix was already cached. The caller holds the lock."""
+        cache = self.prefix_cache
+        eligible = PREFIX_CACHE_SIZE and state_tokens >= self.prefix_min_tokens
+        if eligible and key in cache:
+            prefix = cache.pop(key)                            # pop + reinsert = LRU order
+            ps = self.model.probs_with_prefix(enc, prefix); cache[key] = prefix
+            self.prefix_hits += 1
+            return ps, True
+        if eligible:
+            ps, prefix = self.model.probs_and_prefix(enc)      # one pass, and the state prefix is kept for next time
+            cache[key] = prefix
+            while len(cache) > PREFIX_CACHE_SIZE: cache.pop(next(iter(cache)))
+            self.prefix_misses += 1
+            return ps, False
+        return self.model.probs(enc), False
 
     def answer(self, req):
         """The /v1/systemone response body for one request."""
