@@ -72,6 +72,32 @@ The existing soft-only 9B delta (`r4-soft/00-trial-0`, same seed and replay samp
 
 Reported, not gating: every per-length number, C9-s2, the attribution arms, coverage / AURC / ECE, and all numbers on `longstate-v1`. **If a size passes everything:** fit its temperature into `head.pt`, publish as the new main of `jaredpalmer/kev-<size>` with the current weights tagged `night2-du` first, and update its card with raw and served numbers and this outcome. **If it fails anything:** that size is not released; results are written here; no re-read.
 
+### Round 5 result (read once, 2026-09-22): no size released
+
+Trained on H200 with the unchanged image (PR #63's `causal-conv1d` wheel was measured first and not merged: 21–52 % slower on short rows, 8–12 % faster on 4–6k rows). Every arm served at the temperature fitted on its own development rows. Candidate minus the released checkpoint, paired record-clustered bootstrap (2,000 resamples):
+
+| | 9B (C9) | 4B (C4) | 0.8B (C08) |
+|---|---|---|---|
+| **long-state panel**, buried questions (n = 480) | 0.572 → **0.739**, +16.8 pp [+12.3, +20.9] ✓ | 0.538 → **0.738**, +20.0 pp [+15.5, +24.4] ✓ | 0.445 → 0.548, +10.3 pp [+5.6, +14.8] ✓ |
+| short panel accuracy (transfer-r5, 1,150 knowable) | 0.850 → 0.856, +0.5 pp [−0.5, +1.5] ✓ | 0.840 → 0.840, 0.0 [−1.0, +0.9] ✓ | 0.712 → 0.726, +1.4 pp [0.0, +2.8] ✓ |
+| short Brier | 0.223 → 0.210, −0.014 [−0.021, −0.006] ✓ | 0.237 → 0.223, −0.014 [−0.021, −0.006] ✓ | −0.005 [−0.015, +0.005] ✓ |
+| short confident errors | 2.9 % → 1.3 %, −1.6 pp [−2.4, −0.7] ✓ | 2.5 % → 1.3 %, −1.2 pp [−2.0, −0.5] ✓ | 0.2 % → 0.8 %, +0.6 pp [+0.1, **+1.4**] ✗ |
+| transfer-v9 unknowable share ≥ 0.9 | 0.00 ✓ | 0.00 ✓ | 0.00 ✓ |
+| SemIf-144 | 0.910 → 0.931 ✓ | 0.889 → 0.889 ✓ | 0.701 → 0.785 ✓ |
+| scienthoon-900 | 0.755 → 0.753 ✓ | 0.696 → 0.672 ✗ (−2.4) | 0.520 → 0.463 ✗ (−5.7) |
+| WANLI-256 | 0.703 → 0.691 ✗ (**−1.2**, 3 questions) | 0.695 → 0.676 ✗ (−1.9) | 0.590 → 0.586 ✓ |
+| TypeSafe (89 answered) | 0.820 → 0.843 ✓ | 0.843 → 0.787 ✗ (−5.6) | 0.629 → 0.618 ✗ (−1.1) |
+
+Kev-9B passes every criterion except WANLI, which it misses by three questions (13 answers go right → wrong, 10 wrong → right; paired CI [−5.1, +2.3]). The locked tests were not read. [`runs/r5-verdict`](runs/r5-verdict/9b.json), [`scripts/round5_confirm.py`](scripts/round5_confirm.py) (committed before the reads), reads under `runs/r5r-*`. Three reads (the released 9B and the round-4 soft-only arm on the long panel, and that arm's short panel) hit the benchmark's one-hour timeout on an H100 before producing any aggregate; their partial predictions were deleted unread and the reads redone on H200 with `benchmarks --timeout`. Spend: Modal metered $557.31 after the round ($110 for it).
+
+Reported, never gating:
+- **The long-state gain replicates and is the records' doing.** C9 seed 2: +17.6 pp long, Brier −0.016. The hard-label arm H9 gains the same +16.6 pp on long states; the soft-only arm from round 4 gains nothing (+0.0 pp). The soft targets are what keep the short states healthy: H9 loses 1.2 pp short-state accuracy [−2.4, −0.1] where C9 gains 0.5; at 4B, H4's short Brier gain is a quarter of C4's.
+- **WANLI moves the same way in both 9B soft arms** (−1.2 pp here and in #65), while the 4B hard arm is +1.2 and the 4B soft arm −1.9. A plausible mechanism is that 150 of the softened training questions are MNLI, the same task family, so softer NLI targets make NLI answers less decisive. Not established: the interval includes zero.
+- **scienthoon drops 1.6–3.8 pp at 4B in every long-state arm** (C4, H4, and round 4's long-only delta), so at 4B the long-state records cost some short, real-world routing accuracy; at 9B they do not (−0.2).
+- Diagnostic external reads of H4 and the round-4 long-only delta: `runs/r5d-*`.
+
+**Next (to be registered, not read):** the 9B recipe minus the MNLI soft targets (keep them hard) isolates the WANLI question. It needs fresh panels (both round-5 panels have now been read by these candidates) and a WANLI panel disjoint from the 256 items, large enough that a 1 pp point threshold is not three questions. The external gates in this round were point estimates on 89–256 questions; the next registration should use paired intervals with a margin sized to the suite.
+
 ### Release confirmation: soft-target Kev-9B (registered 2026-09-22, before any read below)
 
 4.9 missed its registered coverage gate, but at 9B it improved Brier and halved confident errors with intervals that exclude zero, on the same development items used to select it. This registers one confirmatory read on data never scored by any Kev model, and the rule that decides a release, written before the numbers exist.
