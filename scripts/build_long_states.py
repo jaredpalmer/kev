@@ -101,14 +101,17 @@ def main():
     ap.add_argument("--version", default="longstate-v1")
     a = ap.parse_args()
     lengths = [int(x) for x in a.lengths.split(",")]
-    train_counts = dict(zip(lengths, [int(x) for x in a.train_counts.split(",")] if a.train_counts else [a.train_per_length] * len(lengths)))
+    counts = [int(x) for x in a.train_counts.split(",")] if a.train_counts else [a.train_per_length] * len(lengths)
+    if len(counts) != len(lengths):
+        raise SystemExit("--train_counts needs one count per --lengths entry")
+    train_counts = dict(zip(lengths, counts))
     panel_counts = {length: a.dev_per_length for length in lengths}
     tok = load_tokenizer(TOKENIZER[0], revision=TOKENIZER[1])
     count = lambda state: len(tok.encode(as_text(state), add_special_tokens=False))
     trainable = set(read_manifest(SUITE)["trainable_sources"])
     parts = {part: [r for r in load_split(SUITE, part) if r["_meta"]["source"] in trainable] for part in ("train", a.panel_partition)}
     train = build(parts["train"], train_counts, random.Random(f"{a.seed}:train"), count, with_controls=False)
-    dev = build(parts[a.panel_partition], panel_counts, random.Random(f"{a.seed}:development"), count, with_controls=True)
+    dev = build(parts[a.panel_partition], panel_counts, random.Random(f"{a.seed}:development"), count, with_controls=True)   # RNG key kept for every partition: v1 and v2 were built with it
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     parents = {r["_meta"]["id"]: r for r in parts["train"]}
     train_control = [parents[r["_meta"]["parent_id"]] for r in train]
