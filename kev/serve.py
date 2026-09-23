@@ -70,9 +70,13 @@ class Server:
             self.prefix_hits += 1
             return ps, True
         if eligible:
+            # Free what this prefix displaces before the pass that builds it, not after. A prefix for a long state is
+            # gigabytes of KV, so holding the outgoing one across the incoming pass asks the card for both at once --
+            # and on a card with a per-process ceiling that is the request that fails, leaving the outgoing prefix
+            # cached because this eviction never runs.
+            while len(cache) >= PREFIX_CACHE_SIZE: cache.pop(next(iter(cache)))
             ps, prefix = self.model.probs_and_prefix(enc)      # one pass, and the state prefix is kept for next time
             cache[key] = prefix
-            while len(cache) > PREFIX_CACHE_SIZE: cache.pop(next(iter(cache)))
             self.prefix_misses += 1
             return ps, False
         return self.model.probs(enc), False
