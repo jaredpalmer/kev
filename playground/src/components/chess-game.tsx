@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch";
 
 const MODES: { value: Mode; label: string }[] = [
   { value: "self", label: "Model vs model" },
+  { value: "kev_vs_jev", label: "Kev (White) vs Jev (Black)" },
   { value: "white", label: "You play White" },
   { value: "black", label: "You play Black" },
 ];
@@ -127,7 +128,8 @@ export function ChessGame() {
     if (!game || game.result || thinking) return;
     setThinking(true); setError(null);
     try {
-      const info = await askModel(rebuild(game), sample);
+      const provider: "kev" | "jev" = game.mode === "kev_vs_jev" && rebuild(game).turn() === "b" ? "jev" : "kev";
+      const info = await askModel(rebuild(game), sample, provider);
       const c = applyMove(game, info.san, "model", info);
       if (!c || c.isGameOver()) { setAuto(false); autoRef.current = false; }
     } catch (e) { setError((e as Error).message); setAuto(false); autoRef.current = false; }
@@ -187,6 +189,8 @@ export function ChessGame() {
   const movesRef = useRef<HTMLOListElement>(null);
   useEffect(() => { movesRef.current?.scrollTo({ top: movesRef.current.scrollHeight }); }, [game?.moves.length]);
 
+  const lastProviderName = lastModel?.provider === "jev" ? "Jev" : lastModel?.provider === "kev" ? "Kev" : null;
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col px-6 pt-8 pb-16 md:px-10">
       <header className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
@@ -218,7 +222,7 @@ export function ChessGame() {
           <ChessBoard chess={chess} selected={selected} targets={targets} lastMove={lastMove} flipped={mode === "black"} onSquare={onSquare} disabled={!humanToMove || thinking} />
 
           <div className="flex flex-wrap items-center gap-2">
-            {mode === "self" ? (
+            {mode === "self" || mode === "kev_vs_jev" ? (
               <>
                 <Button onClick={() => setAuto((a) => !a)} disabled={!!game?.result} className="rounded-md">{auto ? "Pause" : "Play"}</Button>
                 <Button variant="outline" onClick={modelMove} disabled={auto || thinking || !!game?.result} className="rounded-md shadow-none">Step</Button>
@@ -236,8 +240,9 @@ export function ChessGame() {
 
           <p className="min-h-5 text-[13px] text-muted-foreground">
             {game?.result ? <span className="text-foreground">{game.result}</span>
-              : thinking ? "Model is choosing"
+              : thinking ? `${mode === "kev_vs_jev" ? (chess.turn() === "w" ? "Kev (White)" : "Jev (Black)") : "Model"} is choosing`
               : humanToMove ? `Your move (${humanSide === "w" ? "White" : "Black"}). Click a piece, then a square.`
+              : mode === "kev_vs_jev" ? `${chess.turn() === "w" ? "Kev (White)" : "Jev (Black)"} to move`
               : `${chess.turn() === "w" ? "White" : "Black"} to move`}
             {chess.inCheck() && !game?.result ? " · check" : ""}
           </p>
@@ -245,7 +250,7 @@ export function ChessGame() {
         </div>
 
         <div className="flex min-w-0 flex-col gap-3">
-          <DistributionPanel id="move" title={lastModel ? `Best move among ${lastModel.n_legal} legal moves` : "Best move among the legal moves"}
+          <DistributionPanel id="move" title={lastModel ? `${lastProviderName ? `${lastProviderName}: ` : ""}Best move among ${lastModel.n_legal} legal moves` : "Best move among the legal moves"}
             headline={lastModel?.san} detail={lastModel ? `confidence ${lastModel.confidence.toFixed(2)}` : undefined}
             rows={lastModel ? topRows(lastModel.probabilities, lastModel.san, TOP_N) : []} nRows={TOP_N} mono
             footer={lastModel && lastModel.n_legal > TOP_N ? `${lastModel.n_legal - TOP_N} more moves share the remaining ${(1 - topMass(lastModel.probabilities, TOP_N)).toFixed(2)}` : " "}
@@ -255,7 +260,7 @@ export function ChessGame() {
             rows={EVAL_LEVELS.map((l, i) => ({ key: `${i}  ${l}`, p: lastModel?.evalProbabilities[String(i)] ?? 0, top: !!lastModel && i === Math.round(lastModel.evaluation) }))} nRows={EVAL_LEVELS.length}
             dim={thinking} />
           <p className="h-5 text-[13px] tabular-nums text-muted-foreground">
-            {lastModel ? `${lastModel.latency_ms.toFixed(0)} ms · ${lastModel.input_tokens} input tokens · ${lastModel.n_legal} options` : "The model's distribution appears here after its first move."}
+            {lastModel ? `${lastProviderName ? `${lastProviderName} · ` : ""}${lastModel.latency_ms.toFixed(0)} ms · ${lastModel.input_tokens} input tokens · ${lastModel.n_legal} options` : "The model's distribution appears here after its first move."}
           </p>
 
           <div className="rounded-md border border-border bg-card px-4 py-3">

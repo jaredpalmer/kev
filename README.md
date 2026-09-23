@@ -115,7 +115,7 @@ npm run dev -- -p 3001
 
 Open [localhost:3001](http://localhost:3001), load a preset, and edit the text and questions. Press `⌘↵` to run it. "Packed vs separate" compares asking all questions at once with asking them one at a time. "Permute" runs a Choice question with six option orders. There are also presets for testing question isolation and fake delimiter tokens.
 
-There's a [chess demo](http://localhost:3001/chess), too. The board is the input, legal moves are Choice options, and a Score question rates the position. You can play against Kev or let it play itself. Games are saved in `localStorage`.
+There's a [chess demo](http://localhost:3001/chess), too. The board is the input, legal moves are Choice options, and a Score question rates the position. You can play against Kev, let it play itself, or pit Kev (White) against Jev (Black) by setting `TYPESAFE_API_KEY` in `playground/.env`. Games are saved in `localStorage`.
 
 ![Kev chess](docs/chess.png)
 

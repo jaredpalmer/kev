@@ -66,11 +66,13 @@ export type ModelMove = {
   latency_ms: number;
   input_tokens: number;
   n_legal: number;
+  provider?: "kev" | "jev";
 };
 
-export async function askModel(chess: Chess, sample = false): Promise<ModelMove> {
+export async function askModel(chess: Chess, sample = false, provider: "kev" | "jev" = "kev"): Promise<ModelMove> {
   const { req, legal } = buildRequest(chess);
-  const r: SystemOneResponse = await api.systemOne(req);
+  if (provider === "jev") req.model = "jev-latest";
+  const r: SystemOneResponse = provider === "jev" ? await api.systemOneJev(req) : await api.systemOne(req);
   const a = r.answers.move;
   const e = r.answers.evaluation;
   if (a.type !== "choice" || e.type !== "score") throw new Error("unexpected answer types");
@@ -80,19 +82,19 @@ export async function askModel(chess: Chess, sample = false): Promise<ModelMove>
     for (const [k, p] of Object.entries(a.probabilities)) { u -= p; if (u <= 0) { san = k; break; } }
   }
   if (!legal.some((m) => m.san === san)) throw new Error(`model returned ${JSON.stringify(san)}, which is not a legal move here`);
-  return { san, probabilities: a.probabilities, confidence: a.confidence, evaluation: e.score, evalConfidence: e.confidence, evalProbabilities: e.probabilities, latency_ms: r.latency_ms, input_tokens: r.usage.input_tokens, n_legal: legal.length };
+  return { san, probabilities: a.probabilities, confidence: a.confidence, evaluation: e.score, evalConfidence: e.confidence, evalProbabilities: e.probabilities, latency_ms: r.latency_ms, input_tokens: r.usage.input_tokens, n_legal: legal.length, provider };
 }
 
 // ---- persistence -------------------------------------------------------------------------------
 
-export type Mode = "self" | "white" | "black"; // who the human plays; "self" = model vs model
+export type Mode = "self" | "kev_vs_jev" | "white" | "black"; // who the human plays; "self" = Kev vs Kev
 
 export type SavedGame = {
   id: string;
   startedAt: number;
   mode: Mode;
   pgn: string;
-  moves: { san: string; by: "human" | "model"; model?: ModelMove }[];
+  moves: { san: string; by: "human" | "model"; provider?: "kev" | "jev"; model?: ModelMove }[];
   result?: string;
 };
 

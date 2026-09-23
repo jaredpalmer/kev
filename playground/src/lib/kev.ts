@@ -26,14 +26,24 @@ export type PermuteResponse = {
   spread: Record<string, number>;
 };
 
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const r = await fetch(`/kev${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+async function post<T>(path: string, body: unknown, prefix = "/kev"): Promise<T> {
+  const r = await fetch(`${prefix}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) {
+    const text = await r.text();
+    try {
+      const err = JSON.parse(text);
+      if (err.error) throw new Error(typeof err.error === "string" ? err.error : JSON.stringify(err.error));
+    } catch (e) {
+      if (e instanceof Error && e.message !== text) throw e;
+    }
+    throw new Error(`${r.status}: ${text}`);
+  }
   return r.json();
 }
 
 export const api = {
   systemOne: (req: SystemOneRequest) => post<SystemOneResponse>("/v1/systemone", req),
+  systemOneJev: (req: SystemOneRequest) => post<SystemOneResponse>("/api/jev", req, ""),
   separate: (req: SystemOneRequest) => post<SystemOneResponse>("/v1/systemone/separate", req),
   permute: (request: SystemOneRequest, question: string, n_perm = 6) => post<PermuteResponse>("/v1/systemone/permute", { request, question, n_perm }),
   models: async () => {
