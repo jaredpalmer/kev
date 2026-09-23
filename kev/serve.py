@@ -185,6 +185,13 @@ def models():
     return {"models": [{"name": name, **card} for name in MODEL_NAMES]}
 
 
+def build_server(run, dev, opts) -> Server:
+    """Load `run` onto `dev` and return the Server that will answer requests from it."""
+    ck = Checkpoint(run)
+    tok, model = ck.load(dev, opts)
+    return Server(ck, tok, model, dev)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", default="runs/kev")
@@ -200,9 +207,8 @@ def main():
     if dev == "mps" and opts.attn is None: opts = replace(opts, attn="sdpa")   # serving default on Apple GPUs (parity measured)
     if dev != "cpu" and opts.dtype is None: opts = replace(opts, dtype=torch.bfloat16)   # serving default: 2-4.5x faster than fp32 on an L4, same answers (LoadOptions.dtype); KEV_DTYPE=fp32 for the exact path
     if opts.backend is None: opts = replace(opts, backend="auto")   # serving default: MLX for the hybrid Qwen3.5 checkpoints on Apple Silicon (LoadOptions.backend); KEV_BACKEND=torch to decline
-    ck = Checkpoint(run)
-    tok, model = ck.load(dev, opts)
-    app.state.server = Server(ck, tok, model, dev)
+    app.state.server = srv = build_server(run, dev, opts)
+    ck, model = srv.checkpoint, srv.model
     print(f"serving {ck.requested} ({ck.path}) on {dev} via {model.backend} ({model.dtype}) :{a.port}")   # /v1/models reports the run as given, not the resolved cache path
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=a.port)
