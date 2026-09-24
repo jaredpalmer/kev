@@ -47,7 +47,12 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   unknowable) for OOD, `evals/round3/{decision-r3,transfer-r3}` (calibration audit; the 1,260-record final panel is
   unscored), `evals/smoke-v1` for tests, plus `evals/external/` (semif-v1, scienthoon-v1, ekzhang-mmlupro-v1, and SemIf's pinned third-party selections wanli-v1 + typesafe-v1 via
   `scripts/freeze_semif_external.py`; `scripts/compare_typesafe.py` reports equal-case agreement/TVD against the reference and published answers, `--tokenizer` adds accuracy by state length; Kev-9B/4B scored 2026-09-22: WANLI 0.703/0.695 vs Jev 0.758, TypeSafe 0.809/0.856 agreement on 89 answered rows vs 0.891, `runs/kev-*-{wanli,typesafe}-v1`),
-  `evals/night2/` (delta training data, `scripts/build_night2_data.py`), `evals/diagnostics/` (binding-v1), and the real-document suites
+  `evals/night2/` (delta training data, `scripts/build_night2_data.py`), `evals/diagnostics/` (binding-v1) and `evals/hard-v1`
+  (programmatically labelled skill records in seven families: long policy documents, trade-offs, probability, multi-hop,
+  temporal/numeric, judging a proposed answer, missing-fact abstention; `scripts/build_hard_v1.py`, labels from each family's
+  solver over `_meta.facts`, templates 0-3 train / 4 development / 5 test; long_policy states reach ~5k tokens, so train with
+  `--max_state` >= 5120; `scripts/screen_overlap.py` checks it against JevBench's public items, counts only, in `overlap.json`), `evals/devtools-v1`
+  (developer-tooling decisions from six licence-checked sources; `scripts/build_devtools_v1.py`; When2Call and prompt injection are eval-only), and the real-document suites
   `evals/documents-v1` (CFPB complaint narratives, product + issue Choice questions; its 23 MB train partition, Kev-4B's round-8 delta data, is not in git and not yet in the kev-suites mirror)
   and `evals/documents-v2` (held-out test only, private mirror, manifest only): `scripts/build_documents_v{1,2}.py` -> `label_documents_v1.py`
   (AI Gateway teachers/judges, spend ledger) -> `freeze_documents_v1.py` (no flag: report + adjudication queue; `--combine`, `--spot-check`, `--freeze ... --min-agreement 47`);
