@@ -52,7 +52,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kev.data import materialize  # noqa: E402
-from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, GIT_LIMIT, digest, read_json, read_jsonl, write_json, write_jsonl  # noqa: E402
+from kev.model import MAX_STATE, MAX_TRAIN_STATE, fits, load_tokenizer, training_context, user_tokens  # noqa: E402
+from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, CONTEXT, GIT_LIMIT, digest, read_json, read_jsonl, write_json, write_jsonl  # noqa: E402
 
 VERSION = "devtools-v1"     # the frozen suite; --legacy-v1-ids rebuilds it
 SEED = "devtools-v1"
@@ -564,7 +565,6 @@ def add_message_question(chosen, rng):
 
 
 def build(raw, licences, tok, legacy_ids):
-    from kev.model import MAX_TRAIN_STATE, fits, training_context
     ctx = training_context(MAX_TRAIN_STATE)
     report = {}
     cands = {"codereviewer": codereviewer(raw, licences, report, legacy_ids), "commitpackft": commitpackft(report), "aegis": aegis(report),
@@ -617,7 +617,6 @@ def build(raw, licences, tok, legacy_ids):
 
 
 def summarise(parts, tok):
-    from kev.model import MAX_STATE, user_tokens
     counts, balance, lengths, groups = {}, {}, {}, {}
     for split, recs in parts.items():
         by = defaultdict(list)
@@ -706,8 +705,6 @@ def main():
     if out.exists(): raise FileExistsError(out)
     version = VERSION if a.legacy_v1_ids else out.name
     if version == VERSION and not a.legacy_v1_ids: ap.error(f"{VERSION} is frozen: pass --legacy-v1-ids to rebuild it, or name a new version with --out")
-    from kev.model import MAX_TRAIN_STATE, load_tokenizer, training_context
-    from kev.suite import CONTEXT
     tok = load_tokenizer(*TOKENIZER)
     licences = read_json(LICENCES)
     parts, report = build(raw, licences, tok, legacy_ids=a.legacy_v1_ids)

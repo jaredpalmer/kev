@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from kev.api import render  # noqa: E402
 from kev.data import materialize  # noqa: E402
+from kev.model import MAX_TRAIN_STATE, fits, load_tokenizer, training_context  # noqa: E402
 from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, GIT_LIMIT, SERVING_CONTEXT, digest, write_json, write_jsonl  # noqa: E402
 from scripts.hard_v1_common import Ctx  # noqa: E402
 from scripts.hard_v1_families import ABSTAIN_KEYS, FAMILIES, labels  # noqa: E402
@@ -63,9 +64,7 @@ class Checker:
     """Context admission under the pinned tokenizer: the long-state training context and the serving context."""
 
     def __init__(self):
-        from kev.model import MAX_TRAIN_STATE, fits, load_tokenizer, training_context
         self.tok = load_tokenizer(*TOKENIZER)
-        self.fits = fits
         self.train_ctx = training_context(MAX_TRAIN_STATE)
         self.serve_ctx = {k: v for k, v in SERVING_CONTEXT.items() if k != "truncate"}
 
@@ -74,7 +73,7 @@ class Checker:
 
     def admit(self, record):
         rec = materialize(record)
-        return self.fits(rec, self.tok, **self.train_ctx) and self.fits(rec, self.tok, **self.serve_ctx)
+        return fits(rec, self.tok, **self.train_ctx) and fits(rec, self.tok, **self.serve_ctx)
 
 
 def item_records(family, t, item, seen, checker):
