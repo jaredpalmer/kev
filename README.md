@@ -84,6 +84,18 @@ KEV_API_KEY=$(openssl rand -hex 24) modal deploy kev_serve.py
 
 That serves Kev-4B on an L40S at `https://<your-workspace>--kev-api.modal.run`, with the same API as above behind `Authorization: Bearer <key>`, in tens of milliseconds of model time per request (see [Serving Performance](#serving-performance)). It scales to zero when idle. `KEV_MODEL=jaredpalmer/kev-9b` picks another model, and the GPU follows. With a coding agent, `npx skills add jaredpalmer/kev@kev-deploy` does the same and wires the URL into your code; see [skills/kev-deploy](skills/kev-deploy/).
 
+### Run It in Docker
+
+The repo's Dockerfile builds one image that serves on CPU or, with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), on a GPU host:
+
+```bash
+docker build -t kev .
+docker run --rm -p 8008:8008 -v kev-models:/root/.cache/huggingface kev
+# GPU: docker run --rm --gpus all -p 8008:8008 -v kev-models:/root/.cache/huggingface kev
+```
+
+That starts Kev-4B at `http://localhost:8008` with the same API as above. The named volume caches the base-model download across runs. Everything after the image name goes to `kev.serve`, so `docker run ... kev --run jaredpalmer/kev-9b` picks another model, and `-e KEV_API_KEY=...` / `-e KEV_DTYPE=fp32` pass the usual settings through. `kev.serve --host 0.0.0.0` is what makes the port reachable from outside the container; the local default stays `127.0.0.1`.
+
 ### Python
 
 The TypeSafe SDK is included in `uv sync --extra serve`:

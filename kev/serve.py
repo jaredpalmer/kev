@@ -180,6 +180,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", default="runs/kev")
     ap.add_argument("--fallback", default="runs/smoke")
+    ap.add_argument("--host", default="127.0.0.1")   # 0.0.0.0 to serve beyond localhost (the Dockerfile sets it)
     ap.add_argument("--port", type=int, default=8008)
     a = ap.parse_args()
     run = a.run if is_hub_id(a.run) or os.path.exists(f"{a.run}/head.pt") else a.fallback
@@ -193,9 +194,9 @@ def main():
     ck = Checkpoint(run)
     tok, model = ck.load(dev, opts)
     app.state.server = Server(ck, tok, model, dev)
-    print(f"serving {ck.requested} ({ck.path}) on {dev} via {model.backend} ({model.dtype}) :{a.port}")   # /v1/models reports the run as given, not the resolved cache path
+    print(f"serving {ck.requested} ({ck.path}) on {dev} via {model.backend} ({model.dtype}) {a.host}:{a.port}")   # /v1/models reports the run as given, not the resolved cache path
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=a.port)
+    uvicorn.run(app, host=a.host, port=a.port)
 
 
 if __name__ == "__main__":
