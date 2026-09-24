@@ -98,6 +98,22 @@ Reported, never gating:
 
 **Next (to be registered, not read):** the 9B recipe minus the MNLI soft targets (keep them hard) isolates the WANLI question. It needs fresh panels (both round-5 panels have now been read by these candidates) and a WANLI panel disjoint from the 256 items, large enough that a 1 pp point threshold is not three questions. The external gates in this round were point estimates on 89–256 questions; the next registration should use paired intervals with a margin sized to the suite.
 
+## Rounds 7 and 8 result (2026-09-23/24; each read once per registered rule)
+
+**Round 7 (documents delta, every size against its released parent; `scripts/round7_readout.py`, `runs/r7-readout/round7.json`).** No candidate at any size.
+
+| arm | documents-v1 dev | vs Jev (0.868) | short-state acc | pooled externals | failed on |
+|---|---|---|---|---|---|
+| 0.8B | 0.633 → 0.858 (+22.5 [+19.3, +25.7]) | −1.1 [−3.4, +1.2] | −0.9 [−3.2, +1.5] | +0.4 [−0.8, +1.6] | short acc bound; SemIf / TypeSafe bounds |
+| 4B | 0.811 → 0.895 (+8.4 [+6.0, +10.6]) | +2.6 [+0.5, +4.6] | +0.6 [−0.8, +2.0] | +0.0 [−1.0, +1.1] | SemIf, WANLI-v2, TypeSafe bounds |
+| 9B seed 1 | 0.833 → 0.902 (+7.0 [+4.7, +9.3]) | +3.4 [+1.4, +5.4] | −2.3 [−4.0, −0.8] | −0.8 [−1.6, 0.0] | short acc / Brier, scienthoon, WANLI-v2, pooled |
+| 9B seed 2 | 0.833 → 0.902 (+7.0 [+4.8, +9.2]) | +3.4 [+1.4, +5.3] | −1.7 [−3.7, +0.2] | −0.4 [−1.3, +0.5] | short acc / Brier / confident errors, WANLI-v2 |
+| 27B (from round-6 trial A) | 0.851 → 0.916 (+6.5 [+4.4, +8.7]) | +4.8 [+2.9, +6.7] | −0.5 [−2.0, +0.9] | −1.4 [−2.2, −0.6] | pooled externals, unknowable share 0.109, short Brier / confident errors |
+
+**Round 8 (same recipe, seed 2, guards sized to the suites; `runs/r8-readout/round8.json`, `runs/r8-verdict/`).** 0.8B replicates the documents gain (+22.7 [+19.6, +25.9]) and fails the short-state guard (−1.2 [−3.7, +1.1], Brier bound +0.012). **4B passes rules 1-3** (documents +8.4 [+6.0, +10.6], short +0.5 [−0.8, +1.8], pooled +0.7 [−0.2, +1.6]) and then rule 4: `documents-v1` test 0.804 → 0.904 (+9.9 [+7.6, +12.4], first read by any model), locked `transfer-v4` 0.837 → 0.835 (−0.15 [−1.22, +1.07]) with served Brier 0.232 → 0.233, `documents-v2` (private) 0.811 → 0.891 (+8.0 [+5.6, +10.3]). **Released 2026-09-24 as `jaredpalmer/kev-4b` (Hub `957b91e7`; previous at tag `night2-du-release`; temperature 2.96; PR #99).** Deviation: the locked read is named `kev-4b-r8-ungated`, not `kev-4b-r8`, because `locked_test` requires the suffix when the in-trial screening gate failed (raw-temperature confident errors 10.06 % vs its 10 % line; the served guard passed).
+
+**What the two rounds say.** Real-document training is the largest lever measured in this project (7-23 pp on held-out narratives at every size, above Jev at 4B, 9B and 27B), and it is in distribution by construction. Its cost scales the wrong way with size: at 4B it is free, at 9B it is a real 2 pp of short-state accuracy, at 27B it is external accuracy and unknowable calibration. Round 9 tests replay and step size as the remedy.
+
 ## Round 9 - documents delta at 9B / 0.8B that keeps short states (registered 2026-09-24T02:38Z, before any training or read)
 
 **Why.** Round 7/8: the documents delta gains +7.0 pp (9B) and +22.5 / +22.7 pp (0.8B) on `documents-v1` development, but costs short-state accuracy: 9B −2.3 [−4.0, −0.8] and −1.7 [−3.7, +0.2] (two seeds), 0.8B −0.9 and −1.2 (lower bounds −3.2, −3.7). Kev-4B passed and was released (round 8). The standard remedies for forgetting in a delta are more replay of the original training data and a smaller step; this round tests both at 9B and more replay at 0.8B.

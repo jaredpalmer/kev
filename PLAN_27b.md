@@ -95,6 +95,15 @@ Their numbers, read with our eyes ([card, "What it scores"](https://huggingface.
 - *Human spot-check:* Jared reviews a random 50 items of the frozen test split in `tools/review`; the suite is described as "AI-adjudicated, human spot-checked (k/50 agreement)". If fewer than 47 of 50 hold up, the suite is not frozen and the protocol is revisited.
 - *Spend:* hard cap $80 on the AI Gateway key `kev-documents-v1-labels` ($100 limit, 30-day expiry), enforced in the labelling script.
 
+### B1 v2 result (2026-09-24; read once per the registered rule; `scripts/b1v2_readout.py`, `runs/r6-verdict/`)
+
+| seed (1 epoch, v7 + dates/unknowable + long states + soft targets) | transfer-v4 dev | MMLU-Pro | unknowable | pairs | longstate-v2 buried | pooled externals | verdict |
+|---|---|---|---|---|---|---|---|
+| 1 | 0.845 | **0.630** | 0.000 | 0.94 | 0.831 (Kev-9B 0.572) | 0.771 (0.761) | fails MMLU-Pro ≥ 0.65 |
+| 2 | 0.848 | 0.665 | 0.000 | 0.89 | 0.849 (+27.7 [+23.3, …]) | 0.787 (0.761) | **candidate** |
+
+**Confirmation (seed 2 vs Kev-9B, fresh panels read once):** `transfer-r6` test 0.842 → 0.863 (+2.1 pp [+0.35, +3.8], 1,260 questions, no task entirely below −3 pp); `longstate-v3` 0.556 → 0.833 (+27.7 [+23.1, +32.5]). **Locked read** (`kev-27b-v2-ungated`; first attempt failed mid-read with no summary, completed on the tool's interrupted-read path): `transfer-v4` locked accuracy **0.896** (≥ 0.862), served Brier **0.160** (≤ 0.237), ECE 0.018, coverage at ≤ 5 % error 0.835; `decision-v7` locked 0.870 / 0.185. Fitted temperature 1.38 (out-of-fold ECE 0.039 → 0.022). **B1 v2 passes every registered criterion.** Release blockers left: the bf16 serving checks (isolation / flip rate in bf16, latency; `runs/serving-27b-h200`) and a card stating the post-trained base and the A2 MMLU-Pro gate override. Two process notes: seed 1 failing MMLU-Pro by 0.02 on 200 questions while seed 2 passes is the resolution limit of that gate; and the network drop at ~21:00 killed local clients, not the detached remote reads, which were pulled from the volume unchanged.
+
 ### documents-v1 result (frozen 2026-09-23; development read, test locked and unread)
 
 `evals/documents-v1`: 5,219 / 568 / 574 real CFPB complaint narratives (train / development / test), split evenly across 9 products and short (< 1,200 chars) / medium / long (4,000-28,000 chars, about 1k-7k tokens); two Choice questions each (product, main issue). Train: 7,488 questions whose consumer label both open-weight teachers (DeepSeek V3.2, Qwen3-235B) chose. Development / test: 920 / 936 questions, 70 % verified by a unanimous blind judge panel (Claude Opus 4.5, GPT-5, Gemini 3 Flash), the rest decided by two independent adjudications that agreed (562 of 658 agreed, 85 %; 179 consumer labels corrected, 96 disagreements and 229 agreed drops removed). Human spot check: 47 / 50 (Wilson 95 % [0.84, 0.98]), exactly the registered bar; the three disagreements were all panel-verified items. Label spend $32.26 of the $80 cap. `scripts/{build,label,freeze}_documents_v1.py`; labels, adjudications and reviews under `runs/documents-v1-work/`.
