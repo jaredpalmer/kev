@@ -23,7 +23,6 @@ datasets:
   - fancyzhx/dbpedia_14
   - SetFit/amazon_reviews_multi_en
   - stanfordnlp/imdb
-  - CFPB consumer complaint narratives (evals/documents-v1)
 metrics:
   - accuracy
   - brier_score
@@ -147,7 +146,7 @@ Frozen suite `evals/v7/decision-v7`: 10,000 public records (1,000 per source), 8
 
 Development partitions select models; the locked test partition is read at most once per candidate (`runs/locked/kev-4b-night2-du-ungated/`; the pre-delta read is `runs/locked/kev-4b-q35/`). Every number carries suite hash, code hashes and git commit in `result.json`. Untrained-base baselines use zero-shot letter logits on the same items (`scripts/base_mmlu_probe.py`).
 
-### Use
+## Use
 
 ```bash
 uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8008      # KEV_DTYPE=bf16 on a Mac; slow on MPS, see limits
@@ -156,6 +155,6 @@ KEV_DATE_FACTS=1 uv run --extra serve python -m kev.serve --run jaredpalmer/kev-
 
 Any TypeSafe-compatible client works: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8008", model="kev-latest")`.
 
-### License
+## License
 
 Apache-2.0 for the adapter and head; the Qwen3.5 base is Apache-2.0; datasets carry their own licenses.
