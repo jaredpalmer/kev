@@ -14,7 +14,15 @@ from kev.suite import read_json, write_json  # noqa: E402
 from round6_readout import EXTERNALS, boot, knowable, serve  # noqa: E402
 
 KEYS = ("n", "acc", "brier", "ece", "confident_error_rate", "coverage_at_5pct_error")
+READS = ("docs1_dev", "docs1_test", "docs2", "long2", "r6test", "long3", *EXTERNALS)   # optional per release
 RELEASES = {   # arm: trial + where each read lives
+    "kev-27b-v2": {   # PLAN_27b B1 v2; the comparison column is the released Kev-9B (the rule's reference), not a parent
+        "candidate": {"trial": "runs/release/kev-27b-v2", "docs1_dev": "runs/r6-27bv2-s2-docs", "v9": "runs/r6-27bv2-s2-v9", "locked": "runs/locked/kev-27b-v2-ungated",
+                      "long2": "runs/r6-27bv2-s2-long", "r6test": "runs/r6c-27b-cand-r6test", "long3": "runs/r6c-27b-cand-long3", **{s: f"runs/r6-27bv2-s2-{s}" for s in EXTERNALS}},
+        "parent": {"trial": "runs/night2-9b-du/00-trial-0", "docs1_dev": "runs/docs1-P9", "v9": "runs/n2-9b-du-v9", "locked": "runs/locked/kev-9b-night2-du-ungated",
+                   "long2": "runs/r5r-P9-long", "r6test": "runs/r6c-27b-parent-r6test", "long3": "runs/r6c-27b-parent-long3",
+                   "semif": "runs/r5r-P9-semif", "scienthoon": "runs/r5r-P9-scienthoon", "wanli2": "runs/r6-P9-wanli2", "typesafe": "runs/r5r-P9-typesafe"},
+    },
     "kev-4b-r8": {
         "candidate": {"trial": "runs/r8-small/00-trial-0", "docs1_dev": "runs/r8-4b-s2-docs", "docs1_test": "runs/r8c-4b-cand-docs1test", "docs2": "runs/r8c-4b-cand-docs2",
                       "v9": "runs/r8-4b-s2-v9", "locked": "runs/locked/kev-4b-r8-ungated", **{s: f"runs/r8-4b-s2-{s}" for s in EXTERNALS}},
@@ -34,6 +42,7 @@ def arm(spec):
     trial = spec["trial"]
     t = served(read_json(Path(trial) / "development/rows.json"), [])[0]
     rows = lambda path: knowable(serve(trial, path, t)[0])
+    read = {k: rows(f"{spec[k]}/rows.json") for k in READS if k in spec}
     out = {"trial": trial, "temperature": t,
            "decision_dev": summary(rows(Path(trial) / "development/rows.json")),
            "transfer_dev": summary(rows(Path(trial) / "transfer/rows.json")),
@@ -42,8 +51,10 @@ def arm(spec):
            "mmlu_pro": read_json(f"{spec['v9']}/report.json")["tasks"]["mmlu_pro"]["acc"],
            "locked_transfer": summary(rows(f"{spec['locked']}/transfer/rows.json")),
            "locked_decision": summary(rows(f"{spec['locked']}/decision/rows.json")),
-           **{k: summary(rows(f"{spec[k]}/rows.json")) for k in ("docs1_dev", "docs1_test", "docs2", *EXTERNALS)}}
-    return out, {k: rows(f"{spec[k]}/rows.json") for k in ("docs1_dev", "docs1_test", "docs2", *EXTERNALS)}
+           **{k: summary(read[k]) for k in read}}
+    long = {k: [r for r in read[k] if r["source"] == "longstate"] for k in ("long2", "long3") if k in read}   # the buried questions the rule scores
+    out.update({f"{k}_buried": summary(v) for k, v in long.items()})
+    return out, {**read, **{f"{k}_buried": v for k, v in long.items()}}
 
 
 def main():
@@ -54,7 +65,7 @@ def main():
               "paired_acc_delta": {k: boot(crows[k], prows[k], "acc") for k in crows},
               "jev": {"docs1_dev": metrics([r for r in read_json("runs/jev-documents-v1/rows.json") if r["variant"] == "clean"])["acc"]}}
     Path(a.out).parent.mkdir(parents=True, exist_ok=True); write_json(Path(a.out), report)
-    for k in ("decision_dev", "transfer_dev", "docs1_dev", "docs1_test", "docs2", "locked_transfer", "locked_decision", *EXTERNALS):
+    for k in [k for k in cand if isinstance(cand[k], dict) and "acc" in cand[k] and k in parent]:
         print(f"{k:16} parent {parent[k]['acc']:.3f} / {parent[k]['brier']:.3f}  ->  release {cand[k]['acc']:.3f} / {cand[k]['brier']:.3f}")
     print("T", round(parent["temperature"], 2), "->", round(cand["temperature"], 2), "| pairs", round(parent["heldout_pairs_both_correct"], 3), "->", round(cand["heldout_pairs_both_correct"], 3),
           "| MMLU-Pro", parent["mmlu_pro"], "->", cand["mmlu_pro"], "| unknowable", parent["unknowable_share_at_0_9"], "->", cand["unknowable_share_at_0_9"])
