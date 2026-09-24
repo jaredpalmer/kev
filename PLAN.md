@@ -140,7 +140,7 @@ Instructions: `docs/prompts/overnight-night3.md`. State, spend readings and spaw
 
 Next, with evidence: (a) the round 17 / 18 verdicts; (b) a joint documents + skills delta for Kev-4B from the round-10 candidate is unnecessary (its documents score held), but a joint delta for 27B is the natural follow-up if round 17 passes; (c) the 9B needs a remedy other than replay if round 18 fails (for example a KL term toward its own released outputs on the replayed records).
 
-### External head-to-head: AutoJev-27B vs Kev-27B (protocol written 2026-09-24T12:40Z, before any AutoJev read; report only)
+### External head-to-head: AutoJev-27B vs Kev-27B (protocol written 2026-09-24T12:23Z, before any AutoJev read; report only)
 
 **Why.** `denis-pplx/autojev-27b` (full-weight SFT of `Qwen/Qwen3.8-27B` at the same revision as Kev-27B, `1d4bf0f2`, on 73k curated synthetic decisions; Apache-2.0) ranks #2 on the community Decision Index 0.2 (`multimodalart/jev-decision-index`, 40 benchmarks, chance-corrected): 50.94 against Jev 51.67, ECE 0.023 against 0.065; Kev-9B / 4B are at 35.41 / 31.31 with ECE 0.16 / 0.20. It is the only outside model on our exact base, so it answers whether full-weight SFT on broad synthetic data beats our recipe (LoRA + pointer head on a frozen bf16 backbone) on the same weights.
 
