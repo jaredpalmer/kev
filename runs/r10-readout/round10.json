@@ -1,4 +1,5 @@
 {
+  "round": 10,
   "arms": {
     "4b-skills": {
       "trial": "runs/r10-skills/00-trial-0",
@@ -393,12 +394,142 @@
       },
       "passed": false
     },
-    "27b-skills": "not read yet"
+    "27b-skills": {
+      "trial": "runs/r10-skills-27b/00-trial-0",
+      "parent": "runs/release/kev-27b-v2",
+      "temperature": 1.741101126592248,
+      "parent_temperature": 1.381912879967776,
+      "primary": {
+        "delta": 0.11832946635730857,
+        "ci95": [
+          0.10102887930208536,
+          0.13600901873851337
+        ]
+      },
+      "hard_acc": [
+        0.8845798707294552,
+        0.7331486611265005
+      ],
+      "devtools_acc": [
+        0.7873134328358209,
+        0.7024253731343284
+      ],
+      "docs_acc": [
+        0.8565217391304348,
+        0.8619565217391304
+      ],
+      "hard_delta": {
+        "delta": 0.15143120960295475,
+        "ci95": [
+          0.12430063988224527,
+          0.18006408988057176
+        ]
+      },
+      "devtools_delta": {
+        "delta": 0.08488805970149249,
+        "ci95": [
+          0.06243939494199262,
+          0.1070135403570102
+        ]
+      },
+      "docs_delta": {
+        "delta": -0.005434782608695565,
+        "ci95": [
+          -0.016009823369037317,
+          0.005405845107580518
+        ]
+      },
+      "short": {
+        "acc": {
+          "delta": 0.004573170731707377,
+          "ci95": [
+            -0.007621951219512146,
+            0.01680640243902425
+          ]
+        },
+        "brier": {
+          "delta": -0.002649475952855418,
+          "ci95": [
+            -0.010767996453962946,
+            0.005008851873115824
+          ]
+        },
+        "confident_error_rate": {
+          "delta": -0.0030487804878048808,
+          "ci95": [
+            -0.01219512195121951,
+            0.004573170731707321
+          ]
+        }
+      },
+      "externals": {
+        "semif": {
+          "delta": 0.00694444444444442,
+          "ci95": [
+            -0.01388888888888895,
+            0.02777777777777779
+          ]
+        },
+        "scienthoon": {
+          "delta": -0.01832760595647187,
+          "ci95": [
+            -0.0297823596792669,
+            -0.0068728522336769515
+          ]
+        },
+        "wanli2": {
+          "delta": 0.0059880239520957446,
+          "ci95": [
+            -0.008008982035928237,
+            0.020958083832335328
+          ]
+        },
+        "typesafe": {
+          "delta": 0.0,
+          "ci95": [
+            -0.03488372093023251,
+            0.028037383177570097
+          ]
+        }
+      },
+      "pooled_external": {
+        "delta": -0.004269449715370022,
+        "ci95": [
+          -0.013270142180094813,
+          0.0042533081285444085
+        ]
+      },
+      "hard_ece": {
+        "candidate": 0.014884442851314792,
+        "parent": 0.04726424640688574,
+        "delta": {
+          "delta": -0.0323798035555709,
+          "ci95": [
+            -0.050708674347203414,
+            -0.0072429541624349034
+          ]
+        }
+      },
+      "unknowable_share": 0.0,
+      "criteria": {
+        "1_primary_lower_above_0": true,
+        "2_short_acc_lower_at_least_minus_2pp": true,
+        "2_short_brier_upper_at_most_0.01": true,
+        "2_short_confident_errors_upper_at_most_1pp": true,
+        "2_docs_lower_at_least_minus_2pp": true,
+        "2_wanli2_lower_at_least_minus_2pp": true,
+        "2_scienthoon_lower_at_least_minus_2pp": false,
+        "2_pooled_lower_at_least_minus_1.5pp": true,
+        "2_unknowable_at_most_0.05": true,
+        "3_hard_ece_at_most_parent_plus_0.01": true
+      },
+      "passed": false
+    }
   },
   "excluded_duplicate_ids": [
     "codereviewer/cls-test/13657",
     "codereviewer/cls-test/19245"
   ],
-  "candidate_4b": "4b-skills",
-  "candidate_27b": null
+  "candidate_27b": null,
+  "candidate_4b": "4b-skills"
 }

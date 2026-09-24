@@ -187,6 +187,10 @@ Skills on top of the round-11 0.8B documents candidate: seed 1 primary +20.6 [+1
 
 **Rule:** round 12's rule against this parent (the round-11 candidate), including the documents guard (`documents-v1` development lower bound ≥ −2 pp, parent rows `runs/r11-08b-s5-docs`) and the pooled short-state panel (parent `runs/r11-08b-s5-r3test`). The passing seed with the larger primary estimate is the candidate; confirmation: hard-v1 + devtools-v1 test pooled lower bound > 0 against the round-11 candidate, `documents-v1` test lower bound ≥ −2 pp against it (its test was read once already, by rule), and locked `transfer-v4` (≥ parent − 1 pp, Brier ≤ parent + 0.005).
 
+## Round 10 result, 27B (2026-09-24) — no 27B candidate
+
+From the Kev-27B release candidate (B1 v2 seed 2), one epoch on skills with replay 4000, lr 2e-5: hard-v1 development 0.733 → **0.885** (+15.1 [+12.4, +18.0]; Jev 0.777), devtools-v1 0.702 → **0.787** (+8.5 [+6.2, +10.7]; Jev 0.713), primary +11.8 [+10.1, +13.6], documents −0.5 [−1.6, +0.5], short state +0.5 [−0.8, +1.7], pooled externals −0.4 [−1.3, +0.4], hard-set ECE 0.047 → **0.015**, in-trial held-out pairs 0.891 → 0.922. **Fails one guard: scienthoon −1.8 [−3.0, −0.7]** (lower bound under −2 pp). Scienthoon (support-ticket routing) is the external that skills/devtools deltas cost most often (4B devtools-only arm, both 9B seeds, here); the next 27B attempt should carry more replay (round 16's 9B arms test replay 10,000). The read client died on a local network drop while downloading results; the eight reads had finished on Modal and were pulled from the volume unchanged.
+
 ## Round 12 - skills delta at 9B and 0.8B (registered 2026-09-24T04:56Z, before any training or read)
 
 **Why.** Round 10's 4B skills arm passed rules 1-3 (hard-v1 development 0.503 → 0.786, devtools-v1 0.605 → 0.739, every guard flat, hard-set ECE 0.137 → 0.095); its confirmation is running. This round applies the same data at 9B with round 9's lesson (replay 6,000 removes the 9B external cost) and at 0.8B.
