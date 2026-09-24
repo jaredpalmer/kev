@@ -27,7 +27,7 @@ import time
 import modal
 import modal.experimental
 
-KEV_REF = "228221d4cedf8b1f64249bd6d46ecb8d4bbedf20"   # github.com/jaredpalmer/kev commit whose kev package this endpoint runs
+KEV_REF = "c49506d9b930d7b6d3561c9abbca9085fdf0138c"   # github.com/jaredpalmer/kev commit whose kev package this endpoint runs
 # GPU preference lists (Modal takes the first with capacity), from runs/serving-*/report.json in the repo. An L4 is enough
 # for the 0.8B but runs out of compute on the 4B; the L40S is the cheapest GPU that answers the 4B in tens of milliseconds,
 # the H100 the fastest for the 4B and 9B. The A100 is slower than the L40S here and costs more.
@@ -89,7 +89,7 @@ class Kev:
         from kev.serve import Server, app as api
         started = time.time()
         ck = Checkpoint(MODEL)                                                             # downloads from the Hub on the first cold start
-        tok, model = ck.load("cuda", LoadOptions(dtype=torch.bfloat16, cuda_graphs=True))   # the checkpoint's fitted temperature is applied automatically
+        tok, model = ck.load("cuda", LoadOptions(dtype=torch.bfloat16, cuda_graphs=True, fused=True))   # the checkpoint's fitted temperature is applied automatically
         server = Server(ck, tok, model, "cuda")
         for req in WARMUP: server.answer(SystemOneRequest.model_validate(req))
         server.wait_idle()                                                                  # their CUDA graphs captured before any traffic
