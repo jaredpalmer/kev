@@ -116,7 +116,7 @@ Instructions: `docs/prompts/overnight-night3.md`. State, spend readings and spaw
 **Outcome.**
 - Released: Kev-4B round-8 documents delta (`jaredpalmer/kev-4b`, public, PR #99). Kev-27B B1 v2 published **privately** (`jaredpalmer/kev-27b`) after its bf16 serving check (PLAN_27b).
 - Confirmed, not published (draft PR #106; private copies `jaredpalmer/kev-4b-candidates`, `jaredpalmer/kev-0.8b-candidates`): Kev-4B round 10 (skills on top of round 8) and Kev-0.8B round 15 (documents + skills in one delta), both passing every registered criterion including one locked read each.
-- No candidate at 9B (rounds 7, 9, 11, 12, 16; round 18 running) or for 27B skills (round 10 failed one guard; round 17 running).
+- No candidate at 9B (rounds 7, 9, 11, 12, 16, 18) or for 27B skills (round 10 failed one guard; round 17 running).
 - New suites, merged to main: `documents-v1/v2` tooling (#100), `hard-v1` and `devtools-v1` (#103); infrastructure: `read_jsonl` line-separator fix (#101), pull / locked-test / served-isolation tooling (#102). Every PR had a strict review before merge.
 
 **Spend.** Modal metered $1,085.32 at the start of the night (authorization: $1,000 on top) → $1,377.01 at 2026-09-24T12:11Z, plus the admission bounds of the two studies still running ($100.24 + $50.12). AI Gateway (Jev reference reads, not training): $0.072 (`runs/jev-{devtools-v1,hard-v1,hard-v1-r2}/usage.json`), against a $100 authorization.
@@ -145,6 +145,24 @@ Next, with evidence: (a) the round 17 / 18 verdicts; (b) a joint documents + ski
 **Why.** `denis-pplx/autojev-27b` (full-weight SFT of `Qwen/Qwen3.8-27B` at the same revision as Kev-27B, `1d4bf0f2`, on 73k curated synthetic decisions; Apache-2.0) ranks #2 on the community Decision Index 0.2 (`multimodalart/jev-decision-index`, 40 benchmarks, chance-corrected): 50.94 against Jev 51.67, ECE 0.023 against 0.065; Kev-9B / 4B are at 35.41 / 31.31 with ECE 0.16 / 0.20. It is the only outside model on our exact base, so it answers whether full-weight SFT on broad synthetic data beats our recipe (LoRA + pointer head on a frozen bf16 backbone) on the same weights.
 
 **Protocol.** AutoJev is served by its own unmodified server (`github.com/denis-pplx/autojev@ee63c151`, weights `denis-pplx/autojev-27b@6f5b557e`, bf16, one H200, `scripts/serve_autojev.py`) and scored through its TypeSafe-compatible `/v1/systemone` with `kev.benchmark --remote` (`--remote-model jev-latest`), as served (its own fitted temperature). Suites, development / public partitions only: `transfer-v4` dev, `hard-v1` dev, `devtools-v1` dev, `documents-v1` dev, SemIf-144, scienthoon, WANLI-v2, TypeSafe-89, `transfer-v9` dev; then JevBench's public items through the unchanged JevBench harness. Kev-27B's rows are its existing reads at its fitted temperature 1.38 (`runs/release/kev-27b-v2`, `runs/r6-27bv2-s2-*`, `runs/hv1-27b`, `runs/dt1-27b`, `runs/jevbench-public/kev-27b`). Paired record-clustered bootstraps on the shared (id, question) rows; requests AutoJev rejects (for example more options than its readout supports) are counted as coverage, not dropped silently. **Nothing here selects or gates a Kev model**; no test partition is read; AutoJev outputs never enter training data.
+
+**Result (2026-09-24, report only; `runs/autojev-h2h/report.json`, `scripts/autojev_h2h.py`, reads `runs/autojev-*`).** AutoJev as served against the Kev-27B release candidate at T = 1.38, paired on shared questions:
+
+| suite (questions) | AutoJev-27B | Kev-27B | Jev | AutoJev − Kev, acc | Brier AJ / Kev | ECE AJ / Kev |
+|---|---|---|---|---|---|---|
+| transfer-v4 dev (656) | **0.863** | 0.848 | 0.857 | +1.5 [−0.6, +3.7] | 0.201 / 0.232 | 0.041 / 0.049 |
+| hard-v1 dev (1,083) | **0.782** | 0.733 | 0.777 | **+4.9 [+2.4, +7.3]** | 0.309 / 0.340 | 0.103 / 0.048 |
+| devtools-v1 dev (1,072) | 0.708 | 0.702 | 0.715 | +0.6 [−0.7, +1.8] | 0.403 / 0.436 | 0.105 / 0.123 |
+| documents-v1 dev (920) | **0.877** | 0.862 | 0.868 | +1.5 [−0.1, +3.3] | 0.175 / 0.192 | 0.015 / 0.055 |
+| SemIf (144) | 0.993 | 0.972 | 0.965 | +2.1 [0.0, +4.9] | 0.018 / 0.055 | 0.048 / 0.048 |
+| scienthoon (873) | 0.769 | **0.796** | 0.753 | **−2.7 [−4.9, −0.6]** | 0.307 / 0.273 | 0.071 / 0.038 |
+| WANLI-v2 (1,002) | 0.764 | 0.745 | – | +2.0 [+0.3, +3.7] | 0.357 / 0.368 | 0.082 / 0.091 |
+| TypeSafe (89) | 0.865 | 0.865 | – | +0.0 [−7.4, +8.1] | 0.179 / 0.198 | 0.082 / 0.074 |
+| transfer-v9 dev (1,046; MMLU-Pro, buried, unknowable) | 0.812 | 0.822 | 0.854 | −1.1 [−3.0, +0.9] | 0.271 / 0.264 | 0.045 / 0.048 |
+
+Macro accuracy over the nine suites: AutoJev 0.826, Kev-27B 0.816. JevBench public items (unchanged harness; `runs/jevbench-public/autojev`): AutoJev all 0.870 (standard 0.986, hard **0.739**), Kev-27B 0.866 (1.000, 0.721); paired on the 111 hard items +1.8 pp [−3.6, +7.2] (6 vs 4 discordant); hard-tier ECE **0.075** vs 0.128. AutoJev refused 13 TypeSafe records (8,192-token question-branch limit, HTTP 422); none of them carries a label, so no scored question was lost. Serving: its server answers one request at a time (HTTP 529 while busy), p50 0.34 s per JevBench hard item over the internet against Kev-27B's 0.94 s through `kev-deploy`.
+
+**Reading.** On the same base weights, full-weight SFT on 73k broad synthetic decisions beats our LoRA recipe modestly and broadly: ahead or level on eight of nine suites (significantly on hard-v1 and WANLI-v2), behind on scienthoon, level on MMLU-Pro-heavy transfer-v9 and on JevBench; better Brier almost everywhere and much better calibrated on JevBench's hard tier, but worse ECE on hard-v1 and devtools-v1. Kev-27B's unreleased round-10 skills arm (hard-v1 0.885, devtools-v1 0.787, trained on those suites' templates) would lead on those two; it failed our scienthoon guard. Two things to take: breadth of training data is what AutoJev has that we do not (our replay is decision-v7 only), and full-weight fine-tuning at 27B is now a live question for us rather than a settled no.
 
 ### Round 7 - documents delta (registered 2026-09-23T22:15Z, before any training or read)
 
@@ -359,6 +377,15 @@ Replay 10,000: (a) lr 1e-5 primary +16.2 [+14.3, +18.1], pooled externals −0.6
 
 **Rule:** round 15's rule (both primaries — documents-v1 development lower bound > 0 and hard-v1 + devtools-v1 development pooled lower bound > 0; pooled short-state panel; externals; unknowable; hard-set ECE) against the released Kev-9B (its reads as round 12). Candidate: the passing arm with the larger sum of primary estimates; confirmation as round 15 (documents-v1 test, hard-v1 + devtools-v1 test, locked transfer-v4, documents-v2 reported).
 
+
+### Round 18 result (2026-09-24; `runs/r18-readout/round18.json`) — no 9B candidate
+
+| 9B arm (documents + skills jointly, replay 10,000) | skills primary | documents dev | short (pooled) | pooled externals | failed on |
+|---|---|---|---|---|---|
+| (a) lr 2e-5 | +19.0 [+17.0, +21.1] (hard-v1 0.813, devtools 0.772) | **+7.0 [+4.8, +9.2]** | −0.1 [−1.1, +1.1] | −1.2 [−2.3, −0.1] | WANLI-v2, scienthoon, pooled |
+| (b) lr 1e-5 | +16.6 [+14.6, +18.6] | +6.4 [+4.3, +8.6] | −0.3 [−1.4, +0.9] | −0.5 [−1.7, +0.8] | short Brier, WANLI-v2, scienthoon, pooled, hard ECE |
+
+Training documents in the same delta fixes round 16's documents cost (+7.0 alongside +19.0 on skills, short states flat); the 9B still pays on WANLI-v2 and scienthoon at every setting tried in rounds 7-18. Replay is exhausted as a remedy at 9B; next candidates are a KL term toward the released 9B's own answers on the replayed records, or broader replay (the AutoJev head-to-head above points the same way).
 ## Round 6 - overnight autoresearch (registered 2026-09-23T02:12Z, before any training or read)
 
 Unattended session (program: [`docs/prompts/overnight-round6.md`](docs/prompts/overnight-round6.md)); branch `research/overnight-r6`, no publishing, no Hub changes, nothing to `main`. Continues round 5's "Next" paragraph. **Budget baseline:** Modal metered **$543.10** at 2026-09-23T02:03Z; hard stop at $1,000 of tonight's spend counting the admission bounds of everything still running; per-phase caps on admission bounds: Phase 0 $10, Phase 1 (A1) $35, B1 (27B) $250, Phase 2 (deltas + reads) $500, Phase 4 (confirmations + locked) $80, reserve >= $125 never planned into. State file: `runs/r6-state.json`.
