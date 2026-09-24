@@ -110,6 +110,10 @@ Reported, never gating:
 
 **Reading.** At 9B, 6,000 replayed records remove the external cost that 2,000 left (round 7: pooled −0.8 / −0.4; here +0.5 / +0.3); the short-state cost shrinks from −2.3 / −1.7 to −0.8 / −0.9 but the 656-question panel cannot bound it above −2 pp (half-width ~1.7 pp). A smaller step alone (b) protects short states and moves the damage to the externals. At 0.8B neither remedy works. Five tries, no pass; the documents gain is stable across every arm (+6.5 to +6.8 at 9B, about 3 pp above Jev). The registration-appropriate next step is a fresh-seed replication of recipe (a) judged on a short-state panel large enough to resolve a 1 pp cost (round 11), not a re-reading of these arms.
 
+## Round 11 result, 0.8B (2026-09-24; `runs/r11-readout/round11.json`, `runs/r11-verdict/`) — **Kev-0.8B documents candidate confirmed**
+
+On the pooled short-state panel (transfer-v4 dev + transfer-r3 test), both fresh 0.8B seeds of recipe (e) pass rules 1-3: seed 4 documents +20.2 [+16.9, +23.4], short −0.6 [−1.8, +0.6], pooled externals +0.5 [−0.5, +1.5]; seed 5 documents +20.4 [+17.3, +23.5], short +0.4 [−0.9, +1.7], pooled +0.6 [−0.5, +1.7]. Candidate seed 5. **Confirmation:** `documents-v1` test 0.608 → **0.821** (+21.3 [+17.9, +24.6]; Brier −0.272); locked `transfer-v4` 0.685 → **0.695** (+1.1 [−1.4, +3.4]), served Brier 0.412 → 0.396 (`kev-08b-r11-ungated`; the in-trial screening gate "held-out pairs ≥ 70 %" fails for this size as it does for the released parent, 0.48 vs 0.42). **Passes every registered criterion: release candidate.** The 0.8B seeds of rounds 7-9 were judged on the 656-question panel alone and could not bound a ~1 pp cost; with 1,800 questions, two independent seeds show none.
+
 ## Round 10 result, 4B (2026-09-24; `runs/r10-readout/round10.json`, `runs/r10-verdict/`) — **Kev-4B skills arm confirmed**
 
 | 4B arm (from the released round-8 Kev-4B) | primary (hard-v1 + devtools-v1 dev) | hard-v1 dev | devtools-v1 dev | documents dev | short state | pooled externals | hard ECE | verdict |
