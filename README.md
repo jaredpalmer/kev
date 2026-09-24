@@ -396,7 +396,7 @@ Largest difference from the fp32 path and changed top answers on all 1,264 decis
 
 | Model | Runs on | Largest difference | Changed answers | 3 questions, 19-token text | 5 questions, 314-token text |
 |---|---|---|---|---|---|
-| Kev-0.8B | ExecuTorch, CPU, fp32 | 0.00001 | 0 | 277 ms | 733 ms |
+| Kev-0.8B | ExecuTorch, CPU, fp32 | 0.00001 | 0 | 276 ms | 733 ms |
 | Kev-0.8B | ExecuTorch, GPU, bf16 | 0.055 | 4 | 107 ms | 170 ms |
 | Kev-0.8B | MLX backend | 0.085 | 5 | 77 ms | 97 ms |
 | Kev-4B | ExecuTorch, GPU, bf16 | 0.104 | 2 | 567 ms | 1,126 ms |

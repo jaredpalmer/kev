@@ -83,7 +83,7 @@ def expected_logits(enc, temperature):
 
 
 def model(program=None, temperature=2.0):
-    return ExecuTorchDecisionModel(program or Program(temperature=temperature), Tokenizer(), temperature=temperature)
+    return ExecuTorchDecisionModel(program or Program(temperature=temperature), Tokenizer(), temperature=temperature, checkpoint_id="sha256:ours")
 
 
 def test_scoring_interface_is_shared():
@@ -93,11 +93,12 @@ def test_scoring_interface_is_shared():
 
 
 @pytest.mark.parametrize("constants,match", [({"get_kev_version": 2}, "version-1"), ({"get_special_3": 1}, "tokenizer"),
-                                             ({"get_pad_id": 0}, "tokenizer"), ({"get_temperature": 1.5}, "another checkpoint")])
+                                             ({"get_pad_id": 0}, "tokenizer"), ({"get_temperature": 1.5}, "another checkpoint"),
+                                             ({"get_checkpoint_id": "sha256:theirs"}, "exported from sha256:theirs")])
 def test_program_contract_is_checked(constants, match):
     with pytest.raises(ValueError, match=match):
         model(Program(**constants))
-    assert model(Program(get_temperature=2.0)).head.temperature == 2.0
+    assert model(Program(get_temperature=2.0, get_checkpoint_id="sha256:ours")).head.temperature == 2.0
 
 
 def test_readout_matches_the_encoding_with_ragged_options():
@@ -139,8 +140,9 @@ def test_exported_limits_are_context_overflows():
     m, tok = model(Program(max_prefix=16, max_context=48, get_max_options=2)), Tokenizer()
     serving = {"max_state": SERVE_MAX_STATE, "max_branch": SERVE_MAX_BRANCH}
     assert m.encode(tok, record(1, state="x" * 15), **serving)["seg"].count(0) == 16
-    with pytest.raises(ContextOverflow, match="state exceeds 16 .* exported for states of at most 16"):
-        m.encode(tok, record(1, state="x" * 16), **serving)
+    for strict in (True, False):   # kev.predictors passes strict=True; asking for truncation still refuses
+        with pytest.raises(ContextOverflow, match="state exceeds 16 .* exported for states of at most 16"):
+            m.encode(tok, record(1, state="x" * 16), strict=strict, **serving)
     with pytest.raises(ContextOverflow, match="branch too long"):
         m.encode(tok, {"state": "s", "questions": [{"instr": "q" * 50, "options": ["a", "b"], "label": 0}]}, **serving)
     with pytest.raises(ContextOverflow, match="more than 2 options"):

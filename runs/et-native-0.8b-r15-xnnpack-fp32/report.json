@@ -1,0 +1,21 @@
+{
+  "run": "jaredpalmer/kev-0.8b@9a45d25eb2ab761841196625383fa1dff0e56c1e",
+  "program": "/tmp/et-out/r15/kev-0.8b-xnnpack-fp32/model.pte",
+  "runner": "a JSONL harness over examples/kev/kev.h (kev::Kev::prefill + evaluate, one call per record, every question sent as a Choice whose criteria are Kev's option strings), C++ Release build, pytorch/executorch main 283297e with tokenizers submodule 3fc1df7",
+  "reference": "fp32 torch, the same 1,024 clean decision-v7 development records as runs/et-parity-0.8b-r15-xnnpack-fp32",
+  "records": 1024,
+  "errors": 0,
+  "questions": 1264,
+  "max_dp": 1.0579824447631836e-05,
+  "mean_dp": 5.46091012185133e-07,
+  "argmax_flips": 0,
+  "over_0.02": 0,
+  "median_prefill_ms": 93.783729,
+  "median_evaluate_ms": 106.52529200000001,
+  "kev_benchmark_ms": {
+    "command": "kev_benchmark model.pte tokenizer.json (examples/kev/benchmark.cpp: 2 warm-ups, median of 5; the bundled 19-token ticket, 3 questions in 2 calls)",
+    "prefill": 51.47,
+    "cached_evaluation": 216.33,
+    "total": 267.79
+  }
+}

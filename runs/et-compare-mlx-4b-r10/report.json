@@ -1,0 +1,56 @@
+{
+  "run": "jaredpalmer/kev-4b@139fdd94f1b6a6ad80cc15e08fcb99cac885a101",
+  "suite": "evals/v7/decision-v7",
+  "context": {
+    "max_state": 384,
+    "max_branch": 1024
+  },
+  "backend": "mlx",
+  "program": null,
+  "records": 1024,
+  "questions": 1264,
+  "rejected_records": 0,
+  "torch_dtype": "float32",
+  "mlx_dtype": "bfloat16",
+  "rows": {
+    "max_dp": 0.07661999762058258,
+    "mean_dp": 0.0017012253132680265,
+    "argmax_flips": 2,
+    "over_0.02": 6
+  },
+  "prefix": {
+    "max_dp": 0.07661999762058258,
+    "mean_dp": 0.0017095077865299491,
+    "argmax_flips": 2,
+    "over_0.02": 6
+  },
+  "alone": {
+    "max_dp": 0.07661999762058258,
+    "mean_dp": 0.001713713658894368,
+    "argmax_flips": 2,
+    "over_0.02": 6
+  },
+  "latency_ms": {
+    "tokens": 703,
+    "questions_in_record": 1,
+    "mlx_miss": 692.4,
+    "mlx_prefix_hit": 598.3,
+    "mlx_rows": 603.3,
+    "torch_fp32_full": 3601.0,
+    "torch_fp32_prefix_hit": 4660.3,
+    "support_request": {
+      "state_tokens": 19,
+      "questions": 3,
+      "prefill": 115.7,
+      "cached_evaluation": 259.1,
+      "total": 377.0
+    },
+    "document_request": {
+      "state_tokens": 314,
+      "questions": 5,
+      "prefill": 308.7,
+      "cached_evaluation": 166.0,
+      "total": 478.8
+    }
+  }
+}

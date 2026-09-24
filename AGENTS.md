@@ -117,16 +117,19 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   routes them through `forward_rows_batch` (one causal row per question, state repeated) and `_branch_rows_from_prefix` for serving; the packed
   block-causal mask is only valid on attention-only bases. Needs transformers>=5.17, peft>=0.21; CUDA wants `flash-linear-attention` + `triton>=3.7.1`
   (in the Modal image). MPS has no fast DeltaNet kernels, so on Apple Silicon `kev.serve` runs these checkpoints through `kev/mlx_model.py` (mlx-lm's Metal kernels; M5, 5 questions on a ~270-token state: Kev-4B 721 ms new state / 136 ms cached state vs 3302 / 847 ms for torch bf16; parity with fp32 torch on the full decision-v7 development partition: 4B max |dp| 0.025, 1 flip in 1,264 questions; 0.8B max 0.054, 4 flips (`runs/r4-mlx-parity-*`)). Plan and results: PLAN.md at tag `research-archive-2026-09-24`, History > "Qwen3.5 port".
-- ExecuTorch (native C++ apps, no Python): pytorch/executorch#23023 (`examples/kev`, not merged as of 2026-09-22; stacked on #23021/#23022, Python-only partitioner fixes)
-  exports a checkpoint as a `.pte` with `prefill` + `score` (LoRA merged, head and temperature inside) for XNNPACK (CPU) or MLX (Apple GPU), fp32 or bf16.
-  `KEV_BACKEND=executorch KEV_PROGRAM=<model.pte>` scores one through `kev/executorch_model.py` (serve, `scripts/backend_parity.py --backend executorch --native_tokenizer`,
-  `tests/test_executorch.py`). ExecuTorch 1.5 wheels need torch 2.14 (Kev pins <2.9), so use a separate env: `uv venv /tmp/et-venv --python 3.13`, then
-  `VIRTUAL_ENV=/tmp/et-venv uv pip install executorch==1.5.0 torch==2.14.0 torchao==0.18.0 transformers==5.17.0 peft==0.21.0 pydantic accelerate datasets`
-  and `uv pip install --no-deps -e .`; until #23021/#23022 ship, copy their three changed `.py` files over the wheel's. Export from that env with the PR's
-  `python examples/kev/export.py --checkpoint jaredpalmer/kev-0.8b --backend xnnpack|mlx --dtype fp32|bf16 --output <dir>` (~3 min at 0.8B). Kev-0.8B on all 1,264 decision-v7 dev questions:
-  XNNPACK fp32 max |dp| 7e-6, 0 flips; XNNPACK bf16 0.035, 3; MLX bf16 0.039, 3 (`runs/et-parity-0.8b-*`). The C++ runner's encoder matches `kev.model.encode`;
-  its tokenizer (pytorch/tokenizers) strips accents from some NFC text, 29 questions (`runs/et-native-0.8b-xnnpack-fp32`). On an M5 the ET MLX program is 1.6-2.6x slower
-  than `kev/mlx_model.py`, and XNNPACK bf16 ~3x slower than fp32. Program limits are the training context (384 / 1,024) and 8 rows per `score` call (the backend chunks).
+- ExecuTorch (native C++ apps, no Python): pytorch/executorch `examples/kev` (#23023, merged 2026-09-23 with #23021/#23022) exports a checkpoint as a `.pte`
+  with `prefill` + `score` (LoRA merged, head and temperature inside) for XNNPACK (CPU) or MLX (Apple GPU), fp32 or bf16; constant methods carry the limits,
+  delimiter/pad ids, `get_temperature` and `get_checkpoint_id` (`sha256:` of `head.pt`), all checked on load. `--max-prefix/--max-context` set the shape limits
+  (default 384 / 1,024, the training context; 8191 / 8192 matches the server). The C++ side is `kev::Kev` (TypeSafe-shaped Choice/Noul/Score, chunks >8 questions).
+  `KEV_BACKEND=executorch KEV_PROGRAM=<model.pte>` scores one through `kev/executorch_model.py` (serve, benchmark, `scripts/backend_parity.py --backend executorch
+  --native_tokenizer`, `tests/test_executorch.py`). ExecuTorch 1.5 wheels need torch 2.14 (Kev pins <2.9) and predate the example, so use a separate env:
+  `uv venv /tmp/et-venv --python 3.13`, `VIRTUAL_ENV=/tmp/et-venv uv pip install executorch==1.5.0 torch==2.14.0 torchao==0.18.0 transformers==5.17.0 peft==0.21.0
+  pydantic accelerate datasets`, `uv pip install --no-deps -e .`; from an ExecuTorch checkout at `main`, copy `backends/xnnpack/partition/config/{gemm,generic_node}_configs.py`
+  and `backends/mlx/custom_kernel_ops/gated_delta_rule.py` over the wheel's and `uv pip install --no-deps --no-build-isolation extension/llm/tokenizers` (the NFC fix,
+  not in the pytorch-tokenizers 1.5.0 wheel), then `cd examples/kev && python export.py --checkpoint jaredpalmer/kev-0.8b --backend xnnpack|mlx --dtype fp32|bf16 --output <dir>`
+  (~3 min, 12 GB peak at 0.8B fp32; 4B bf16 peaks near 30 GB). Current releases on all 1,264 decision-v7 dev questions: Kev-0.8B XNNPACK fp32 max |dp| 1e-5, 0 flips;
+  MLX bf16 0.055, 4 (mlx-lm 0.085, 5); Kev-4B MLX bf16 0.104, 2 (mlx-lm 0.077, 2); documents-v1 dev with an 8k program 0.039, 5; the C++ tokenizer now matches on every question
+  (`runs/et-*-r1{0,5}*`). On an M5 the ET MLX program is slower than `kev/mlx_model.py` and XNNPACK bf16 ~3x slower than fp32, so `auto` never picks ExecuTorch.
 - Delta fine-tuning: `kev.train --init_from <run dir | Hub id[@rev]>` warm-starts LoRA + head (compatibility checked before load; source hashes in
   provenance; allowlisted in `kev/experiment.py` so studies can run cheap delta trials from a released checkpoint). Use lr <= 2e-5 for deltas.
 - Publish: `uv run python -m kev.publish --run runs/<run> --repo jaredpalmer/kev-<size> --card docs/model-cards/<name>.md` (needs `hf auth login`;

@@ -207,7 +207,9 @@ class Checkpoint:
         if not opts.program: raise ValueError("backend executorch needs LoadOptions.program (KEV_PROGRAM): the model.pte exported from this checkpoint")
         if not opts.merge or opts.lora_scale != 1: raise ValueError("an exported program carries the merged adapter at scale 1; KEV_MERGE=0 and KEV_LORA_SCALE need backend=torch")
         if self.meta.option_isolation: raise ValueError("option_isolation needs the packed mask; not available on the ExecuTorch backend")
-        return ExecuTorchDecisionModel(load_program(opts.program), tok, temperature=self.meta.temperature)
+        from .suite import digest   # lazy: the Space vendors this module without kev/suite.py
+        return ExecuTorchDecisionModel(load_program(opts.program), tok, temperature=self.meta.temperature,
+                                       checkpoint_id="sha256:" + digest(self.file("head.pt")))
 
     def _load_mlx(self, tok, opts):
         from .mlx_model import MLXDecisionModel, merge_lora
