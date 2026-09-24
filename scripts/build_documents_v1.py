@@ -10,12 +10,12 @@ current CFPB export no longer carries narratives. Each document gets two Choice 
 consumer selected when filing: the kind of product (9 canonical classes) and the main issue (the canonical issues of
 that product, merged across CFPB's naming changes, `ISSUES`). Length buckets are by characters: short < 1,200, medium 1,200-4,000, long 4,000-28,000 (about 1k-7k tokens).
 """
-import argparse, hashlib, random, sys
+import argparse, random, sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kev.suite import digest, write_json, write_jsonl  # noqa: E402
+from kev.suite import digest, text_digest, write_json, write_jsonl  # noqa: E402
 
 REPO, REVISION = "davidheineman/consumer-finance-complaints-large", "44cfa170a402e254407470275ce05d7dcaccde30"
 PRODUCTS = {   # canonical key: (description shown as the option, raw CFPB product names over the years)
@@ -56,7 +56,6 @@ ISSUE_OF = {(product, raw): key for product, table in ISSUES.items() for key, ra
 BUCKETS = (("short", 200, 1200), ("medium", 1200, 4000), ("long", 4000, 28000))
 SPLITS = {"test": 22, "development": 22, "train": 222}      # documents per (product, bucket) cell
 RIGHTS = "US government work (public domain)"
-text_key = lambda t: hashlib.sha256(" ".join(t.casefold().split()).encode()).hexdigest()
 
 
 def prepare(row):
@@ -66,7 +65,7 @@ def prepare(row):
     text, key = (row["complaint_what_happened"] or "").strip(), RAW.get(row["product"])
     if not text or key is None: return None
     bucket = next((b for b, lo, hi in BUCKETS if lo <= len(text) < hi), None)
-    return {**row, "text": text, "key": key, "bucket": bucket, "text_sha256": text_key(text) if bucket else None}
+    return {**row, "text": text, "key": key, "bucket": bucket, "text_sha256": text_digest(text) if bucket else None}
 
 
 def questions(key, issue):

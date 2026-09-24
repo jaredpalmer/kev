@@ -19,9 +19,8 @@ def main():
     a = ap.parse_args()
     seen = {r["_meta"]["text_sha256"] for split in ("train", "development", "test") for r in load_split("evals/hard-v1", split, allow_test=True)}
     frozen = len(seen)
-    H.SEED = a.seed   # build_split reads the module seed for every family RNG and the final shuffle
     report = {}
-    recs = H.build_split("train", a.n, seen, H.Checker(), report)
+    recs = H.build_split("train", a.n, seen, H.Checker(), report, seed=a.seed)
     for r in recs:
         for k in ("id", "group_id"): r["_meta"][k] = r["_meta"][k].replace("hard-v1/", "hard-v1x/", 1)
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)

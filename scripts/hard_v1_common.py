@@ -1,10 +1,13 @@
-"""Shared pieces of the hard-v1 generators (scripts/build_hard_v1.py): name pools, number/date/money rendering, balanced
-option placement and the question builders. Every label in hard-v1 is computed by a family's solver from the record's
+"""Shared pieces of the hard-v1 generators (scripts/build_hard_v1.py): name pools, number/date/money rendering, the
+surface layouts (frame), balanced option placement and the question builders. Every label in hard-v1 is computed by a family's solver from the record's
 `_meta.facts`; the builders here only lay options out and never decide a label.
 """
+import math
 import random
+import re
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import timedelta
+from fractions import Fraction
 
 LETTERS = "abcdefgh"
 
@@ -21,8 +24,6 @@ COMPANIES = ["Northwind Logistics", "Harbor & Pine", "Cobalt Ridge", "Larkspur H
              "Brightwater Clinics", "Kestrel Systems", "Marigold Home", "Oakhaven Bank", "Pinecrest Hotels", "Quarry Street Studio",
              "Riverside Dental", "Summit Parcel", "Thistle Apparel", "Umber Robotics", "Vantage Print", "Willow Creek Farms",
              "Yardley Engineering", "Zephyr Travel", "Alder Finance", "Bramble Games", "Cinder Security", "Driftwood Furniture"]
-CITIES = ["Leeds", "Porto", "Lyon", "Denver", "Osaka", "Tallinn", "Accra", "Calgary", "Adelaide", "Rotterdam", "Austin", "Valencia",
-          "Gdansk", "Nairobi", "Montreal", "Hamburg", "Seattle", "Dublin", "Cork", "Bologna", "Tampere", "Kraków", "Busan", "Lima"]
 
 ONES = ("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen "
         "eighteen nineteen").split()
@@ -37,12 +38,8 @@ def words(n):
     return ONES[n // 100] + " hundred" + ("" if rest == 0 else " and " + words(rest))
 
 
-def person(rng, used=None):
-    while True:
-        name = f"{rng.choice(FIRST)} {rng.choice(LAST)}"
-        if used is None or name not in used:
-            if used is not None: used.add(name)
-            return name
+def person(rng):
+    return f"{rng.choice(FIRST)} {rng.choice(LAST)}"
 
 
 def people(rng, n):
@@ -71,10 +68,6 @@ def day(d, style="us"):
     return f"{d:%B} {d.day}, {d.year}"
 
 
-def parse_day(s):
-    return date.fromisoformat(s)
-
-
 def roman(n):
     out = ""
     for v, s in ((10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")):
@@ -82,9 +75,38 @@ def roman(n):
     return out
 
 
-def pct(x, decimals=1):
-    """0.1234 -> "12.3%"."""
-    return f"{100 * x:.{decimals}f}%"
+def frame(ctx, t, title, lines, speaker="Ops lead"):
+    """Render a list of fact sentences in template t's layout: email prose, ticket bullets, JSON object, chat, memo or a
+    numbered form. The facts are identical across layouts; only the surface changes."""
+    rng = ctx.rng
+    if t == 0:
+        return f"Subject: {title}\n\nHi all,\n\n" + " ".join(lines) + "\n\nThanks."
+    if t == 1:
+        return f"TICKET {rng.randint(1000, 99999)}: {title}\n" + "\n".join(f"- {x}" for x in lines)
+    if t == 2:
+        return {"topic": title, "facts": list(lines)}
+    if t == 3:
+        out = []
+        for i, x in enumerate(lines):
+            out.append(f"{speaker}: {x}")
+            if i % 2 == 1 and i < len(lines) - 1: out.append(rng.choice(["Analyst: ok, go on.", "Analyst: got it.", "Analyst: noted."]))
+        return "\n".join(out)
+    if t == 4:
+        return f"MEMO\nRe: {title}\n\n" + "\n\n".join(" ".join(lines[i:i + 3]) for i in range(0, len(lines), 3))
+    return f"CASE FILE: {title}\n" + "\n".join(f"{i + 1}) {x}" for i, x in enumerate(lines))
+
+
+def slug(name):
+    return re.sub(r"_+", "_", "".join(c if c.isalnum() else "_" for c in name.lower())).strip("_")
+
+
+def per_mille(p):
+    """A probability (Fraction) as tenths of a percent, rounded half up: the canonical value of a percentage option."""
+    return int(math.floor(p * 1000 + Fraction(1, 2)))
+
+
+def fmt_pm(v):
+    return f"{v / 10:.1f}%"
 
 
 class Ctx:
@@ -165,6 +187,3 @@ def business_days_after(start, n, holidays):
         if d.weekday() < 5 and d not in holidays: count += 1
     return d
 
-
-def is_business_day(d, holidays):
-    return d.weekday() < 5 and d not in holidays

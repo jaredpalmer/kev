@@ -23,6 +23,8 @@ N = 8
 PARTITIONS = ("train", "development", "test")
 
 
+# Words only (\w+), not kev.suite.normalise_text: punctuation and layout differ between our templates and the external
+# items, and an n-gram overlap screen should see through them; exact deduplication inside a suite deliberately does not.
 def words(value):
     return re.findall(r"\w+", (value if isinstance(value, str) else render(value)).casefold())
 
