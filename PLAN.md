@@ -110,6 +110,16 @@ Reported, never gating:
 
 **Reading.** At 9B, 6,000 replayed records remove the external cost that 2,000 left (round 7: pooled −0.8 / −0.4; here +0.5 / +0.3); the short-state cost shrinks from −2.3 / −1.7 to −0.8 / −0.9 but the 656-question panel cannot bound it above −2 pp (half-width ~1.7 pp). A smaller step alone (b) protects short states and moves the damage to the externals. At 0.8B neither remedy works. Five tries, no pass; the documents gain is stable across every arm (+6.5 to +6.8 at 9B, about 3 pp above Jev). The registration-appropriate next step is a fresh-seed replication of recipe (a) judged on a short-state panel large enough to resolve a 1 pp cost (round 11), not a re-reading of these arms.
 
+## Round 10 result, 4B (2026-09-24; `runs/r10-readout/round10.json`, `runs/r10-verdict/`) — **Kev-4B skills arm confirmed**
+
+| 4B arm (from the released round-8 Kev-4B) | primary (hard-v1 + devtools-v1 dev) | hard-v1 dev | devtools-v1 dev | documents dev | short state | pooled externals | hard ECE | verdict |
+|---|---|---|---|---|---|---|---|---|
+| skills (hard + devtools) | +20.8 [+18.8, +22.8] | 0.503 → **0.786** | 0.605 → **0.739** | −0.3 [−1.5, +0.9] | +1.5 [−0.3, +3.5] | −0.0 [−1.2, +1.1] | 0.137 → 0.095 | **pass** |
+| hard only | +14.2 [+12.4, +15.9] | 0.763 | 0.628 | +0.1 | +0.6 | −0.5 [−1.7, +0.6] | 0.117 | WANLI-v2, pooled |
+| devtools only | +7.4 [+5.9, +8.9] | 0.510 | 0.747 | +0.1 | −0.6 | −0.5 [−1.5, +0.4] | 0.104 | scienthoon |
+
+Jev on the same development splits: hard-v1 0.777, devtools-v1 0.713. **Confirmation (read once):** hard-v1 test 0.540 → **0.803** (+26.3 [+23.4, +29.5]), devtools-v1 test 0.623 → **0.756** (+13.4 [+10.1, +16.1]), pooled +19.9 [+17.8, +21.8]; hard-v1 test ECE 0.112 → 0.084; locked `transfer-v4` 0.835 → **0.838** (+0.3 [−1.8, +2.3]), served Brier 0.233 → **0.224** (`kev-4b-r10-ungated`; the name keeps the suffix the tool used for round 8 although this trial passed its in-trial gates). **Passes every registered criterion: release candidate.** The first parent test read failed before scoring anything (the benchmarks job format splits on `@`, which broke a pinned Hub revision); it was rerun from the volume checkpoint. The hard-v1 gain is measured on held-out templates of the same generators; JevBench public items (report only) are the out-of-distribution check.
+
 ## Round 12 - skills delta at 9B and 0.8B (registered 2026-09-24T04:56Z, before any training or read)
 
 **Why.** Round 10's 4B skills arm passed rules 1-3 (hard-v1 development 0.503 → 0.786, devtools-v1 0.605 → 0.739, every guard flat, hard-set ECE 0.137 → 0.095); its confirmation is running. This round applies the same data at 9B with round 9's lesson (replay 6,000 removes the 9B external cost) and at 0.8B.
