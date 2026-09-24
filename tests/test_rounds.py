@@ -92,8 +92,7 @@ def test_read_commands_batch_one_arm_and_skip_existing_reads(tmp_path):
     jobs = bench[bench.index("--jobs") + 1].split(",")
     assert len(jobs) == 7 and not any(j.endswith("-hard") for j in jobs)                          # hard exists locally
     assert "/runs/r17-27b/00-trial-0/checkpoint@evals/devtools-v1@r17-27b-r10k-lr2e5-devtools" in jobs
-    tests, locked = rounds.read_commands(spec, "27b-r10k-lr2e5", stage="locked", root=tmp_path), None
-    [locked] = tests
+    [locked] = rounds.read_commands(spec, "27b-r10k-lr2e5", stage="locked", root=tmp_path)
     assert locked[:3] == ["modal", "run", "modal_app.py::locked_test"] and locked[locked.index("--name") + 1] == "kev-27b-r17-ungated"
     assert locked[-4:] == ["--timeout", "14400", "--memory-mb", "131072"]
 
@@ -395,18 +394,114 @@ def test_session_stops_at_the_spend_cap_and_never_confirms(tmp_path, monkeypatch
     assert read_json(tmp_path / "runs/autoresearch-sessions.jsonl")["round"] == 18
 
 
-def test_watch_pulls_reads_and_reads_out_each_finished_trial_once(monkeypatch):
+def test_watch_pulls_reads_and_reads_out_each_finished_trial_once(monkeypatch, tmp_path):
     """The wiring of `watch`: a finished call -> its arm -> one pull of its study -> that arm's read commands -> read-out
     once every benchmarks process has exited (a failed read never lands)."""
+    monkeypatch.setattr(rounds, "ROOT", tmp_path)   # the per-arm lock and launch intents are written under runs/
     spec = rounds.load(ROOT / "experiments/rounds/r16.json")
     events = []
-    monkeypatch.setattr(rounds, "watch_studies", lambda studies, on_done, **kw: [on_done("r16-9b", label) for label in ("trial-1", "trial-0")])
+    monkeypatch.setattr(rounds, "watch_studies", lambda studies, on_done, **kw: [on_done("r16-9b", label) for label in ("trial-1", "trial-0")] and [])   # no unmapped calls
     monkeypatch.setattr(rounds, "pull", lambda study, spec: events.append(("pull", study)))
-    monkeypatch.setattr(rounds, "read_commands", lambda spec, arm: [["modal", "run", arm]])
     class Done:
         def poll(self): return 0
     monkeypatch.setattr(rounds, "launch_commands", lambda commands, spec, stem, stagger: events.append(("reads", commands[0][2])) or [Done()])
+    monkeypatch.setattr(rounds, "read_commands", lambda spec, arm, *rest: [["modal", "run", arm]])
     monkeypatch.setattr(rounds, "write_readout", lambda spec: events.append(("readout", spec["round"])) or {"candidates": {}})
     monkeypatch.setattr(rounds.time, "sleep", lambda s: None)
     rounds.watch(spec, stagger=0)
     assert events == [("pull", "r16-9b"), ("reads", "9b-r10k-lr2e5"), ("pull", "r16-9b"), ("reads", "9b-r10k-lr1e5"), ("readout", 16)]
+
+
+# --- review follow-ups: atomic state, interrupted launches, entrypoints, unmapped calls ------------------------------
+
+def test_an_atomic_write_interrupted_mid_file_leaves_the_old_state_readable(tmp_path, monkeypatch):
+    """The watcher's state is replaced, not rewritten in place: a crash while the new text is being written leaves the
+    previous state intact (the in-place writer, for contrast, leaves a torn file)."""
+    from pathlib import Path
+    from kev import suite
+    path = tmp_path / "s.watch.json"
+    write_json(path, {"calls": {"trial-0": {"status": "running"}}})
+    real = Path.write_text
+    def crash(self, text, **kw):   # half the new text reaches the disk, then the process dies
+        real(self, text[: len(text) // 2], **kw); raise KeyboardInterrupt
+    monkeypatch.setattr(Path, "write_text", crash)
+    with pytest.raises(KeyboardInterrupt):
+        suite.write_json(path, {"calls": {"trial-0": {"status": "done", "launched": True}}}, atomic=True)
+    monkeypatch.setattr(Path, "write_text", real)
+    assert read_json(path) == {"calls": {"trial-0": {"status": "running"}}}
+    monkeypatch.setattr(Path, "write_text", crash)
+    with pytest.raises(KeyboardInterrupt):
+        suite.write_json(path, {"calls": {"trial-0": {"status": "done", "launched": True}}})
+    monkeypatch.setattr(Path, "write_text", real)
+    with pytest.raises(ValueError):
+        read_json(path)
+
+
+def test_a_launch_interrupted_after_its_intent_is_not_repeated_while_the_reads_may_run(tmp_path, monkeypatch):
+    """Crash between recording the launch and finishing it; the restarted watcher logs the interrupted launch, sees the
+    fresh intent and holds off (InFlight) until the reads' timeout has passed, then launches exactly once."""
+    monkeypatch.setattr(rounds, "ROOT", tmp_path)
+    _spawned(tmp_path, {"trial-0": "fc-0"})
+    spec = rounds.load(ROOT / "experiments/rounds/r16.json")
+    clock, launched, logs = [1000.0], [], []
+    def on_done(launch):
+        return lambda study, label: rounds.launch_arm_reads(spec, "9b-r10k-lr1e5", stagger=0, launch=launch, now=lambda: clock[0], log=logs.append)
+    def killed(commands, spec, tag, stagger): raise KeyboardInterrupt   # the process dies while spawning
+    with pytest.raises(KeyboardInterrupt):
+        rounds.watch_studies(["s"], on_done(killed), poll=lambda cid: "done", sleep=lambda s: None, log=logs.append, root=tmp_path, now=lambda: clock[0])
+    state = read_json(tmp_path / "runs/s.watch.json")["calls"]["trial-0"]
+    assert state["launching_at"] == 1000.0 and not state["launched"]
+    def tick(seconds): clock[0] += 3 * 3600   # each pass is three hours later
+    clock[0] += 60
+    rounds.watch_studies(["s"], on_done(lambda commands, spec, tag, stagger: launched.append(tag) or []), poll=lambda cid: "done",
+                         sleep=tick, log=logs.append, root=tmp_path, now=lambda: clock[0])
+    assert launched == ["r16-reads-9b-r10k-lr1e5"]
+    assert any("interrupted" in line for line in logs) and any("may still be running" in line for line in logs)
+    assert read_json(tmp_path / "runs/s.watch.json")["calls"]["trial-0"]["launched"]
+
+
+def test_reads_that_landed_are_never_relaunched(tmp_path, monkeypatch):
+    monkeypatch.setattr(rounds, "ROOT", tmp_path)
+    spec = rounds.load(ROOT / "experiments/rounds/r16.json")
+    for tag in rounds.rule_tags(spec["rule"]) - {"transfer"}:
+        d = tmp_path / rounds.arm_side(spec, "9b-r10k-lr1e5", tmp_path).dirs[tag]; d.mkdir(parents=True); write_json(d / "rows.json", [])
+    assert rounds.launch_arm_reads(spec, "9b-r10k-lr1e5", launch=lambda *a: pytest.fail("relaunched"), log=lambda m: None) == []
+
+
+def test_a_watcher_and_launch_reads_cannot_both_launch_one_arm(tmp_path, monkeypatch):
+    import threading, time
+    monkeypatch.setattr(rounds, "ROOT", tmp_path)
+    spec = rounds.load(ROOT / "experiments/rounds/r16.json")
+    launched, refused = [], []
+    def slow(commands, spec, tag, stagger): time.sleep(0.05); launched.append(tag); return []
+    def go():
+        try: rounds.launch_arm_reads(spec, "9b-r10k-lr1e5", stagger=0, launch=slow, log=lambda m: None)
+        except rounds.InFlight: refused.append(1)
+    threads = [threading.Thread(target=go) for _ in range(2)]
+    for t in threads: t.start()
+    for t in threads: t.join()
+    assert len(launched) == 1 and len(refused) == 1
+
+
+def test_a_misspelled_entrypoint_fails_validation():
+    spec = rounds.load(ROOT / "experiments/rounds/r10.json")
+    spec["reads"]["locked"]["entrypoint"] = "locked-test"
+    problems = rounds.validate(spec, ROOT, rows=False, plans=False).problems
+    assert any("read locked: entrypoint 'locked-test' is not one of ('benchmarks', 'locked_test')" in p for p in problems)
+
+
+def test_a_finished_call_with_no_arm_is_not_marked_launched(tmp_path, monkeypatch):
+    """A spawned call the spec cannot map stays unlaunched and flagged, the watch still ends, and `watch` exits non-zero."""
+    _spawned(tmp_path, {"trial-0": "fc-0", "trial-7": "fc-7"})
+    logs = []
+    def on_done(study, label):
+        if label == "trial-7": raise rounds.Unmapped("no arm has a trial runs/s/<NN>-trial-7")
+    unmapped = rounds.watch_studies(["s"], on_done, poll=lambda cid: "done", sleep=lambda s: None, log=logs.append, root=tmp_path)
+    state = read_json(tmp_path / "runs/s.watch.json")["calls"]
+    assert unmapped == ["s/trial-7"] and state["trial-0"]["launched"] and not state["trial-7"]["launched"] and state["trial-7"]["unmapped"]
+    assert any(line.startswith("!!! s/trial-7") for line in logs)
+    spec = rounds.load(ROOT / "experiments/rounds/r16.json")
+    monkeypatch.setattr(rounds, "watch_studies", lambda studies, on_done, **kw: pytest.raises(rounds.Unmapped, on_done, "r16-9b", "trial-9") and ["r16-9b/trial-9"])
+    monkeypatch.setattr(rounds, "write_readout", lambda spec: {"candidates": {}})
+    with pytest.raises(SystemExit, match="map to no arm"):
+        rounds.watch(spec, stagger=0)

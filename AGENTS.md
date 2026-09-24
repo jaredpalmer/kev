@@ -46,7 +46,9 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   (panels of reads, bootstrapped metrics, criteria on paired bounds, rank) and confirmation stages. `kev/rounds.py` is the
   one engine: `uv run python -m kev.rounds {validate,launch,watch,launch-reads,readout,confirm} <spec>`; `watch` polls the
   spawned trials (state in `runs/<study>.watch.json`, resumable; DNS/connection errors retried, a trial's own exception is a
-  failure), pulls each finished trial's study (one pull per study at a time, `modal_app.pull_lock`) and launches its reads once,
+  failure), pulls each finished trial's study (one pull per study at a time, `modal_app.pull_lock`) and launches its reads once (per-arm lock; the
+  launch intent is written first to `runs/r<N>-reads-<arm>.json`, and an arm launched within its reads' timeout is not relaunched; a
+  finished call that maps to no arm is logged and makes `watch` exit non-zero),
   60 s apart, then writes `runs/r<N>-readout/round<N>.json`; `confirm <spec> --stage <s>` writes `runs/r<N>-verdict/<size>-<s>.json`.
   Every side is served at the temperature fitted on its own development rows; deltas are `kev.rounds.paired` (2,000 resamples,
   seed 0, micro). Rounds 5-18 are recorded specs (`"archive": "research-archive-2026-09-24"`): their plans, reads, data builders

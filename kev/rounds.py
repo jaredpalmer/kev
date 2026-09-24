@@ -24,7 +24,7 @@ Spec (paths are relative to the repo root; templates take {round}, {arm}, {size}
                                       what this checkout lacks instead of failing; launch refuses a record)
     gpu, app                          Modal GPU and KEV_APP_NAME for launches (optional)
     studies   {name: {plan, suite, transfer, gpu, timeout, budget}}   one modal_app.py::study call each (budget >= its admission bound)
-    reads     {tag: {suite, flags?} | {entrypoint: "locked_test", decision}}  what each read tag scores
+    reads     {tag: {suite, flags?} | {entrypoint: "locked_test", decision}}  what each read tag scores (entrypoint: ENTRYPOINTS)
     read_timeout {size: seconds}      overrides modal_app.READ_TIMEOUTS for one size (a 27B's fp32 reads)
     locked_args  {size: [args]}       extra modal_app.py::locked_test switches for one size (a 27B's GPU memory)
     parents   {name: {trial, checkpoint?, reads: {tag: dir}}}   checkpoint (Hub id[@rev]) only when /<trial>/checkpoint is not on the volume
@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from kev.metrics import metrics, paired_bootstrap, raw_row, recorded, served, served_at, tempered_row, unknowable_report
-from kev.suite import read_json, write_json
+from kev.suite import file_lock, read_json, write_json
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLES = 2000   # the registered resample count since round 5
@@ -58,6 +58,8 @@ OPS = {">": operator.gt, ">=": operator.ge, "<": operator.lt, "<=": operator.le}
 FIELDS = ("candidate", "parent", "delta", "lower", "upper")
 TRANSFER = "transfer"   # the in-trial transfer read (runs/<study>/<trial>/transfer)
 STAGGER = 60            # seconds between `modal run` launches: Modal refuses more than ~3 app creations a minute
+ENTRYPOINTS = ("benchmarks", "locked_test")   # the modal_app.py entrypoints a read can go through
+IN_FLIGHT = 7200        # seconds an arm's launched reads are presumed running (the longest suite timeout in modal_app.READ_TIMEOUTS)
 
 
 # --- rows ------------------------------------------------------------------------------------------------------------
@@ -170,6 +172,7 @@ def validate(spec, root=ROOT, rows=True, plans=True, partitions=False):
     if problems: return Validation(problems, archived)
     tags = {*spec["reads"], TRANSFER}
     for name, r in spec["reads"].items():
+        if r.get("entrypoint", "benchmarks") not in ENTRYPOINTS: problems.append(f"read {name}: entrypoint {r['entrypoint']!r} is not one of {ENTRYPOINTS}"); continue
         if r.get("entrypoint", "benchmarks") == "benchmarks" and not r.get("suite"): problems.append(f"read {name}: no suite")
         if r.get("entrypoint") == "locked_test" and not r.get("decision"): problems.append(f"read {name}: locked_test needs a decision suite")
         if plans and r.get("suite") and not (root / r["suite"]).exists(): absent(f"read {name}: {r['suite']} not in this checkout")
@@ -217,7 +220,7 @@ def _known_path(path, rule):
 def _validate_plan(study, s, root, partitions):
     from kev.experiment import load_plan, validated_trial
     from kev.suite import read_manifest
-    from modal_app import compute_bound   # the admission bound modal_app.admit_study refuses a study over
+    from kev.budget import compute_bound   # the admission bound modal_app.admit_study refuses a study over
     problems = []
     try:
         trials = load_plan(root / s["suite"], root / s["plan"]) if partitions else [validated_trial(t, read_manifest(root / s["suite"])) for t in read_json(root / s["plan"])]
@@ -394,6 +397,30 @@ def launch_commands(commands, spec, log_stem, stagger=STAGGER, run=subprocess.Po
     return procs
 
 
+class InFlight(Exception):
+    """An arm's reads were launched recently and may still be running; they are not launched again yet."""
+
+
+def launch_arm_reads(spec, arm, stage=None, sides=("candidate",), stagger=STAGGER, launch=None, now=time.time, log=print):
+    """Launch one arm's missing reads once. Under a per-arm lock (runs/.reads-r<N>-<arm>.lock: a watcher and a
+    `launch-reads` cannot both launch the arm), the intent is written first (runs/r<N>-reads-<arm>[-<stage>].json: when and
+    what), then the commands start. Detached benchmarks cannot be seen from here, so while an earlier intent is younger
+    than the reads' timeout the arm counts as in flight: InFlight is raised (the watcher retries on a later pass) instead of
+    a second launch whose job would find /runs/bench/<name> taken. Reads whose rows landed are never relaunched."""
+    tag = f"r{spec['round']}-reads-{arm}" + (f"-{stage}" if stage else "")
+    grace = max(IN_FLIGHT, spec.get("read_timeout", {}).get(size_of(arm), 0))
+    with file_lock(ROOT / "runs" / f".reads-r{spec['round']}-{arm}.lock"):
+        commands = read_commands(spec, arm, stage, ROOT, sides)
+        if not commands: log(f"{arm}: every read has landed"); return []
+        intent = ROOT / "runs" / f"{tag}.json"
+        if intent.exists() and now() - read_json(intent)["launched_at"] < grace:
+            since = read_json(intent)["launched_at"]
+            raise InFlight(f"{arm}: reads launched {int(now() - since)} s ago may still be running; not relaunching for another "
+                           f"{int(since + grace - now())} s (if they finished on Modal but were never pulled: modal volume get kev-runs /bench/<name> runs/)")
+        write_json(intent, {"launched_at": now(), "commands": commands}, atomic=True)
+        return (launch or launch_commands)(commands, spec, tag, stagger)
+
+
 def pull(study, spec):
     """modal_app.py::pull for one study (modal_app.pull_study holds a per-study lock, so concurrent pulls wait)."""
     subprocess.run([sys.executable, "-m", "modal", "run", "modal_app.py::pull", "--name", study], check=True, cwd=ROOT, env=modal_env(spec))
@@ -430,11 +457,19 @@ def poll_modal(call_id):
     return "done"
 
 
-def watch_studies(studies, on_done, poll=poll_modal, interval=120, max_transient=60, sleep=time.sleep, log=print, root=ROOT):
-    """Poll every spawned trial of the studies until each is done or failed, calling on_done(study, label) once per finished
-    trial. State lives in runs/<study>.watch.json, written after every change, so a restarted watcher resumes: finished
-    trials are not polled again and reads are not launched twice. Network errors while polling are retried (max_transient
-    in a row marks the call failed); an on_done that raises (a pull that lost the network) is retried on the next pass."""
+class Unmapped(Exception):
+    """A finished call trained no arm of the spec: its reads cannot be launched."""
+
+
+def watch_studies(studies, on_done, poll=poll_modal, interval=120, max_transient=60, sleep=time.sleep, log=print, root=ROOT, now=time.time):
+    """Poll every spawned trial of the studies until each is settled, calling on_done(study, label) for a finished trial
+    until it succeeds; returns the finished calls that map to no arm. State lives in runs/<study>.watch.json, replaced
+    atomically after every change, so a restarted watcher resumes: finished trials are not polled again and launched reads
+    are not launched again. `launching_at` is written before on_done runs; a restart that finds it logs the interrupted
+    launch and calls on_done again, which must check what already happened (kev.rounds.launch_arm_reads does). Network
+    errors while polling are retried (max_transient in a row marks the call failed); an on_done that raises (a pull that
+    lost the network, reads still in flight) is retried on the next pass; one that raises Unmapped leaves the call
+    unlaunched, logged, and settled so the watch can end."""
     runs = Path(root) / "runs"
     calls = {study: read_json(runs / f"{study}.spawn.json")["calls"] for study in studies}
     while True:
@@ -452,14 +487,19 @@ def watch_studies(studies, on_done, poll=poll_modal, interval=120, max_transient
                             s["transient"] += 1; log(f"{study}/{label}: network error, retrying ({type(error).__name__}: {str(error)[:120]})")
                         else:
                             s["status"], s["error"] = "failed", f"{type(error).__name__}: {str(error)[:300]}"; log(f"{study}/{label}: FAILED {s['error']}")
-                if s["status"] == "done" and not s["launched"]:
+                if s["status"] == "done" and not s["launched"] and not s.get("unmapped"):
+                    if "launching_at" in s: log(f"{study}/{label}: a launch started at {s['launching_at']:.0f} was interrupted; checking the arm's reads before any relaunch")
+                    s["launching_at"] = now(); write_json(path, state, atomic=True)
                     try:
-                        on_done(study, label); s["launched"] = True; log(f"{study}/{label}: done, reads launched")
-                    except Exception as error:   # noqa: BLE001 - retried on the next pass
-                        log(f"{study}/{label}: launching reads failed, retrying next pass ({type(error).__name__}: {str(error)[:200]})")
-                write_json(path, state)
-                settled = settled and (s["status"] == "failed" or s["launched"])
-        if settled: return
+                        on_done(study, label); s["launched"] = True; s.pop("launching_at"); log(f"{study}/{label}: done, reads launched")
+                    except Unmapped as error:
+                        s["unmapped"] = True; s.pop("launching_at"); log(f"!!! {study}/{label}: finished but {error}; its reads were NOT launched")
+                    except Exception as error:   # noqa: BLE001 - retried on the next pass; only a dead process leaves launching_at behind
+                        s.pop("launching_at"); log(f"{study}/{label}: launching reads failed, retrying next pass ({type(error).__name__}: {str(error)[:300]})")
+                write_json(path, state, atomic=True)
+                settled = settled and (s["status"] == "failed" or s["launched"] or bool(s.get("unmapped")))
+        if settled:
+            return [f"{study}/{label}" for study in calls for label, s in read_json(runs / f"{study}.watch.json")["calls"].items() if s.get("unmapped")]
         sleep(interval)
 
 
@@ -476,18 +516,20 @@ def watch(spec, interval=120, stagger=STAGGER, reads_timeout=6 * 3600):
     last, procs = [0.0], []
     def on_done(study, label):
         arm = arm_of(spec, study, label)
-        if arm is None: print(f"{study}/{label}: no arm in the spec; not read"); return
+        if arm is None: raise Unmapped(f"no arm of round {spec['round']} has a trial runs/{study}/<NN>-{label}")
         pull(study, spec)
         time.sleep(max(0.0, last[0] + stagger - time.time()))
-        procs.extend(launch_commands(read_commands(spec, arm), spec, f"r{spec['round']}-reads-{arm}", stagger))
+        procs.extend(launch_arm_reads(spec, arm, stagger=stagger))
         last[0] = time.time()
-    watch_studies(list(spec.get("studies", {})), on_done, interval=interval)
+    unmapped = watch_studies(list(spec.get("studies", {})), on_done, interval=interval)
     deadline = time.time() + reads_timeout
     finished = [a for a, x in spec["arms"].items() if (ROOT / x["trial"] / "result.json").exists()]
     while (waiting := [a for a in finished if not all(arm_side(spec, a).has(t) for t in rule_tags(spec["rule"]))]) and time.time() < deadline:
         if procs and all(p.poll() is not None for p in procs): break
         print(f"waiting for the reads of {waiting}", flush=True); time.sleep(interval)
-    return write_readout(spec)
+    report = write_readout(spec)
+    if unmapped: raise SystemExit(f"finished calls that map to no arm, never read: {unmapped} (fix the spec's arms, then launch-reads)")
+    return report
 
 
 def launchable(spec, rows=True):
@@ -557,9 +599,14 @@ def main(argv=None):
     if a.cmd == "watch":
         watch(spec, a.interval, a.stagger); return
     arms = [a.arm or _candidate(spec, root)] if a.stage else (a.arms.split(",") if a.arms else [x for x, v in spec["arms"].items() if (root / v["trial"] / "result.json").exists()])
-    commands = [c for arm in arms for c in read_commands(spec, arm, a.stage, root, ("candidate", "parent") if a.parents or a.stage else ("candidate",))]
-    for c in commands: print(" ".join(c))
-    if not a.dry_run: launch_commands(commands, spec, f"r{spec['round']}-reads", a.stagger)
+    sides = ("candidate", "parent") if a.parents or a.stage else ("candidate",)
+    if a.dry_run:
+        for arm in arms: print("\n".join(" ".join(c) for c in read_commands(spec, arm, a.stage, root, sides)))
+        return
+    for i, arm in enumerate(arms):
+        if i: time.sleep(a.stagger)
+        try: launch_arm_reads(spec, arm, a.stage, sides, a.stagger)
+        except InFlight as error: print(f"!!! {error}")
 
 
 def _candidate(spec, root):
