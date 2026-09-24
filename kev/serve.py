@@ -31,8 +31,40 @@ MODEL_NAMES = ("kev-latest", "jev-latest")                               # both 
 
 
 @dataclass
+class PrefixCache:
+    """State prefixes kept across requests, least recently used first: (state token ids, option_isolation) -> prefix.
+    States shorter than min_tokens are not cached. A batch keeps (copies) only the new states that will still be here
+    after it, its last `size` distinct ones: the rest would be evicted by the batch itself."""
+    size: int
+    min_tokens: int
+    entries: dict = field(default_factory=dict)
+    hits: int = 0
+    misses: int = 0
+
+    def plan(self, encs):
+        """-> (key per request, None when its state is not cached; its cached prefix or None; whether to keep a new one)."""
+        lengths = [enc["seg"].count(0) for enc in encs]
+        keys = [(tuple(enc["ids"][:n]), bool(enc.get("option_isolation"))) if self.size and n >= self.min_tokens else None
+                for enc, n in zip(encs, lengths)]
+        survivors = set(list(dict.fromkeys(k for k in reversed(keys) if k is not None))[:self.size])
+        return keys, [self.entries.get(k) if k is not None else None for k in keys], [k in survivors for k in keys]
+
+    def store(self, keys, cached, prefixes):
+        """Record hits and misses, and (re)insert the batch's prefixes in order: most recently used last."""
+        for key, old, new in zip(keys, cached, prefixes):
+            if key is None: continue
+            self.hits += old is not None; self.misses += old is None
+            if new is None: continue
+            self.entries.pop(key, None); self.entries[key] = new
+            while len(self.entries) > self.size: self.entries.pop(next(iter(self.entries)))
+
+    def clear(self):
+        self.entries.clear()
+
+
+@dataclass
 class Server:
-    """The loaded checkpoint, the state-prefix cache, and the one model thread that runs every forward pass.
+    """The loaded checkpoint, the state-prefix cache (PrefixCache), and the one model thread that runs every forward pass.
 
     Request threads encode their record and queue it; the model thread takes everything queued when it becomes free and
     runs it as one batch (model.probs_batch: with CUDA graphs, shared state and row passes; otherwise one request at a
@@ -43,15 +75,13 @@ class Server:
     model: object
     device: str
     lock: threading.Lock = field(default_factory=threading.Lock)
-    prefix_cache: dict = field(default_factory=dict)   # (state token ids, option_isolation) -> prefix, in LRU order
-    prefix_hits: int = 0
-    prefix_misses: int = 0
     batches: int = 0
     batched_requests: int = 0
     release_date: str = field(default="")   # for the TypeSafe model card; resolved once (may ask the Hub)
 
     def __post_init__(self):
         self.release_date = self.release_date or self.checkpoint.release_date()
+        self.prefix_cache = PrefixCache(PREFIX_CACHE_SIZE, int(PREFIX_MIN_TOKENS) if PREFIX_MIN_TOKENS else self.model.prefix_min_tokens)
         self.queue, self.stopping = queue.Queue(), threading.Event()
         # the model thread gives up the GIL at every CUDA sync and waits to get it back while the event loop parses and
         # answers requests; at Python's default 5 ms switch interval those waits stretched a batch's model time ~2x.
@@ -69,10 +99,6 @@ class Server:
         while not self.queue.empty():
             self.queue.get_nowait()[1].set_exception(RuntimeError("the server stopped")); self.queue.task_done()
         sys.setswitchinterval(self.switch_interval)
-
-    @property
-    def prefix_min_tokens(self):
-        return int(PREFIX_MIN_TOKENS) if PREFIX_MIN_TOKENS else self.model.prefix_min_tokens
 
     def submit(self, rec):
         """Queue one record for the model thread. -> a Future of (probabilities, stats). The state prefix (tokens up to the
@@ -110,27 +136,15 @@ class Server:
                 with self.lock: graphs.capture_pending(limit=1)
 
     def _run(self, encs):
-        """One batch through model.probs_batch, with the prefix cache. -> per request (probs, stats). Only the states that
-        stay in the cache are kept: the last PREFIX_CACHE_SIZE distinct ones of the batch (the LRU would evict the rest)."""
-        cache = self.prefix_cache
-        states = [enc["seg"].count(0) for enc in encs]
-        keys = [(tuple(enc["ids"][:Ls]), bool(enc.get("option_isolation"))) for enc, Ls in zip(encs, states)]
-        cacheable = [bool(PREFIX_CACHE_SIZE) and Ls >= self.prefix_min_tokens for Ls in states]
-        prefixes = [cache.get(k) if c else None for k, c in zip(keys, cacheable)]
-        survivors = list(dict.fromkeys(k for k, c in zip(reversed(keys), reversed(cacheable)) if c))[:PREFIX_CACHE_SIZE]
-        keep = [c and k in survivors for k, c in zip(keys, cacheable)]
+        """One batch through model.probs_batch, with the prefix cache. -> per request (probs, stats)."""
+        keys, cached, keep = self.prefix_cache.plan(encs)
         sync(self.device); t = time.time()
-        ps, kept = self.model.probs_batch(encs, prefixes, keep)
+        ps, prefixes = self.model.probs_batch(encs, cached, keep)
         sync(self.device); dt = round((time.time() - t) * 1000, 1)
+        self.prefix_cache.store(keys, cached, prefixes)
         self.batches += 1; self.batched_requests += len(encs)
-        for key, use, prefix, fresh in zip(keys, cacheable, prefixes, kept):
-            if not use: continue
-            self.prefix_hits += prefix is not None; self.prefix_misses += prefix is None
-            if fresh is None: continue
-            cache.pop(key, None); cache[key] = fresh              # (re)insert = most recently used
-            while len(cache) > PREFIX_CACHE_SIZE: cache.pop(next(iter(cache)))
-        return [([q.tolist() for q in p], {"tokens": len(enc["ids"]), "state_tokens": Ls, "latency_ms": dt, "prefix_cache_hit": prefix is not None})
-                for enc, p, Ls, prefix in zip(encs, ps, states, prefixes)]
+        return [([q.tolist() for q in p], {"tokens": len(enc["ids"]), "state_tokens": enc["seg"].count(0), "latency_ms": dt, "prefix_cache_hit": c is not None})
+                for enc, p, c in zip(encs, ps, cached)]
 
     def wait_idle(self):
         """Block until every submitted request is answered and no CUDA graph waits to be captured (benchmarks, warm-up)."""
@@ -231,8 +245,8 @@ def models():
             "run": ck.requested, "base": meta.base, "lora": meta.lora, "device": s.device, "backend": s.model.backend, "dtype": s.model.dtype,
             "temperature": s.model.head.temperature,
             "cuda_graphs": graphs.stats() if (graphs := getattr(s.model, "graphs", None)) else None,
-            "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": s.prefix_min_tokens, "hits": s.prefix_hits,
-                             "misses": s.prefix_misses, "cached_states": len(s.prefix_cache)},
+            "prefix_cache": {"size": s.prefix_cache.size, "min_state_tokens": s.prefix_cache.min_tokens, "hits": s.prefix_cache.hits,
+                             "misses": s.prefix_cache.misses, "cached_states": len(s.prefix_cache.entries)},
             "batches": {"count": s.batches, "requests": s.batched_requests, "queued": s.queue.qsize()}}
     return {"models": [{"name": name, **card} for name in MODEL_NAMES]}
 
@@ -250,6 +264,7 @@ def main():
     if dev == "mps" and opts.attn is None: opts = replace(opts, attn="sdpa")   # serving default on Apple GPUs (parity measured)
     if dev != "cpu" and opts.dtype is None: opts = replace(opts, dtype=torch.bfloat16)   # serving default: 2-4.5x faster than fp32 on an L4, same answers (LoadOptions.dtype); KEV_DTYPE=fp32 for the exact path
     if dev == "cuda" and opts.cuda_graphs is None: opts = replace(opts, cuda_graphs=True)   # serving default: a pass is ~2,000 kernel launches, so replaying graphs cuts warm latency several-fold (kev.cuda_graphs); KEV_CUDA_GRAPHS=0 to decline
+    if dev == "cuda" and opts.fused is None: opts = replace(opts, fused=True)   # serving default: fused Qwen3.5 kernels, ~1/3 less GPU time per batch (kev.fused_qwen35); KEV_FUSED=0 to decline
     if opts.backend is None: opts = replace(opts, backend="auto")   # serving default: MLX for the hybrid Qwen3.5 checkpoints on Apple Silicon (LoadOptions.backend); KEV_BACKEND=torch to decline
     ck = Checkpoint(run)
     tok, model = ck.load(dev, opts)

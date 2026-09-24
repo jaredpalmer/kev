@@ -97,13 +97,14 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   the playground proxies :8009)
   - TypeSafe-compatible: `POST /v1/systemone`, `GET /v1/models` (model cards for `kev-latest` and `jev-latest`, plus device, dtype, temperature and prefix-cache stats), an `x-typesafe-request-id` header on every response, and bearer auth when `KEV_API_KEY` is set (unset = open server).
   - SDK: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8009", model="kev-latest")`
-  - CUDA: bf16, fused kernels and CUDA graphs by default (`LoadOptions.cuda_graphs`, `KEV_CUDA_GRAPHS=0` to decline). A server pass was
+  - CUDA: bf16, fused kernels and CUDA graphs by default (`LoadOptions.fused` / `LoadOptions.cuda_graphs`, `KEV_FUSED=0` / `KEV_CUDA_GRAPHS=0` to decline). A server pass was
     kernel-launch bound (~60 ms on an H100 at any length). `kev/fused_qwen35.py` rewrites the merged Qwen3.5 layers with fla Triton kernels
-    (fla pinned to 0.5.2 in the images: it patches fla's NB-keyed kernel launches; a pass continuing a cached DeltaNet state does not write
-    it back). `kev/cuda_graphs.py` replays bucketed passes (state left-padded, rows right-padded, masked exactly; equal to eager up to bf16
+    (it needs fla 0.5.2 exactly, pinned in the images, and refuses others: it patches fla's NB-keyed kernel launches; a pass continuing a
+    cached DeltaNet state does not write it back). `kev/cuda_graphs.py` replays bucketed passes (state left-padded, rows right-padded, masked exactly; equal to eager up to bf16
     reassociation) and owns admission (`admits`), batches (`run`), capture policy (`capture_due`: idle, or a bucket that keeps recurring) and
     `stats()`; a failed capture leaves its bucket eager. `kev.serve.Server` runs every pass on one model thread that batches whatever is
-    queued (`DecisionModel.probs_batch`; `probs_one` is the per-request rule every backend shares); `/v1/systemone` is async, `Server.lock`
+    queued (`DecisionModel.probs_batch`, `CudaGraphs.run` over typed `Request`s; `probs_one` is the per-request rule every backend shares;
+    `PrefixCache` keeps only the states that survive a batch); `/v1/systemone` is async, `Server.lock`
     excludes the model thread, `wait_idle()` waits for answers and captures, every response carries `server-timing`.
     Measure with `uv run modal run modal_app.py::serving --run <hub id> --gpu <GPU> --name <name>` (`scripts/serving_bench.py`: latency,
     parity vs fp32, throughput at 1/8/32/64 in-process clients; reports in `runs/serving-*` (graphs only) and `runs/fused-*`).
