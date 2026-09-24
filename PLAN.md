@@ -110,7 +110,7 @@ Reported, never gating:
 
 **Reading.** At 9B, 6,000 replayed records remove the external cost that 2,000 left (round 7: pooled −0.8 / −0.4; here +0.5 / +0.3); the short-state cost shrinks from −2.3 / −1.7 to −0.8 / −0.9 but the 656-question panel cannot bound it above −2 pp (half-width ~1.7 pp). A smaller step alone (b) protects short states and moves the damage to the externals. At 0.8B neither remedy works. Five tries, no pass; the documents gain is stable across every arm (+6.5 to +6.8 at 9B, about 3 pp above Jev). The registration-appropriate next step is a fresh-seed replication of recipe (a) judged on a short-state panel large enough to resolve a 1 pp cost (round 11), not a re-reading of these arms.
 
-## Round 11 - replication of round 9's recipe on a larger short-state panel (registered 2026-09-24T04:25Z, before any training or read)
+## Round 11 - replication of round 9's recipe on a larger short-state panel (registered 2026-09-24T04:19Z, before any training or read)
 
 **Why.** Round 9's 9B arms (a) and (c) failed only the short-state lower bound, on a 656-question panel whose interval half-width (~1.7 pp) cannot bound a ~1 pp cost above −2 pp. Re-reading those arms on a bigger panel would select on the reads that motivated it, so this round trains **fresh seeds** of the single recipe chosen now and judges them with a short-state guard on a pooled panel: `transfer-v4` development (the trial's own rows) plus `evals/round3/transfer-r3` test (1,260 records; read before only by the round-4 release-confirmation arms, never by any arm of rounds 7-11, used here as a guard, not for selection).
 
