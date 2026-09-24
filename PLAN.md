@@ -11,7 +11,7 @@ This file is the living plan: where Kev stands, what runs next and the criteria 
 - **No candidate yet:** 9B (every documents or skills delta learns the task and costs WANLI-v2 / scienthoon; replay 10,000 (round 16) cut the external cost but skills-only then costs documents; round 18, running, trains documents + skills jointly with replay 10,000), 27B skills (round 10: hard-v1 0.885, devtools 0.787, failed only scienthoon; round 17, running until ~15:00Z, adds replay 10,000). Watchers launch their reads; apply `scripts/round10_readout.py --round 18` / `--round 17`.
 - **New suites (on main):** `documents-v1/v2` (real CFPB complaints), `hard-v1` (programmatic skill families; its per-family profile matches JevBench's hard tier with no shared items), `devtools-v1` (six licence-checked developer-tooling sources).
 - **Decisions for Jared:** publish Kev-4B r10 and Kev-0.8B r15 (and flip Kev-27B public); upload the documents-v1 and hard-v1 train partitions to the public `kev-suites` mirror (reproducible from builders, but the mirror is how `load_split` finds them).
-- **Spend this night:** Modal metered $1,085 → ~$1,330 plus running bounds; AI Gateway < $1.
+- **Spend this night:** Modal metered $1,085 → $1,377 (12:11Z) plus running bounds; AI Gateway $0.07. The full night record (incidents, pending jobs, every round in order) is the "Night 3" section below.
 
 ## Where we stand (2026-09-22)
 
@@ -109,152 +109,63 @@ Reported, never gating:
 
 **Next (to be registered, not read):** the 9B recipe minus the MNLI soft targets (keep them hard) isolates the WANLI question. It needs fresh panels (both round-5 panels have now been read by these candidates) and a WANLI panel disjoint from the 256 items, large enough that a 1 pp point threshold is not three questions. The external gates in this round were point estimates on 89–256 questions; the next registration should use paired intervals with a margin sized to the suite.
 
-## Round 9 result (2026-09-24; `runs/r9-readout/round9.json`) — no candidate
+## Night 3 (2026-09-23 evening → 2026-09-24): rounds 7-18, record
 
-| arm | documents-v1 dev | vs Jev | short-state acc | pooled externals | failed on |
-|---|---|---|---|---|---|
-| 9B (a) replay 6000, lr 2e-5 | 0.833 → 0.898 (+6.5 [+4.3, +8.8]) | +2.9 [+1.1, +4.8] | −0.8 [−2.4, +0.9] | +0.5 [−0.3, +1.3] | short-state lower bound (by 0.4 pp) |
-| 9B (b) replay 2000, lr 1e-5 | 0.901 (+6.8 [+4.5, +9.1]) | +3.3 [+1.2, +5.3] | +0.3 [−1.1, +1.5] | −0.9 [−1.6, −0.2] | WANLI-v2, scienthoon, pooled lower bounds |
-| 9B (c) replay 6000, lr 1e-5 | 0.899 (+6.6 [+4.2, +9.0]) | +3.0 [+1.0, +5.2] | −0.9 [−2.6, +0.6] | +0.3 [−0.4, +1.0] | short-state lower bound (by 0.6 pp) |
-| 0.8B (d) replay 6000, lr 4e-5 | 0.633 → 0.852 (+22.0) | −1.6 | −2.0 [−4.9, +1.1] | −0.2 | short state, Brier, WANLI-v2 |
-| 0.8B (e) replay 6000, lr 2e-5 | 0.840 (+20.8) | −2.8 | −0.8 [−3.2, +1.7] | −0.4 | short state, Brier, WANLI-v2 |
+Instructions: `docs/prompts/overnight-night3.md`. State, spend readings and spawn ids: `runs/night3-state.json`. Branch `research/overnight-r6`; every registration below was committed before its training or reads (the commit time is the registration time; a few headings first carried a clock estimate and were corrected to the commit time the same night).
 
-**Reading.** At 9B, 6,000 replayed records remove the external cost that 2,000 left (round 7: pooled −0.8 / −0.4; here +0.5 / +0.3); the short-state cost shrinks from −2.3 / −1.7 to −0.8 / −0.9 but the 656-question panel cannot bound it above −2 pp (half-width ~1.7 pp). A smaller step alone (b) protects short states and moves the damage to the externals. At 0.8B neither remedy works. Five tries, no pass; the documents gain is stable across every arm (+6.5 to +6.8 at 9B, about 3 pp above Jev). The registration-appropriate next step is a fresh-seed replication of recipe (a) judged on a short-state panel large enough to resolve a 1 pp cost (round 11), not a re-reading of these arms.
+**Outcome.**
+- Released: Kev-4B round-8 documents delta (`jaredpalmer/kev-4b`, public, PR #99). Kev-27B B1 v2 published **privately** (`jaredpalmer/kev-27b`) after its bf16 serving check (PLAN_27b).
+- Confirmed, not published (draft PR #106; private copies `jaredpalmer/kev-4b-candidates`, `jaredpalmer/kev-0.8b-candidates`): Kev-4B round 10 (skills on top of round 8) and Kev-0.8B round 15 (documents + skills in one delta), both passing every registered criterion including one locked read each.
+- No candidate at 9B (rounds 7, 9, 11, 12, 16; round 18 running) or for 27B skills (round 10 failed one guard; round 17 running).
+- New suites, merged to main: `documents-v1/v2` tooling (#100), `hard-v1` and `devtools-v1` (#103); infrastructure: `read_jsonl` line-separator fix (#101), pull / locked-test / served-isolation tooling (#102). Every PR had a strict review before merge.
 
-## Round 11 result, 0.8B (2026-09-24; `runs/r11-readout/round11.json`, `runs/r11-verdict/`) — **Kev-0.8B documents candidate confirmed**
+**Spend.** Modal metered $1,085.32 at the start of the night (authorization: $1,000 on top) → $1,377.01 at 2026-09-24T12:11Z, plus the admission bounds of the two studies still running ($100.24 + $50.12). AI Gateway (Jev reference reads, not training): $0.072 (`runs/jev-{devtools-v1,hard-v1,hard-v1-r2}/usage.json`), against a $100 authorization.
 
-On the pooled short-state panel (transfer-v4 dev + transfer-r3 test), both fresh 0.8B seeds of recipe (e) pass rules 1-3: seed 4 documents +20.2 [+16.9, +23.4], short −0.6 [−1.8, +0.6], pooled externals +0.5 [−0.5, +1.5]; seed 5 documents +20.4 [+17.3, +23.5], short +0.4 [−0.9, +1.7], pooled +0.6 [−0.5, +1.7]. Candidate seed 5. **Confirmation:** `documents-v1` test 0.608 → **0.821** (+21.3 [+17.9, +24.5]; Brier −0.272); locked `transfer-v4` 0.684 → **0.695** (+1.1 [−1.4, +3.4]), served Brier 0.412 → 0.396 (`kev-08b-r11-ungated`; the in-trial screening gate "held-out pairs ≥ 70 %" fails for this size as it does for the released parent, 0.48 vs 0.42). **Passes every registered criterion: release candidate.** 9B, same round: seed 4 documents +7.3 [+5.1, +9.5] (+3.7 over Jev), short state −0.3 [−1.1, +0.4] (now resolved on the pooled panel), but WANLI-v2 −1.5 [−2.9, −0.1]; seed 5 +6.7, short −0.9 [−1.9, −0.1] with its Brier bound over, WANLI-v2 −2.9 [−4.4, −1.4], pooled −0.9 [−1.8, 0.0]. **No 9B candidate.** Across nine 9B documents arms (rounds 7, 9, 11) the documents gain is +6.5 to +7.3 every time; what moves between seeds is WANLI-v2 (−0.7 to −2.9), the NLI suite closest to the MNLI records in the replay. The 0.8B seeds of rounds 7-9 were judged on the 656-question panel alone and could not bound a ~1 pp cost; with 1,800 questions, two independent seeds show none.
+**Incidents.**
+- Modal refused to create an app ("App create rate limit exceeded") while several reads launched at once; round 9's arm 9b-c got no reads and was relaunched by hand. Watchers were changed to stagger launches by 60-90 s.
+- `modal_app.py::benchmarks` jobs are `run@suite@name@flags`, so a pinned Hub revision (`repo@sha`) shifts every field; round 10's first parent test reads failed before scoring anything and were rerun from the volume checkpoint.
+- Jev's first hard-v1 read died on a gateway 503 at 550/700 records (`runs/jev-hard-v1/failure.json`); rerun whole (`runs/jev-hard-v1-r2`).
+- A local DNS drop around 08:31Z killed round 16's watcher (the trials were fine; restarted with network errors retried) and the 27B round-10 read client mid-download (the eight reads had finished on Modal and were pulled from the volume unchanged).
+- devtools-v1 reuses some CodeReviewer record ids (the dataset's own `id` field is not unique); paired comparisons drop the two duplicated development / test ids (round 10 amendment, recorded before any confirmation read); new builds get unique ids (#103).
+- Two launches exceeded their `--budget` admission check ($109.64 > $100, $43.86 > $40) and were relaunched with a higher budget before anything ran.
+- Round 17's lr 2e-5 arm runs at ~8.8 s per optimizer step; its projected end (training + evaluation ≈ 16:10Z) is inside its 28,800 s timeout (≈ 16:45Z) with little margin.
 
-## Round 10 result, 4B (2026-09-24; `runs/r10-readout/round10.json`, `runs/r10-verdict/`) — **Kev-4B skills arm confirmed**
+**Pending on Modal (2026-09-24T12:11Z).** Watchers (local processes under `/tmp`, lost if this machine sleeps) launch each arm's reads when its trial finishes. By hand, per arm: `uv run modal run modal_app.py::pull --name r18-9b` (or `r17-27b`), then one `modal_app.py::benchmarks --gpu H200` call with jobs `/runs/<study>/<NN-trial-N>/checkpoint@<suite>@r<round>-<arm>-<tag>` for `evals/hard-v1@hard`, `evals/devtools-v1@devtools`, `evals/documents-v1@docs`, `evals/external/{semif-v1@semif,scienthoon-v1@scienthoon,wanli-v2@wanli2,typesafe-v1@typesafe}`, `evals/v9/transfer-v9@v9`, plus `evals/round3/transfer-r3@r3test@--allow-test` for round 18 (add `--timeout 14400` for 27B); then `uv run python scripts/round10_readout.py --round 18 --out runs/r18-readout` (or `--round 17`). Arm names: `9b-joint-lr2e5`, `9b-joint-lr1e5`, `27b-r10k-lr2e5`, `27b-r10k-lr1e5`.
 
-| 4B arm (from the released round-8 Kev-4B) | primary (hard-v1 + devtools-v1 dev) | hard-v1 dev | devtools-v1 dev | documents dev | short state | pooled externals | hard ECE | verdict |
-|---|---|---|---|---|---|---|---|---|
-| skills (hard + devtools) | +20.8 [+18.8, +22.8] | 0.503 → **0.786** | 0.605 → **0.739** | −0.3 [−1.5, +0.9] | +1.5 [−0.3, +3.5] | −0.0 [−1.2, +1.1] | 0.137 → 0.095 | **pass** |
-| hard only | +14.2 [+12.4, +15.9] | 0.763 | 0.628 | +0.1 | +0.6 | −0.5 [−1.7, +0.6] | 0.117 | WANLI-v2, pooled |
-| devtools only | +7.4 [+5.9, +8.9] | 0.510 | 0.747 | +0.1 | −0.6 | −0.5 [−1.5, +0.4] | 0.104 | scienthoon |
+**What the night showed.**
+1. Real-document and skill data are the largest levers measured in this project: +7 to +24 pp on held-out documents, +15 to +30 pp on hard-v1, +8 to +17 pp on devtools-v1, at every size.
+2. The cost falls on the other suites, and grows with model size: free at 4B, about 1 pp of short-state accuracy at 0.8B (resolvable only with the pooled 1,800-question panel), WANLI-v2 / scienthoon / documents at 9B, scienthoon at 27B.
+3. At 0.8B, two deltas stacked erode each other (round 13); the same data trained together in one delta passes (round 15).
+4. hard-v1's per-family profile matches JevBench's public hard tier with no shared items, and the round-10 Kev-4B's gain on it carried over to that tier (+9.0 pp [+2.7, +15.3]).
 
-Jev on the same development splits: hard-v1 0.777, devtools-v1 0.713. **Confirmation (read once):** hard-v1 test 0.540 → **0.803** (+26.3 [+23.3, +29.5]), devtools-v1 test 0.623 → **0.756** (+13.4 [+10.1, +16.1]), pooled +19.9 [+17.8, +21.8]; hard-v1 test ECE 0.112 → 0.084; locked `transfer-v4` 0.835 → **0.838** (+0.3 [−1.8, +2.3]), served Brier 0.233 → **0.224** (`kev-4b-r10-ungated`; the name keeps the suffix the tool used for round 8 although this trial passed its in-trial gates). **Passes every registered criterion: release candidate.** The first parent test read failed before scoring anything (the benchmarks job format splits on `@`, which broke a pinned Hub revision); it was rerun from the volume checkpoint. The hard-v1 gain is measured on held-out templates of the same generators; JevBench public items (report only) are the out-of-distribution check.
+Next, with evidence: (a) the round 17 / 18 verdicts; (b) a joint documents + skills delta for Kev-4B from the round-10 candidate is unnecessary (its documents score held), but a joint delta for 27B is the natural follow-up if round 17 passes; (c) the 9B needs a remedy other than replay if round 18 fails (for example a KL term toward its own released outputs on the replayed records).
 
-**JevBench public items, report only (`runs/jevbench-public/kev-4b-r10`; the candidate served from a private Hub copy by the kev-deploy template, same unchanged harness):** all public 0.714 → **0.758** (Kev-9B 0.762); standard 0.931 → 0.931; hard 0.450 → **0.541**, paired over the 111 hard items +9.0 pp [+2.7, +15.3], 12 newly right vs 2 newly wrong (exact McNemar p = 0.013); hard-tier ECE 0.263 → **0.112** (Kev-9B 0.192, Kev-27B 0.128, Jev 0.06). By family: ambiguous 0.43 → 0.71, multi_hop 0.39 → 0.61, long_policy 0.21 → 0.32, tradeoff 0.33 → 0.50, temporal_numeric 0.13 → 0.20, judge_hard and probability unchanged. The skill data transfers to a benchmark it never saw, and Target A (hard-tier calibration) moves by training, not only by temperature. No JevBench item was used for selection.
+### Round 7 - documents delta (registered 2026-09-23T22:15Z, before any training or read)
 
-## Round 12 result, 0.8B (2026-09-24; `runs/r12-readout/round12.json`, `runs/r12-verdict/`) — **0.8B skills arm confirmed**
+**Why.** On `evals/documents-v1` development (920 real CFPB-complaint questions; PLAN_27b "documents-v1 result"), Jev leads the released Kev-9B by 3.6 pp [1.2, 6.0] and 0.079 Brier, concentrated in the issue question (82.1 vs 74.9) and long narratives (88.5 vs 81.3); round 5/6 long-state training moved this suite by −0.4 / −0.8 pp. This round trains on real documents: `documents-v1` train (5,219 records, 7,488 teacher-agreed questions).
 
-From the released Kev-0.8B: hard-v1 development 0.350 → 0.651 (+30.1 [+26.8, +33.5]), devtools-v1 0.487 → 0.616 (+12.9 [+10.2, +15.8]), documents +1.1 [−0.8, +2.9], short state (pooled panel) +0.2 [−1.2, +1.7], pooled externals **+2.1 [+0.6, +3.7]**, hard ECE 0.140 → 0.122: passes rules 1-3. **Confirmation:** hard-v1 test 0.396 → **0.689** (+29.3 [+25.7, +32.8]), devtools-v1 test 0.472 → **0.641** (+16.8 [+13.7, +19.6]), pooled +23.1 [+20.8, +25.4]; locked `transfer-v4` 0.685 → 0.683 (−0.15 [−2.9, +2.7]), served Brier 0.412 → 0.396 (`kev-08b-r12-ungated`). **Passes every registered criterion.** 0.8B now has two confirmed single deltas (documents, round 11; skills, round 12); round 13 tests them stacked. The 9B arms of this round are still training.
+**Arms** (study `r7-docs`, `experiments/round7/docs.json`; one epoch; `data evals/documents-v1/train.jsonl`, `replay 2000` from decision-v7 train, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing; hard labels only): Kev-9B from `jaredpalmer/kev-9b` at lr 2e-5, seeds 1 and 2 (`batch 2, accum 4`); Kev-4B from `jaredpalmer/kev-4b` at lr 2e-5 (`batch 2, accum 4`); Kev-0.8B from `jaredpalmer/kev-0.8b` at lr 4e-5 (`batch 4, accum 2`); Kev-27B from `/runs/r6-27b/00-trial-0/checkpoint` (round-6 trial A) at lr 2e-5 (`weights_dtype bf16, batch 1, accum 8`). H200; timeouts 12,600 s (9B), 10,800 s (4B), 7,200 s (0.8B), 28,800 s (27B, own study `r7-docs-27b`).
 
-## Round 12 result, 9B (2026-09-24) — no 9B candidate
+**Rule, per arm against its own parent** (the released checkpoint; trial A for the 27B arm), paired record-clustered bootstraps, 2,000 resamples, seed 0, each arm served at the temperature fitted on its own decision-v7 development rows:
+1. Primary: `documents-v1` development accuracy, paired lower bound > 0.
+2. Short-state guard (`transfer-v4` development, in-trial): accuracy lower bound ≥ −1 pp, Brier upper bound ≤ +0.01, confident-error rate upper bound ≤ +1 pp.
+3. External guards (SemIf-144, scienthoon-900, wanli-v2, TypeSafe-89): per-suite accuracy lower bound ≥ −2 pp (n ≥ 500) or ≥ −3 pp (n < 500); pooled lower bound ≥ −1.5 pp with no point-estimate requirement (round 6 showed the point requirement cannot be met by a model that is merely not worse); `transfer-v9` unknowable share at p ≥ 0.9 ≤ 0.05.
+4. Per size, the passing arm with the largest primary point estimate is the candidate (9B: the two seeds are also reported pooled). Jev is reported on every table, not gated.
+5. Confirmation, read once per candidate with its parent: `documents-v1` test (574 records, 936 questions; locked and never read; public text, so this is a procedural lock) — paired accuracy lower bound > 0. Then one locked `transfer-v4` read (`locked_test --name kev-<size>-r7`): locked accuracy ≥ parent − 1 pp and served Brier ≤ parent + 0.005. A private `documents-v2` held-out set (in `jaredpalmer/kev-private-evals`), when frozen, gets one read of the confirmed candidate as a second, uncontaminated confirmation; it does not gate.
 
-| 9B arm (replay 6000, lr 2e-5) | primary | hard-v1 dev | devtools-v1 dev | documents | short (pooled) | pooled externals | failed on |
-|---|---|---|---|---|---|---|---|
-| seed 1 | +18.2 [+16.2, +20.3] | 0.574 → **0.802** | 0.631 → **0.767** | −1.3 [−2.8, +0.1] | +0.2 [−0.9, +1.3] | −2.1 [−3.2, −1.0] | documents, WANLI-v2, scienthoon, pooled |
-| seed 2 | +19.3 [+17.4, +21.2] | 0.811 | 0.779 | −1.2 [−2.7, +0.3] | +0.1 [−1.1, +1.2] | −3.5 [−4.7, −2.2] | + short Brier |
+### Round 8 - documents delta at 0.8B / 4B, guards sized to the suites (registered 2026-09-23T23:15Z, before any training or read)
 
-Both 9B seeds beat Jev on hard-v1 (0.777) and devtools-v1 (0.713) development, and both pay on the external suites; this is the 9B pattern of rounds 7, 9 and 11 again (the delta is learnt; the 9B gives up NLI and ticket routing for it). Round 16 tests more replay at a smaller step.
+**Why.** Round 7's 0.8B and 4B arms gained +22.5 and +8.4 pp on `documents-v1` development (4B +2.6 pp [+0.5, +4.6] above Jev) with pooled externals flat (+0.4 [−0.8, +1.6], +0.0 [−1.0, +1.1]), and failed only per-suite lower bounds on suites too small to resolve a −3 pp floor (SemIf 144 questions, TypeSafe 89) plus, at 4B, WANLI-v2 (−1.3, bound −2.6) and, at 0.8B, the short-state accuracy bound (−0.9, bound −3.2). Round 7's verdicts stand: no 0.8B or 4B candidate. This round tests the same recipe at a **new seed** under guards sized to what each suite can resolve, so that the decision is not made on the reads that motivated it; the fresh confirmation sets (`documents-v1` test, `documents-v2`) are still unread by any model.
 
-## Round 14 result (2026-09-24; `runs/r14-readout/round14.json`) — no candidate
+**Arms** (study `r8-small`, `experiments/round8/small.json`): round 7's recipe exactly, seed 2: Kev-4B from `jaredpalmer/kev-4b` (lr 2e-5, `batch 2, accum 4`) and Kev-0.8B from `jaredpalmer/kev-0.8b` (lr 4e-5, `batch 4, accum 2`); one epoch, `data evals/documents-v1/train.jsonl`, `replay 2000`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing; H200, timeout 10,800 s. Reads `runs/r8-<arm>-{docs,semif,scienthoon,wanli2,typesafe,v9}`; read-out `scripts/round8_readout.py`.
 
-More hard-v1 data on top of the round-10 Kev-4B candidate: (a) lr 1e-5 primary +3.6 [+2.4, +4.9] (hard-v1 dev 0.786 → 0.834, devtools 0.739 → 0.762), every guard flat, but hard-set ECE 0.095 → 0.106 against a 0.105 limit; (b) lr 2e-5 +4.0 [+2.6, +5.4] (hard 0.847) with pooled externals −1.1 [−2.2, −0.1] and scienthoon below its bound. Diminishing returns on the same generators: +26 pp for the first 6,000 records, +5 for the next 12,000. The round-10 checkpoint stays the 4B candidate.
+**Rule, per arm against its released parent** (bootstraps and temperatures as round 7):
+1. Primary: `documents-v1` development accuracy, paired lower bound > 0.
+2. Short-state guard (`transfer-v4` development, 656 questions, interval half-width about 1.7 pp): accuracy lower bound ≥ −2 pp; Brier upper bound ≤ +0.01; confident-error rate upper bound ≤ +1 pp.
+3. External guards: WANLI-v2 (1,002) and scienthoon (900) accuracy lower bound ≥ −2 pp each; pooled over all four external suites lower bound ≥ −1.5 pp; `transfer-v9` unknowable share at p ≥ 0.9 ≤ 0.05. SemIf-144 and TypeSafe-89 are reported with intervals and do not gate on their own (they enter the pooled guard).
+4. Confirmation, once per passing arm with its parent: `documents-v1` test paired accuracy lower bound > 0; locked `transfer-v4` (`locked_test --name kev-<size>-r8`): locked accuracy ≥ parent − 1 pp and served Brier ≤ parent + 0.005; `documents-v2` (private) read and reported, not gating. A size that passes 1-4 is a release candidate; a card must say the gain is measured in-distribution (the training split shares source and question templates with every documents suite).
 
-## Round 15 result (2026-09-24; `runs/r15-readout/round15.json`, `runs/r15-verdict/`) — **joint Kev-0.8B candidate confirmed**
-
-| arm (from the released Kev-0.8B, documents + skills in one epoch, replay 6000) | documents dev | skills primary (hard + devtools dev) | short (pooled) | pooled externals | verdict |
-|---|---|---|---|---|---|
-| (a) lr 2e-5, seed 1 | +21.0 [+18.0, +24.0] | +18.0 [+15.8, +20.0] (hard 0.594, devtools 0.602) | −0.1 [−1.4, +1.3] | +2.1 [+0.6, +3.5] | **pass (candidate)** |
-| (b) lr 4e-5, seed 1 | +22.4 [+19.3, +25.6] | +21.0 [+18.8, +23.2] | −0.9 [−2.2, +0.4] | +1.6 [−0.0, +3.0] | short bound, scienthoon |
-| (c) lr 2e-5, seed 2 | +20.2 [+16.9, +23.5] | +16.7 [+14.5, +18.9] | −0.3 [−1.7, +1.1] | +2.2 [+0.7, +3.7] | pass (replication) |
-
-**Confirmation of (a), read once:** documents-v1 test 0.608 → **0.851** (+24.4 [+21.3, +27.6]); hard-v1 test 0.396 → **0.665** (+26.9 [+23.4, +30.4]); devtools-v1 test 0.472 → **0.637** (+16.4 [+13.1, +19.4]), skills tests pooled +21.7 [+19.5, +24.0]; documents-v2 (private, reported) 0.616 → 0.848; locked `transfer-v4` 0.684 → **0.697** (+1.2 [−1.1, +3.7]), served Brier 0.412 → 0.397 (`kev-08b-r15-ungated`; in-trial screening gate "held-out pairs ≥ 70 %" fails for this size as for its parent). **Passes every registered criterion.** It carries both confirmed single deltas (round 11 documents, round 12 skills) in one model, which stacking could not (round 13); it supersedes both as the 0.8B release candidate. Fitted temperature 2.35 (out-of-fold ECE 0.102 → 0.032). **JevBench public items, report only** (`runs/jevbench-public/kev-08b-r15`): all 0.597 → **0.636**, standard 0.736 → **0.819**, hard 0.333 → 0.360 (paired +2.7 pp [−1.8, +7.2]; 5 newly right, 2 newly wrong), hard ECE 0.245 → 0.181.
-
-## Round 16 - 9B skills with more replay and a smaller step (registered 2026-09-24T07:30Z, before any training or read)
-
-**Arms** (study `r16-9b`, `experiments/round16/skills.json`): from `jaredpalmer/kev-9b`, one epoch on `evals/round10/skills/train.jsonl`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seed 1, H200, timeout 14,400 s: (a) `replay 10000, lr 1e-5`, (b) `replay 10000, lr 2e-5`. Reads as round 12.
-
-**Rule:** round 12's rule unchanged (against the released Kev-9B; pooled short-state panel). Candidate: the passing arm with the larger primary; confirmation as round 12.
-
-## Round 13 result (2026-09-24; `runs/r13-readout/round13.json`) — no candidate
-
-Skills on top of the round-11 0.8B documents candidate: seed 1 primary +20.6 [+18.5, +23.0] (hard-v1 0.355 → 0.640, devtools 0.485 → 0.612) but documents −0.5 [−2.0, +1.0] (lower bound just under −2) and scienthoon below its bound; seed 2 +19.9 with short state −1.6 [−3.2, 0.0] and documents −1.1 [−2.4, +0.3]. Stacking a second delta on the 0.8B erodes the first.
-
-## Round 15 - 0.8B documents and skills in one delta (registered 2026-09-24T06:45Z, before any training or read)
-
-**Why.** 0.8B has two confirmed single deltas from the released checkpoint (documents, round 11; skills, round 12) and stacking them failed (round 13). This round trains both datasets together in one epoch from the released Kev-0.8B.
-
-**Arms** (study `r15-08b`, `experiments/round15/joint.json`): from `jaredpalmer/kev-0.8b`, one epoch on `evals/round15/joint/train.jsonl` (documents-v1 train + round-10 skills = 16,539 records), `replay 6000`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, H200, timeout 12,600 s: (a) lr 2e-5 seed 1, (b) lr 4e-5 seed 1, (c) lr 2e-5 seed 2.
-
-**Rule** (against the released Kev-0.8B; reads `runs/r15-<arm>-{docs,hard,devtools,r3test,semif,scienthoon,wanli2,typesafe,v9}`): both primaries must hold — documents-v1 development lower bound > 0 and hard-v1 + devtools-v1 development pooled lower bound > 0; guards as round 12 (pooled short-state panel, WANLI-v2 / scienthoon ≥ −2 pp, pooled externals ≥ −1.5 pp, unknowable ≤ 0.05, hard-set ECE ≤ parent + 0.01). Candidate: the passing arm with the larger sum of the two primary estimates. Confirmation, once: documents-v1 test lower bound > 0, hard-v1 + devtools-v1 test pooled lower bound > 0, locked `transfer-v4` (≥ parent − 1 pp, Brier ≤ parent + 0.005), documents-v2 reported.
-
-## Round 14 - more skill data on top of the round-10 Kev-4B candidate (registered 2026-09-24T05:52Z, before any training or read)
-
-**Why.** Round 10's 4B skills arm moved hard-v1 by +26 pp and JevBench's hard tier by +9 pp; JevBench's weakest families for it remain temporal/numeric (0.20), probability (0.50) and judging (0.53). `evals/round14/hard-extra` (`scripts/build_hard_extra.py`) is 12,000 more hard-v1 training records from a fresh seed on the same training templates (0-3), deduplicated against every frozen hard-v1 state; `skills-plus` = hard-extra + devtools-v1 train (17,320 records). hard-v1 development and test keep measuring unseen templates.
-
-**Arms** (study `r14-4b`, `experiments/round14/skills.json`): from `/runs/r10-skills/00-trial-0/checkpoint` (the round-10 candidate), one epoch on `skills-plus`, `replay 4000`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seed 1, at (a) lr 1e-5 and (b) lr 2e-5; H200, timeout 12,600 s. Parent reads for the round-10 candidate on transfer-r3 test (`runs/r14-P4r10-r3test`, read once).
-
-**Rule:** round 12's rule against this parent (the round-10 candidate; its development reads `runs/r10-4b-skills-*`), with the pooled short-state panel and the documents guard. The passing arm with the larger primary estimate is the candidate; confirmation: hard-v1 + devtools-v1 test pooled lower bound > 0 against the round-10 candidate, locked `transfer-v4` (≥ parent − 1 pp, Brier ≤ parent + 0.005). JevBench public read reported, never selected on. A gain here is on held-out templates of the same generators; the JevBench read decides whether it is worth a release over the round-10 candidate.
-
-## Round 13 - 0.8B skills on top of the 0.8B documents candidate (registered 2026-09-24T05:46Z, before any training or read)
-
-**Why.** 0.8B has two separately confirmed deltas from the released checkpoint: documents (round 11, confirmed) and skills (round 12, rules 1-3 passed, confirmation running). A release is one model, so this round trains the skills data on top of the round-11 documents candidate, the path Kev-4B took (round 8 → round 10).
-
-**Arms** (study `r13-08b`, `experiments/round13/skills.json`): from `/runs/r11-docs/03-trial-3/checkpoint`, one epoch, `data evals/round10/skills/train.jsonl`, `replay 6000`, lr 4e-5, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seeds 1 and 2; H200, timeout 12,600 s. Parent reads for the round-11 candidate on hard-v1 and devtools-v1 development: `runs/r13-P08r11-{hard,devtools}` (read once, alongside).
-
-**Rule:** round 12's rule against this parent (the round-11 candidate), including the documents guard (`documents-v1` development lower bound ≥ −2 pp, parent rows `runs/r11-08b-s5-docs`) and the pooled short-state panel (parent `runs/r11-08b-s5-r3test`). The passing seed with the larger primary estimate is the candidate; confirmation: hard-v1 + devtools-v1 test pooled lower bound > 0 against the round-11 candidate, `documents-v1` test lower bound ≥ −2 pp against it (its test was read once already, by rule), and locked `transfer-v4` (≥ parent − 1 pp, Brier ≤ parent + 0.005).
-
-## Round 10 result, 27B (2026-09-24) — no 27B candidate
-
-From the Kev-27B release candidate (B1 v2 seed 2), one epoch on skills with replay 4000, lr 2e-5: hard-v1 development 0.733 → **0.885** (+15.1 [+12.4, +18.0]; Jev 0.777), devtools-v1 0.702 → **0.787** (+8.5 [+6.2, +10.7]; Jev 0.713), primary +11.8 [+10.1, +13.6], documents −0.5 [−1.6, +0.5], short state +0.5 [−0.8, +1.7], pooled externals −0.4 [−1.3, +0.4], hard-set ECE 0.047 → **0.015**, in-trial held-out pairs 0.891 → 0.922. **Fails one guard: scienthoon −1.8 [−3.0, −0.7]** (lower bound under −2 pp). Scienthoon (support-ticket routing) is the external that skills/devtools deltas cost most often (4B devtools-only arm, both 9B seeds, here); the next 27B attempt should carry more replay (round 16's 9B arms test replay 10,000). The read client died on a local network drop while downloading results; the eight reads had finished on Modal and were pulled from the volume unchanged.
-
-## Round 16 result (2026-09-24; `runs/r16-readout/round16.json`) — no 9B candidate
-
-Replay 10,000: (a) lr 1e-5 primary +16.2 [+14.3, +18.1], pooled externals −0.6 [−1.7, +0.5] (better than round 12's −2.1 / −3.5), but documents −1.7 [−3.1, −0.3], WANLI-v2 and short-state Brier below their bounds; (b) lr 2e-5 +18.6 (hard-v1 0.821), documents −2.2 [−3.6, −0.9], WANLI-v2, scienthoon and pooled (−0.9 [−1.9, +0.1]) below their bounds. More replay reduces the external cost at 9B but skills-only training now costs the 9B its documents accuracy, which the 0.8B avoided only by training documents in the same delta (round 15). Round 18 applies round 15's joint recipe at 9B with round 16's replay.
-
-## Round 18 - 9B documents and skills in one delta (registered 2026-09-24T09:40Z, before any training or read)
-
-**Arms** (study `r18-9b`, `experiments/round18/joint.json`): from `jaredpalmer/kev-9b`, one epoch on `evals/round15/joint/train.jsonl` (documents + skills, 16,539 records), `replay 10000`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, H200, timeout 14,400 s: (a) lr 2e-5 seed 1, (b) lr 1e-5 seed 1.
-
-**Rule:** round 15's rule (both primaries — documents-v1 development lower bound > 0 and hard-v1 + devtools-v1 development pooled lower bound > 0; pooled short-state panel; externals; unknowable; hard-set ECE) against the released Kev-9B (its reads as round 12). Candidate: the passing arm with the larger sum of primary estimates; confirmation as round 15 (documents-v1 test, hard-v1 + devtools-v1 test, locked transfer-v4, documents-v2 reported).
-
-## Round 17 - 27B skills with more replay (registered 2026-09-24T08:42Z, before any training or read)
-
-**Why.** Round 10's 27B skills arm passed everything except scienthoon (−1.8 [−3.0, −0.7]). More replay of the original training data is the remedy that removed the external cost at 9B in round 9.
-
-**Arms** (study `r17-27b`, `experiments/round17/skills.json`): from `/runs/release/kev-27b-v2/checkpoint`, one epoch on `evals/round10/skills/train.jsonl`, `max_state 7552`, `p_none_pair 0.25`, bf16 weights, checkpointing, seed 1, H200, timeout 28,800 s: (a) `replay 10000, lr 2e-5`, (b) `replay 10000, lr 1e-5`.
-
-**Rule:** round 10's rule against the Kev-27B candidate (its reads `runs/r6-27bv2-s2-*`, `runs/hv1-27b`, `runs/dt1-27b`; short state on transfer-v4 development as in round 10). Candidate: the passing arm with the larger primary; confirmation: hard-v1 + devtools-v1 test pooled lower bound > 0 and locked `transfer-v4` (≥ 0.896 − 1 pp, served Brier ≤ 0.160 + 0.005).
-
-## Round 12 - skills delta at 9B and 0.8B (registered 2026-09-24T04:56Z, before any training or read)
-
-**Why.** Round 10's 4B skills arm passed rules 1-3 (hard-v1 development 0.503 → 0.786, devtools-v1 0.605 → 0.739, every guard flat, hard-set ECE 0.137 → 0.095); its confirmation is running. This round applies the same data at 9B with round 9's lesson (replay 6,000 removes the 9B external cost) and at 0.8B.
-
-**Arms** (study `r12-skills`, `experiments/round12/skills.json`; one epoch, `data evals/round10/skills/train.jsonl`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, H200, timeout 12,600 s): 9B from `jaredpalmer/kev-9b`, `replay 6000, lr 2e-5`, seeds 1 and 2; 0.8B from `jaredpalmer/kev-0.8b`, `replay 6000, lr 4e-5`, seed 1. Reads `runs/r12-<arm>-{hard,devtools,docs,r3test,semif,scienthoon,wanli2,typesafe,v9}`.
-
-**Rule:** round 10's rules 1-4 against each arm's released parent, with round 11's pooled short-state panel (transfer-v4 development + transfer-r3 test) for guard 2's short-state bounds, and the documents guard read against the parent's own documents-v1 development rows (`runs/docs1-P9`, `runs/docs1-P08`). Per size, the passing arm with the largest primary estimate is the candidate; confirmation as round 10 (hard-v1 + devtools-v1 test pooled lower bound > 0; locked transfer-v4).
-
-## Round 11 - replication of round 9's recipe on a larger short-state panel (registered 2026-09-24T04:19Z, before any training or read)
-
-**Why.** Round 9's 9B arms (a) and (c) failed only the short-state lower bound, on a 656-question panel whose interval half-width (~1.7 pp) cannot bound a ~1 pp cost above −2 pp. Re-reading those arms on a bigger panel would select on the reads that motivated it, so this round trains **fresh seeds** of the single recipe chosen now and judges them with a short-state guard on a pooled panel: `transfer-v4` development (the trial's own rows) plus `evals/round3/transfer-r3` test (1,260 records; read before only by the round-4 release-confirmation arms, never by any arm of rounds 7-11, used here as a guard, not for selection).
-
-**Arms** (study `r11-docs`, `experiments/round11/docs.json`; round 9's recipe otherwise): 9B recipe (a) (`replay 6000, lr 2e-5`) seeds 4 and 5; 0.8B recipe (e) (`replay 6000, lr 2e-5`) seeds 4 and 5. Reads as round 9 plus `transfer-r3` test (`runs/r11-<arm>-r3test`; parents `runs/rc-parent-r3test` for Kev-9B and a new `runs/r11-P08-r3test` for Kev-0.8B, read once).
-
-**Rule:** round 8/9's rules 1-4 unchanged except guard 2, which is computed on the pooled short-state panel (transfer-v4 dev + transfer-r3 test): accuracy lower bound ≥ −2 pp, Brier upper bound ≤ +0.01, confident errors upper bound ≤ +1 pp. Each seed is judged on its own; per size the passing seed with the larger documents estimate is the candidate; confirmation as round 8 (`documents-v1` test lower bound > 0, locked `transfer-v4`, `documents-v2` reported).
-
-## Round 10 - skills delta: hard-v1 + devtools-v1 (registered 2026-09-24T03:13Z, before its data is built or any training or read)
-
-**Why.** Two new suites measure what the released models are worst at. `evals/hard-v1` (programmatic, exact labels; seven families: long policy documents, trade-offs, probability, multi-hop, temporal/numeric, judging a proposed answer, missing-fact abstention; templates held out per split; JevBench overlap screen clean) is Target B of the JevBench section; `evals/devtools-v1` (six licence-checked developer-tooling sources) is the developer workload. Baseline on devtools-v1 development (1,074 questions, served): Kev-0.8B 0.488, Kev-4B 0.606, Kev-9B 0.631, Kev-27B 0.703, Jev 0.713.
-
-**Baselines on hard-v1 development** (1,083 questions, served; `runs/hv1-*`, Jev `runs/jev-hard-v1-r2` after a first attempt died on a gateway 503 at 550/700 records, `runs/jev-hard-v1`): all 0.350 (0.8B) / 0.503 (4B) / 0.574 (9B) / 0.733 (27B) / 0.777 (Jev). By family (4B / 9B / 27B / Jev): long_policy 0.35 / 0.46 / 0.70 / 0.66, tradeoff 0.76 / 0.82 / 0.91 / 0.95, probability 0.48 / 0.61 / 0.70 / 0.81, multi_hop 0.53 / 0.53 / 0.77 / 0.77, temporal_numeric 0.27 / 0.32 / 0.43 / 0.59, judge 0.56 / 0.60 / 0.73 / 0.80, ambiguous 0.48 / 0.56 / 0.81 / 0.79. The ordering matches JevBench's public hard tier family by family (Jev ahead on probability, dates and judging; Kev-27B level or ahead on long policies and ambiguity) with no shared items, which is what hard-v1 was built to measure.
-
-**Data** (`scripts/build_round10_data.py`, manifests under `evals/round10/`): `hard` = hard-v1 train (6,000 records); `devtools` = devtools-v1 train (5,320, trainable sources only); `skills` = both.
-
-**Arms** (one epoch, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seed 1, H200): study `r10-skills`: Kev-4B from the released `jaredpalmer/kev-4b` (round-8 checkpoint), lr 2e-5, `replay 4000`, on (a) `skills`, (b) `hard`, (c) `devtools`; study `r10-skills-27b`: Kev-27B from `/runs/release/kev-27b-v2/checkpoint`, lr 2e-5, `replay 4000`, on (d) `skills`. 9B arms will be registered separately once round 9 shows which replay / step keeps short states at 9B.
-
-**Rule, per arm against its own parent** (bootstraps and temperatures as rounds 7-9):
-1. Primary: accuracy on hard-v1 development and devtools-v1 development pooled (1,083 + 1,074 questions), paired lower bound > 0; each suite reported separately.
-2. Guards: short-state (`transfer-v4` dev) accuracy lower bound ≥ −2 pp, Brier upper bound ≤ +0.01, confident errors upper bound ≤ +1 pp; `documents-v1` development accuracy lower bound ≥ −2 pp (the round-8 gain must survive); WANLI-v2 and scienthoon lower bounds ≥ −2 pp, pooled externals lower bound ≥ −1.5 pp; unknowable share ≤ 0.05.
-3. Target A (hard-tier calibration): served ECE on hard-v1 development no worse than the parent's + 0.01 (point), with a bootstrap interval reported.
-4. Per size, the passing arm with the largest primary point estimate is the candidate. Confirmation, once: hard-v1 test and devtools-v1 test (both locked and unread) pooled, paired lower bound > 0; locked `transfer-v4` accuracy ≥ parent − 1 pp and served Brier ≤ parent + 0.005. JevBench public items are read for the candidate as a report, never for selection.
-
-**Amendment (2026-09-24T04:30Z, after the first development read, before any confirmation read).** devtools-v1 reuses a few CodeReviewer record ids for different records (development 1 id, test 1 id, 53 inside train, 13 shared between train and an evaluation partition; CodeReviewer's own `id` field is not a row id — about 15,300 distinct ids over 31,252 rows per file — and the builder used it; corrected cause found in PR #103, which makes new builds use line numbers and reject collisions). Paired bootstraps need unique `(id, question)`, so every devtools comparison drops the duplicated ids on both sides (`round10_readout.py: DUPLICATE_IDS`; 2 of 1,074 development rows; the test id `codereviewer/cls-test/19245` will be dropped the same way). Training is unaffected. The builder is fixed for the next version; devtools-v1 stays frozen as it is.
-
-## Rounds 7 and 8 result (2026-09-23/24; each read once per registered rule)
+### Rounds 7 and 8 result (2026-09-23/24; each read once per registered rule)
 
 **Round 7 (documents delta, every size against its released parent; `scripts/round7_readout.py`, `runs/r7-readout/round7.json`).** No candidate at any size.
 
@@ -270,15 +181,7 @@ Replay 10,000: (a) lr 1e-5 primary +16.2 [+14.3, +18.1], pooled externals −0.6
 
 **What the two rounds say.** Real-document training is the largest lever measured in this project (7-23 pp on held-out narratives at every size, above Jev at 4B, 9B and 27B), and it is in distribution by construction. Its cost scales the wrong way with size: at 4B it is free, at 9B it is a real 2 pp of short-state accuracy, at 27B it is external accuracy and unknowable calibration. Round 9 tests replay and step size as the remedy.
 
-## Round 9 - documents delta at 9B / 0.8B that keeps short states (registered 2026-09-24T02:38Z, before any training or read)
-
-**Why.** Round 7/8: the documents delta gains +7.0 pp (9B) and +22.5 / +22.7 pp (0.8B) on `documents-v1` development, but costs short-state accuracy: 9B −2.3 [−4.0, −0.8] and −1.7 [−3.7, +0.2] (two seeds), 0.8B −0.9 and −1.2 (lower bounds −3.2, −3.7). Kev-4B passed and was released (round 8). The standard remedies for forgetting in a delta are more replay of the original training data and a smaller step; this round tests both at 9B and more replay at 0.8B.
-
-**Arms** (study `r9-docs`, `experiments/round9/docs.json`; round 7's recipe otherwise: one epoch, `data evals/documents-v1/train.jsonl`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seed 3, H200, timeout 12,600 s): 9B from `jaredpalmer/kev-9b` with (a) `replay 6000, lr 2e-5`, (b) `replay 2000, lr 1e-5`, (c) `replay 6000, lr 1e-5`; 0.8B from `jaredpalmer/kev-0.8b` with (d) `replay 6000, lr 4e-5`, (e) `replay 6000, lr 2e-5`. Reads `runs/r9-<arm>-{docs,semif,scienthoon,wanli2,typesafe,v9}`; read-out `scripts/round8_readout.py --round 9`, confirmation `scripts/round8_confirm.py --round 9`.
-
-**Rule:** round 8's rule 1-3 unchanged (documents development lower bound > 0; short-state accuracy lower bound ≥ −2 pp, Brier upper bound ≤ +0.01, confident errors upper bound ≤ +1 pp; WANLI-v2 and scienthoon lower bounds ≥ −2 pp, pooled external lower bound ≥ −1.5 pp, unknowable ≤ 0.05; SemIf / TypeSafe reported). Per size, the passing arm with the largest documents point estimate is the candidate; rule 4 (confirmation) as round 8: `documents-v1` test lower bound > 0 against the parent, then locked `transfer-v4` (accuracy ≥ parent − 1 pp, served Brier ≤ parent + 0.005), `documents-v2` reported. Five arms, so a pass on one is also reported as one of five tries.
-
-## JevBench (public items) and the next targets (2026-09-24; measured, not registered)
+### JevBench (public items) and the next targets (2026-09-24; measured, not registered)
 
 **Measurement.** JevBench (Benchmark Heaven, `fstandhartinger/jevbench@2fa63fa`, MIT) ranks our superseded Qwen3 previews (commit `20fa626`; kev 4B #24, score 36.1; sealed accuracy 22 %, below its 29.3 % chance line). Its unchanged harness (`typesafe` adapter) against the released Qwen3.5 family served by `skills/kev-deploy` on Modal, all 231 public items, 0 failures (`runs/jevbench-public/`):
 
@@ -297,30 +200,158 @@ Kev-9B vs Jev by hard family: long_policy 0.37 vs 0.61, tradeoff 0.50 vs 0.92, p
 
 **Target B: skill data for the failed families, not benchmark data.** Build `hard-v1`, our own suite of the *skills* JevBench's hard tier measures: long policy documents with exceptions and sublimits, trade-offs under stated priorities, probability and expected-value questions, multi-hop over several facts, dates and arithmetic, judged answers, and ambiguity (with an "insufficient" option). Label sources in order of preference: (1) programmatic generators with exact labels (`kev/contrastive.py`-style minimal pairs: change one clause, the answer flips; dates, sums, probabilities and policy arithmetic are computed, not judged); (2) open-weight teachers with agreement and the judge panel for authored long policies, as in documents-v1. Rules: never generated from, prompted with, or paraphrased from JevBench items; exact and near-duplicate screening (normalised text, n-gram overlap) against all public JevBench items before freezing; frozen development / private test split first; JevBench public stays a report-only external read, never selection; any release note discloses the data and the overlap check. JevBench's sealed half and its public-vs-sealed gap penalty are the check that this generalises rather than benchmaxxes.
 
-## Round 8 - documents delta at 0.8B / 4B, guards sized to the suites (registered 2026-09-23T23:15Z, before any training or read)
+### Round 9 - documents delta at 9B / 0.8B that keeps short states (registered 2026-09-24T02:38Z, before any training or read)
 
-**Why.** Round 7's 0.8B and 4B arms gained +22.5 and +8.4 pp on `documents-v1` development (4B +2.6 pp [+0.5, +4.6] above Jev) with pooled externals flat (+0.4 [−0.8, +1.6], +0.0 [−1.0, +1.1]), and failed only per-suite lower bounds on suites too small to resolve a −3 pp floor (SemIf 144 questions, TypeSafe 89) plus, at 4B, WANLI-v2 (−1.3, bound −2.6) and, at 0.8B, the short-state accuracy bound (−0.9, bound −3.2). Round 7's verdicts stand: no 0.8B or 4B candidate. This round tests the same recipe at a **new seed** under guards sized to what each suite can resolve, so that the decision is not made on the reads that motivated it; the fresh confirmation sets (`documents-v1` test, `documents-v2`) are still unread by any model.
+**Why.** Round 7/8: the documents delta gains +7.0 pp (9B) and +22.5 / +22.7 pp (0.8B) on `documents-v1` development, but costs short-state accuracy: 9B −2.3 [−4.0, −0.8] and −1.7 [−3.7, +0.2] (two seeds), 0.8B −0.9 and −1.2 (lower bounds −3.2, −3.7). Kev-4B passed and was released (round 8). The standard remedies for forgetting in a delta are more replay of the original training data and a smaller step; this round tests both at 9B and more replay at 0.8B.
 
-**Arms** (study `r8-small`, `experiments/round8/small.json`): round 7's recipe exactly, seed 2: Kev-4B from `jaredpalmer/kev-4b` (lr 2e-5, `batch 2, accum 4`) and Kev-0.8B from `jaredpalmer/kev-0.8b` (lr 4e-5, `batch 4, accum 2`); one epoch, `data evals/documents-v1/train.jsonl`, `replay 2000`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing; H200, timeout 10,800 s. Reads `runs/r8-<arm>-{docs,semif,scienthoon,wanli2,typesafe,v9}`; read-out `scripts/round8_readout.py`.
+**Arms** (study `r9-docs`, `experiments/round9/docs.json`; round 7's recipe otherwise: one epoch, `data evals/documents-v1/train.jsonl`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seed 3, H200, timeout 12,600 s): 9B from `jaredpalmer/kev-9b` with (a) `replay 6000, lr 2e-5`, (b) `replay 2000, lr 1e-5`, (c) `replay 6000, lr 1e-5`; 0.8B from `jaredpalmer/kev-0.8b` with (d) `replay 6000, lr 4e-5`, (e) `replay 6000, lr 2e-5`. Reads `runs/r9-<arm>-{docs,semif,scienthoon,wanli2,typesafe,v9}`; read-out `scripts/round8_readout.py --round 9`, confirmation `scripts/round8_confirm.py --round 9`.
 
-**Rule, per arm against its released parent** (bootstraps and temperatures as round 7):
-1. Primary: `documents-v1` development accuracy, paired lower bound > 0.
-2. Short-state guard (`transfer-v4` development, 656 questions, interval half-width about 1.7 pp): accuracy lower bound ≥ −2 pp; Brier upper bound ≤ +0.01; confident-error rate upper bound ≤ +1 pp.
-3. External guards: WANLI-v2 (1,002) and scienthoon (900) accuracy lower bound ≥ −2 pp each; pooled over all four external suites lower bound ≥ −1.5 pp; `transfer-v9` unknowable share at p ≥ 0.9 ≤ 0.05. SemIf-144 and TypeSafe-89 are reported with intervals and do not gate on their own (they enter the pooled guard).
-4. Confirmation, once per passing arm with its parent: `documents-v1` test paired accuracy lower bound > 0; locked `transfer-v4` (`locked_test --name kev-<size>-r8`): locked accuracy ≥ parent − 1 pp and served Brier ≤ parent + 0.005; `documents-v2` (private) read and reported, not gating. A size that passes 1-4 is a release candidate; a card must say the gain is measured in-distribution (the training split shares source and question templates with every documents suite).
+**Rule:** round 8's rule 1-3 unchanged (documents development lower bound > 0; short-state accuracy lower bound ≥ −2 pp, Brier upper bound ≤ +0.01, confident errors upper bound ≤ +1 pp; WANLI-v2 and scienthoon lower bounds ≥ −2 pp, pooled external lower bound ≥ −1.5 pp, unknowable ≤ 0.05; SemIf / TypeSafe reported). Per size, the passing arm with the largest documents point estimate is the candidate; rule 4 (confirmation) as round 8: `documents-v1` test lower bound > 0 against the parent, then locked `transfer-v4` (accuracy ≥ parent − 1 pp, served Brier ≤ parent + 0.005), `documents-v2` reported. Five arms, so a pass on one is also reported as one of five tries.
 
-## Round 7 - documents delta (registered 2026-09-23T22:15Z, before any training or read)
+### Round 9 result (2026-09-24; `runs/r9-readout/round9.json`) — no candidate
 
-**Why.** On `evals/documents-v1` development (920 real CFPB-complaint questions; PLAN_27b "documents-v1 result"), Jev leads the released Kev-9B by 3.6 pp [1.2, 6.0] and 0.079 Brier, concentrated in the issue question (82.1 vs 74.9) and long narratives (88.5 vs 81.3); round 5/6 long-state training moved this suite by −0.4 / −0.8 pp. This round trains on real documents: `documents-v1` train (5,219 records, 7,488 teacher-agreed questions).
+| arm | documents-v1 dev | vs Jev | short-state acc | pooled externals | failed on |
+|---|---|---|---|---|---|
+| 9B (a) replay 6000, lr 2e-5 | 0.833 → 0.898 (+6.5 [+4.3, +8.8]) | +2.9 [+1.1, +4.8] | −0.8 [−2.4, +0.9] | +0.5 [−0.3, +1.3] | short-state lower bound (by 0.4 pp) |
+| 9B (b) replay 2000, lr 1e-5 | 0.901 (+6.8 [+4.5, +9.1]) | +3.3 [+1.2, +5.3] | +0.3 [−1.1, +1.5] | −0.9 [−1.6, −0.2] | WANLI-v2, scienthoon, pooled lower bounds |
+| 9B (c) replay 6000, lr 1e-5 | 0.899 (+6.6 [+4.2, +9.0]) | +3.0 [+1.0, +5.2] | −0.9 [−2.6, +0.6] | +0.3 [−0.4, +1.0] | short-state lower bound (by 0.6 pp) |
+| 0.8B (d) replay 6000, lr 4e-5 | 0.633 → 0.852 (+22.0) | −1.6 | −2.0 [−4.9, +1.1] | −0.2 | short state, Brier, WANLI-v2 |
+| 0.8B (e) replay 6000, lr 2e-5 | 0.840 (+20.8) | −2.8 | −0.8 [−3.2, +1.7] | −0.4 | short state, Brier, WANLI-v2 |
 
-**Arms** (study `r7-docs`, `experiments/round7/docs.json`; one epoch; `data evals/documents-v1/train.jsonl`, `replay 2000` from decision-v7 train, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing; hard labels only): Kev-9B from `jaredpalmer/kev-9b` at lr 2e-5, seeds 1 and 2 (`batch 2, accum 4`); Kev-4B from `jaredpalmer/kev-4b` at lr 2e-5 (`batch 2, accum 4`); Kev-0.8B from `jaredpalmer/kev-0.8b` at lr 4e-5 (`batch 4, accum 2`); Kev-27B from `/runs/r6-27b/00-trial-0/checkpoint` (round-6 trial A) at lr 2e-5 (`weights_dtype bf16, batch 1, accum 8`). H200; timeouts 12,600 s (9B), 10,800 s (4B), 7,200 s (0.8B), 28,800 s (27B, own study `r7-docs-27b`).
+**Reading.** At 9B, 6,000 replayed records remove the external cost that 2,000 left (round 7: pooled −0.8 / −0.4; here +0.5 / +0.3); the short-state cost shrinks from −2.3 / −1.7 to −0.8 / −0.9 but the 656-question panel cannot bound it above −2 pp (half-width ~1.7 pp). A smaller step alone (b) protects short states and moves the damage to the externals. At 0.8B neither remedy works. Five tries, no pass; the documents gain is stable across every arm (+6.5 to +6.8 at 9B, about 3 pp above Jev). The registration-appropriate next step is a fresh-seed replication of recipe (a) judged on a short-state panel large enough to resolve a 1 pp cost (round 11), not a re-reading of these arms.
 
-**Rule, per arm against its own parent** (the released checkpoint; trial A for the 27B arm), paired record-clustered bootstraps, 2,000 resamples, seed 0, each arm served at the temperature fitted on its own decision-v7 development rows:
-1. Primary: `documents-v1` development accuracy, paired lower bound > 0.
-2. Short-state guard (`transfer-v4` development, in-trial): accuracy lower bound ≥ −1 pp, Brier upper bound ≤ +0.01, confident-error rate upper bound ≤ +1 pp.
-3. External guards (SemIf-144, scienthoon-900, wanli-v2, TypeSafe-89): per-suite accuracy lower bound ≥ −2 pp (n ≥ 500) or ≥ −3 pp (n < 500); pooled lower bound ≥ −1.5 pp with no point-estimate requirement (round 6 showed the point requirement cannot be met by a model that is merely not worse); `transfer-v9` unknowable share at p ≥ 0.9 ≤ 0.05.
-4. Per size, the passing arm with the largest primary point estimate is the candidate (9B: the two seeds are also reported pooled). Jev is reported on every table, not gated.
-5. Confirmation, read once per candidate with its parent: `documents-v1` test (574 records, 936 questions; locked and never read; public text, so this is a procedural lock) — paired accuracy lower bound > 0. Then one locked `transfer-v4` read (`locked_test --name kev-<size>-r7`): locked accuracy ≥ parent − 1 pp and served Brier ≤ parent + 0.005. A private `documents-v2` held-out set (in `jaredpalmer/kev-private-evals`), when frozen, gets one read of the confirmed candidate as a second, uncontaminated confirmation; it does not gate.
+### Round 10 - skills delta: hard-v1 + devtools-v1 (registered 2026-09-24T03:13Z, before its data is built or any training or read)
+
+**Why.** Two new suites measure what the released models are worst at. `evals/hard-v1` (programmatic, exact labels; seven families: long policy documents, trade-offs, probability, multi-hop, temporal/numeric, judging a proposed answer, missing-fact abstention; templates held out per split; JevBench overlap screen clean) is Target B of the JevBench section; `evals/devtools-v1` (six licence-checked developer-tooling sources) is the developer workload. Baseline on devtools-v1 development (1,074 questions, served): Kev-0.8B 0.488, Kev-4B 0.606, Kev-9B 0.631, Kev-27B 0.703, Jev 0.713.
+
+**Baselines on hard-v1 development** (1,083 questions, served; `runs/hv1-*`, Jev `runs/jev-hard-v1-r2` after a first attempt died on a gateway 503 at 550/700 records, `runs/jev-hard-v1`): all 0.350 (0.8B) / 0.503 (4B) / 0.574 (9B) / 0.733 (27B) / 0.777 (Jev). By family (4B / 9B / 27B / Jev): long_policy 0.35 / 0.46 / 0.70 / 0.66, tradeoff 0.76 / 0.82 / 0.91 / 0.95, probability 0.48 / 0.61 / 0.70 / 0.81, multi_hop 0.53 / 0.53 / 0.77 / 0.77, temporal_numeric 0.27 / 0.32 / 0.43 / 0.59, judge 0.56 / 0.60 / 0.73 / 0.80, ambiguous 0.48 / 0.56 / 0.81 / 0.79. The ordering matches JevBench's public hard tier family by family (Jev ahead on probability, dates and judging; Kev-27B level or ahead on long policies and ambiguity) with no shared items, which is what hard-v1 was built to measure.
+
+**Data** (`scripts/build_round10_data.py`, manifests under `evals/round10/`): `hard` = hard-v1 train (6,000 records); `devtools` = devtools-v1 train (5,320, trainable sources only); `skills` = both.
+
+**Arms** (one epoch, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seed 1, H200): study `r10-skills`: Kev-4B from the released `jaredpalmer/kev-4b` (round-8 checkpoint), lr 2e-5, `replay 4000`, on (a) `skills`, (b) `hard`, (c) `devtools`; study `r10-skills-27b`: Kev-27B from `/runs/release/kev-27b-v2/checkpoint`, lr 2e-5, `replay 4000`, on (d) `skills`. 9B arms will be registered separately once round 9 shows which replay / step keeps short states at 9B.
+
+**Rule, per arm against its own parent** (bootstraps and temperatures as rounds 7-9):
+1. Primary: accuracy on hard-v1 development and devtools-v1 development pooled (1,083 + 1,074 questions), paired lower bound > 0; each suite reported separately.
+2. Guards: short-state (`transfer-v4` dev) accuracy lower bound ≥ −2 pp, Brier upper bound ≤ +0.01, confident errors upper bound ≤ +1 pp; `documents-v1` development accuracy lower bound ≥ −2 pp (the round-8 gain must survive); WANLI-v2 and scienthoon lower bounds ≥ −2 pp, pooled externals lower bound ≥ −1.5 pp; unknowable share ≤ 0.05.
+3. Target A (hard-tier calibration): served ECE on hard-v1 development no worse than the parent's + 0.01 (point), with a bootstrap interval reported.
+4. Per size, the passing arm with the largest primary point estimate is the candidate. Confirmation, once: hard-v1 test and devtools-v1 test (both locked and unread) pooled, paired lower bound > 0; locked `transfer-v4` accuracy ≥ parent − 1 pp and served Brier ≤ parent + 0.005. JevBench public items are read for the candidate as a report, never for selection.
+
+**Amendment (2026-09-24T04:30Z, after the first development read, before any confirmation read).** devtools-v1 reuses a few CodeReviewer record ids for different records (development 1 id, test 1 id, 53 inside train, 13 shared between train and an evaluation partition; CodeReviewer's own `id` field is not a row id — about 15,300 distinct ids over 31,252 rows per file — and the builder used it; corrected cause found in PR #103, which makes new builds use line numbers and reject collisions). Paired bootstraps need unique `(id, question)`, so every devtools comparison drops the duplicated ids on both sides (`round10_readout.py: DUPLICATE_IDS`; 2 of 1,074 development rows; the test id `codereviewer/cls-test/19245` will be dropped the same way). Training is unaffected. The builder is fixed for the next version; devtools-v1 stays frozen as it is.
+
+### Round 10 result, 4B (2026-09-24; `runs/r10-readout/round10.json`, `runs/r10-verdict/`) — **Kev-4B skills arm confirmed**
+
+| 4B arm (from the released round-8 Kev-4B) | primary (hard-v1 + devtools-v1 dev) | hard-v1 dev | devtools-v1 dev | documents dev | short state | pooled externals | hard ECE | verdict |
+|---|---|---|---|---|---|---|---|---|
+| skills (hard + devtools) | +20.8 [+18.8, +22.8] | 0.503 → **0.786** | 0.605 → **0.739** | −0.3 [−1.5, +0.9] | +1.5 [−0.3, +3.5] | −0.0 [−1.2, +1.1] | 0.137 → 0.095 | **pass** |
+| hard only | +14.2 [+12.4, +15.9] | 0.763 | 0.628 | +0.1 | +0.6 | −0.5 [−1.7, +0.6] | 0.117 | WANLI-v2, pooled |
+| devtools only | +7.4 [+5.9, +8.9] | 0.510 | 0.747 | +0.1 | −0.6 | −0.5 [−1.5, +0.4] | 0.104 | scienthoon |
+
+Jev on the same development splits: hard-v1 0.777, devtools-v1 0.713. **Confirmation (read once):** hard-v1 test 0.540 → **0.803** (+26.3 [+23.3, +29.5]), devtools-v1 test 0.623 → **0.756** (+13.4 [+10.1, +16.1]), pooled +19.9 [+17.8, +21.8]; hard-v1 test ECE 0.112 → 0.084; locked `transfer-v4` 0.835 → **0.838** (+0.3 [−1.8, +2.3]), served Brier 0.233 → **0.224** (`kev-4b-r10-ungated`; the name keeps the suffix the tool used for round 8 although this trial passed its in-trial gates). **Passes every registered criterion: release candidate.** The first parent test read failed before scoring anything (the benchmarks job format splits on `@`, which broke a pinned Hub revision); it was rerun from the volume checkpoint. The hard-v1 gain is measured on held-out templates of the same generators; JevBench public items (report only) are the out-of-distribution check.
+
+**JevBench public items, report only (`runs/jevbench-public/kev-4b-r10`; the candidate served from a private Hub copy by the kev-deploy template, same unchanged harness):** all public 0.714 → **0.758** (Kev-9B 0.762); standard 0.931 → 0.931; hard 0.450 → **0.541**, paired over the 111 hard items +9.0 pp [+2.7, +15.3], 12 newly right vs 2 newly wrong (exact McNemar p = 0.013); hard-tier ECE 0.263 → **0.112** (Kev-9B 0.192, Kev-27B 0.128, Jev 0.06). By family: ambiguous 0.43 → 0.71, multi_hop 0.39 → 0.61, long_policy 0.21 → 0.32, tradeoff 0.33 → 0.50, temporal_numeric 0.13 → 0.20, judge_hard and probability unchanged. The skill data transfers to a benchmark it never saw, and Target A (hard-tier calibration) moves by training, not only by temperature. No JevBench item was used for selection.
+
+### Round 10 result, 27B (2026-09-24) — no 27B candidate
+
+From the Kev-27B release candidate (B1 v2 seed 2), one epoch on skills with replay 4000, lr 2e-5: hard-v1 development 0.733 → **0.885** (+15.1 [+12.4, +18.0]; Jev 0.777), devtools-v1 0.702 → **0.787** (+8.5 [+6.2, +10.7]; Jev 0.713), primary +11.8 [+10.1, +13.6], documents −0.5 [−1.6, +0.5], short state +0.5 [−0.8, +1.7], pooled externals −0.4 [−1.3, +0.4], hard-set ECE 0.047 → **0.015**, in-trial held-out pairs 0.891 → 0.922. **Fails one guard: scienthoon −1.8 [−3.0, −0.7]** (lower bound under −2 pp). Scienthoon (support-ticket routing) is the external that skills/devtools deltas cost most often (4B devtools-only arm, both 9B seeds, here); the next 27B attempt should carry more replay (round 16's 9B arms test replay 10,000). The read client died on a local network drop while downloading results; the eight reads had finished on Modal and were pulled from the volume unchanged.
+
+### Round 11 - replication of round 9's recipe on a larger short-state panel (registered 2026-09-24T04:19Z, before any training or read)
+
+**Why.** Round 9's 9B arms (a) and (c) failed only the short-state lower bound, on a 656-question panel whose interval half-width (~1.7 pp) cannot bound a ~1 pp cost above −2 pp. Re-reading those arms on a bigger panel would select on the reads that motivated it, so this round trains **fresh seeds** of the single recipe chosen now and judges them with a short-state guard on a pooled panel: `transfer-v4` development (the trial's own rows) plus `evals/round3/transfer-r3` test (1,260 records; read before only by the round-4 release-confirmation arms, never by any arm of rounds 7-11, used here as a guard, not for selection).
+
+**Arms** (study `r11-docs`, `experiments/round11/docs.json`; round 9's recipe otherwise): 9B recipe (a) (`replay 6000, lr 2e-5`) seeds 4 and 5; 0.8B recipe (e) (`replay 6000, lr 2e-5`) seeds 4 and 5. Reads as round 9 plus `transfer-r3` test (`runs/r11-<arm>-r3test`; parents `runs/rc-parent-r3test` for Kev-9B and a new `runs/r11-P08-r3test` for Kev-0.8B, read once).
+
+**Rule:** round 8/9's rules 1-4 unchanged except guard 2, which is computed on the pooled short-state panel (transfer-v4 dev + transfer-r3 test): accuracy lower bound ≥ −2 pp, Brier upper bound ≤ +0.01, confident errors upper bound ≤ +1 pp. Each seed is judged on its own; per size the passing seed with the larger documents estimate is the candidate; confirmation as round 8 (`documents-v1` test lower bound > 0, locked `transfer-v4`, `documents-v2` reported).
+
+### Round 11 result, 0.8B (2026-09-24; `runs/r11-readout/round11.json`, `runs/r11-verdict/`) — **Kev-0.8B documents candidate confirmed**
+
+On the pooled short-state panel (transfer-v4 dev + transfer-r3 test), both fresh 0.8B seeds of recipe (e) pass rules 1-3: seed 4 documents +20.2 [+16.9, +23.4], short −0.6 [−1.8, +0.6], pooled externals +0.5 [−0.5, +1.5]; seed 5 documents +20.4 [+17.3, +23.5], short +0.4 [−0.9, +1.7], pooled +0.6 [−0.5, +1.7]. Candidate seed 5. **Confirmation:** `documents-v1` test 0.608 → **0.821** (+21.3 [+17.9, +24.5]; Brier −0.272); locked `transfer-v4` 0.684 → **0.695** (+1.1 [−1.4, +3.4]), served Brier 0.412 → 0.396 (`kev-08b-r11-ungated`; the in-trial screening gate "held-out pairs ≥ 70 %" fails for this size as it does for the released parent, 0.48 vs 0.42). **Passes every registered criterion: release candidate.** 9B, same round: seed 4 documents +7.3 [+5.1, +9.5] (+3.7 over Jev), short state −0.3 [−1.1, +0.4] (now resolved on the pooled panel), but WANLI-v2 −1.5 [−2.9, −0.1]; seed 5 +6.7, short −0.9 [−1.9, −0.1] with its Brier bound over, WANLI-v2 −2.9 [−4.4, −1.4], pooled −0.9 [−1.8, 0.0]. **No 9B candidate.** Across nine 9B documents arms (rounds 7, 9, 11) the documents gain is +6.5 to +7.3 every time; what moves between seeds is WANLI-v2 (−0.7 to −2.9), the NLI suite closest to the MNLI records in the replay. The 0.8B seeds of rounds 7-9 were judged on the 656-question panel alone and could not bound a ~1 pp cost; with 1,800 questions, two independent seeds show none.
+
+### Round 12 - skills delta at 9B and 0.8B (registered 2026-09-24T04:56Z, before any training or read)
+
+**Why.** Round 10's 4B skills arm passed rules 1-3 (hard-v1 development 0.503 → 0.786, devtools-v1 0.605 → 0.739, every guard flat, hard-set ECE 0.137 → 0.095); its confirmation is running. This round applies the same data at 9B with round 9's lesson (replay 6,000 removes the 9B external cost) and at 0.8B.
+
+**Arms** (study `r12-skills`, `experiments/round12/skills.json`; one epoch, `data evals/round10/skills/train.jsonl`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, H200, timeout 12,600 s): 9B from `jaredpalmer/kev-9b`, `replay 6000, lr 2e-5`, seeds 1 and 2; 0.8B from `jaredpalmer/kev-0.8b`, `replay 6000, lr 4e-5`, seed 1. Reads `runs/r12-<arm>-{hard,devtools,docs,r3test,semif,scienthoon,wanli2,typesafe,v9}`.
+
+**Rule:** round 10's rules 1-4 against each arm's released parent, with round 11's pooled short-state panel (transfer-v4 development + transfer-r3 test) for guard 2's short-state bounds, and the documents guard read against the parent's own documents-v1 development rows (`runs/docs1-P9`, `runs/docs1-P08`). Per size, the passing arm with the largest primary estimate is the candidate; confirmation as round 10 (hard-v1 + devtools-v1 test pooled lower bound > 0; locked transfer-v4).
+
+### Round 12 result, 0.8B (2026-09-24; `runs/r12-readout/round12.json`, `runs/r12-verdict/`) — **0.8B skills arm confirmed**
+
+From the released Kev-0.8B: hard-v1 development 0.350 → 0.651 (+30.1 [+26.8, +33.5]), devtools-v1 0.487 → 0.616 (+12.9 [+10.2, +15.8]), documents +1.1 [−0.8, +2.9], short state (pooled panel) +0.2 [−1.2, +1.7], pooled externals **+2.1 [+0.6, +3.7]**, hard ECE 0.140 → 0.122: passes rules 1-3. **Confirmation:** hard-v1 test 0.396 → **0.689** (+29.3 [+25.7, +32.8]), devtools-v1 test 0.472 → **0.641** (+16.8 [+13.7, +19.6]), pooled +23.1 [+20.8, +25.4]; locked `transfer-v4` 0.685 → 0.683 (−0.15 [−2.9, +2.7]), served Brier 0.412 → 0.396 (`kev-08b-r12-ungated`). **Passes every registered criterion.** 0.8B now has two confirmed single deltas (documents, round 11; skills, round 12); round 13 tests them stacked. The 9B arms of this round are still training.
+
+### Round 12 result, 9B (2026-09-24) — no 9B candidate
+
+| 9B arm (replay 6000, lr 2e-5) | primary | hard-v1 dev | devtools-v1 dev | documents | short (pooled) | pooled externals | failed on |
+|---|---|---|---|---|---|---|---|
+| seed 1 | +18.2 [+16.2, +20.3] | 0.574 → **0.802** | 0.631 → **0.767** | −1.3 [−2.8, +0.1] | +0.2 [−0.9, +1.3] | −2.1 [−3.2, −1.0] | documents, WANLI-v2, scienthoon, pooled |
+| seed 2 | +19.3 [+17.4, +21.2] | 0.811 | 0.779 | −1.2 [−2.7, +0.3] | +0.1 [−1.1, +1.2] | −3.5 [−4.7, −2.2] | + short Brier |
+
+Both 9B seeds beat Jev on hard-v1 (0.777) and devtools-v1 (0.713) development, and both pay on the external suites; this is the 9B pattern of rounds 7, 9 and 11 again (the delta is learnt; the 9B gives up NLI and ticket routing for it). Round 16 tests more replay at a smaller step.
+
+### Round 13 - 0.8B skills on top of the 0.8B documents candidate (registered 2026-09-24T05:46Z, before any training or read)
+
+**Why.** 0.8B has two separately confirmed deltas from the released checkpoint: documents (round 11, confirmed) and skills (round 12, rules 1-3 passed, confirmation running). A release is one model, so this round trains the skills data on top of the round-11 documents candidate, the path Kev-4B took (round 8 → round 10).
+
+**Arms** (study `r13-08b`, `experiments/round13/skills.json`): from `/runs/r11-docs/03-trial-3/checkpoint`, one epoch, `data evals/round10/skills/train.jsonl`, `replay 6000`, lr 4e-5, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seeds 1 and 2; H200, timeout 12,600 s. Parent reads for the round-11 candidate on hard-v1 and devtools-v1 development: `runs/r13-P08r11-{hard,devtools}` (read once, alongside).
+
+**Rule:** round 12's rule against this parent (the round-11 candidate), including the documents guard (`documents-v1` development lower bound ≥ −2 pp, parent rows `runs/r11-08b-s5-docs`) and the pooled short-state panel (parent `runs/r11-08b-s5-r3test`). The passing seed with the larger primary estimate is the candidate; confirmation: hard-v1 + devtools-v1 test pooled lower bound > 0 against the round-11 candidate, `documents-v1` test lower bound ≥ −2 pp against it (its test was read once already, by rule), and locked `transfer-v4` (≥ parent − 1 pp, Brier ≤ parent + 0.005).
+
+### Round 13 result (2026-09-24; `runs/r13-readout/round13.json`) — no candidate
+
+Skills on top of the round-11 0.8B documents candidate: seed 1 primary +20.6 [+18.5, +23.0] (hard-v1 0.355 → 0.640, devtools 0.485 → 0.612) but documents −0.5 [−2.0, +1.0] (lower bound just under −2) and scienthoon below its bound; seed 2 +19.9 with short state −1.6 [−3.2, 0.0] and documents −1.1 [−2.4, +0.3]. Stacking a second delta on the 0.8B erodes the first.
+
+### Round 14 - more skill data on top of the round-10 Kev-4B candidate (registered 2026-09-24T05:52Z, before any training or read)
+
+**Why.** Round 10's 4B skills arm moved hard-v1 by +26 pp and JevBench's hard tier by +9 pp; JevBench's weakest families for it remain temporal/numeric (0.20), probability (0.50) and judging (0.53). `evals/round14/hard-extra` (`scripts/build_hard_extra.py`) is 12,000 more hard-v1 training records from a fresh seed on the same training templates (0-3), deduplicated against every frozen hard-v1 state; `skills-plus` = hard-extra + devtools-v1 train (17,320 records). hard-v1 development and test keep measuring unseen templates.
+
+**Arms** (study `r14-4b`, `experiments/round14/skills.json`): from `/runs/r10-skills/00-trial-0/checkpoint` (the round-10 candidate), one epoch on `skills-plus`, `replay 4000`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seed 1, at (a) lr 1e-5 and (b) lr 2e-5; H200, timeout 12,600 s. Parent reads for the round-10 candidate on transfer-r3 test (`runs/r14-P4r10-r3test`, read once).
+
+**Rule:** round 12's rule against this parent (the round-10 candidate; its development reads `runs/r10-4b-skills-*`), with the pooled short-state panel and the documents guard. The passing arm with the larger primary estimate is the candidate; confirmation: hard-v1 + devtools-v1 test pooled lower bound > 0 against the round-10 candidate, locked `transfer-v4` (≥ parent − 1 pp, Brier ≤ parent + 0.005). JevBench public read reported, never selected on. A gain here is on held-out templates of the same generators; the JevBench read decides whether it is worth a release over the round-10 candidate.
+
+### Round 14 result (2026-09-24; `runs/r14-readout/round14.json`) — no candidate
+
+More hard-v1 data on top of the round-10 Kev-4B candidate: (a) lr 1e-5 primary +3.6 [+2.4, +4.9] (hard-v1 dev 0.786 → 0.834, devtools 0.739 → 0.762), every guard flat, but hard-set ECE 0.095 → 0.106 against a 0.105 limit; (b) lr 2e-5 +4.0 [+2.6, +5.4] (hard 0.847) with pooled externals −1.1 [−2.2, −0.1] and scienthoon below its bound. Diminishing returns on the same generators: +26 pp for the first 6,000 records, +5 for the next 12,000. The round-10 checkpoint stays the 4B candidate.
+
+### Round 15 - 0.8B documents and skills in one delta (registered 2026-09-24T06:45Z, before any training or read)
+
+**Why.** 0.8B has two confirmed single deltas from the released checkpoint (documents, round 11; skills, round 12) and stacking them failed (round 13). This round trains both datasets together in one epoch from the released Kev-0.8B.
+
+**Arms** (study `r15-08b`, `experiments/round15/joint.json`): from `jaredpalmer/kev-0.8b`, one epoch on `evals/round15/joint/train.jsonl` (documents-v1 train + round-10 skills = 16,539 records), `replay 6000`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, H200, timeout 12,600 s: (a) lr 2e-5 seed 1, (b) lr 4e-5 seed 1, (c) lr 2e-5 seed 2.
+
+**Rule** (against the released Kev-0.8B; reads `runs/r15-<arm>-{docs,hard,devtools,r3test,semif,scienthoon,wanli2,typesafe,v9}`): both primaries must hold — documents-v1 development lower bound > 0 and hard-v1 + devtools-v1 development pooled lower bound > 0; guards as round 12 (pooled short-state panel, WANLI-v2 / scienthoon ≥ −2 pp, pooled externals ≥ −1.5 pp, unknowable ≤ 0.05, hard-set ECE ≤ parent + 0.01). Candidate: the passing arm with the larger sum of the two primary estimates. Confirmation, once: documents-v1 test lower bound > 0, hard-v1 + devtools-v1 test pooled lower bound > 0, locked `transfer-v4` (≥ parent − 1 pp, Brier ≤ parent + 0.005), documents-v2 reported.
+
+### Round 15 result (2026-09-24; `runs/r15-readout/round15.json`, `runs/r15-verdict/`) — **joint Kev-0.8B candidate confirmed**
+
+| arm (from the released Kev-0.8B, documents + skills in one epoch, replay 6000) | documents dev | skills primary (hard + devtools dev) | short (pooled) | pooled externals | verdict |
+|---|---|---|---|---|---|
+| (a) lr 2e-5, seed 1 | +21.0 [+18.0, +24.0] | +18.0 [+15.8, +20.0] (hard 0.594, devtools 0.602) | −0.1 [−1.4, +1.3] | +2.1 [+0.6, +3.5] | **pass (candidate)** |
+| (b) lr 4e-5, seed 1 | +22.4 [+19.3, +25.6] | +21.0 [+18.8, +23.2] | −0.9 [−2.2, +0.4] | +1.6 [−0.0, +3.0] | short bound, scienthoon |
+| (c) lr 2e-5, seed 2 | +20.2 [+16.9, +23.5] | +16.7 [+14.5, +18.9] | −0.3 [−1.7, +1.1] | +2.2 [+0.7, +3.7] | pass (replication) |
+
+**Confirmation of (a), read once:** documents-v1 test 0.608 → **0.851** (+24.4 [+21.3, +27.6]); hard-v1 test 0.396 → **0.665** (+26.9 [+23.4, +30.4]); devtools-v1 test 0.472 → **0.637** (+16.4 [+13.1, +19.4]), skills tests pooled +21.7 [+19.5, +24.0]; documents-v2 (private, reported) 0.616 → 0.848; locked `transfer-v4` 0.684 → **0.697** (+1.2 [−1.1, +3.7]), served Brier 0.412 → 0.397 (`kev-08b-r15-ungated`; in-trial screening gate "held-out pairs ≥ 70 %" fails for this size as for its parent). **Passes every registered criterion.** It carries both confirmed single deltas (round 11 documents, round 12 skills) in one model, which stacking could not (round 13); it supersedes both as the 0.8B release candidate. Fitted temperature 2.35 (out-of-fold ECE 0.102 → 0.032). **JevBench public items, report only** (`runs/jevbench-public/kev-08b-r15`): all 0.597 → **0.636**, standard 0.736 → **0.819**, hard 0.333 → 0.360 (paired +2.7 pp [−1.8, +7.2]; 5 newly right, 2 newly wrong), hard ECE 0.245 → 0.181.
+
+### Round 16 - 9B skills with more replay and a smaller step (registered 2026-09-24T07:30Z, before any training or read)
+
+**Arms** (study `r16-9b`, `experiments/round16/skills.json`): from `jaredpalmer/kev-9b`, one epoch on `evals/round10/skills/train.jsonl`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seed 1, H200, timeout 14,400 s: (a) `replay 10000, lr 1e-5`, (b) `replay 10000, lr 2e-5`. Reads as round 12.
+
+**Rule:** round 12's rule unchanged (against the released Kev-9B; pooled short-state panel). Candidate: the passing arm with the larger primary; confirmation as round 12.
+
+### Round 16 result (2026-09-24; `runs/r16-readout/round16.json`) — no 9B candidate
+
+Replay 10,000: (a) lr 1e-5 primary +16.2 [+14.3, +18.1], pooled externals −0.6 [−1.7, +0.5] (better than round 12's −2.1 / −3.5), but documents −1.7 [−3.1, −0.3], WANLI-v2 and short-state Brier below their bounds; (b) lr 2e-5 +18.6 (hard-v1 0.821), documents −2.2 [−3.6, −0.9], WANLI-v2, scienthoon and pooled (−0.9 [−1.9, +0.1]) below their bounds. More replay reduces the external cost at 9B but skills-only training now costs the 9B its documents accuracy, which the 0.8B avoided only by training documents in the same delta (round 15). Round 18 applies round 15's joint recipe at 9B with round 16's replay.
+
+### Round 17 - 27B skills with more replay (registered 2026-09-24T08:42Z, before any training or read)
+
+**Why.** Round 10's 27B skills arm passed everything except scienthoon (−1.8 [−3.0, −0.7]). More replay of the original training data is the remedy that removed the external cost at 9B in round 9.
+
+**Arms** (study `r17-27b`, `experiments/round17/skills.json`): from `/runs/release/kev-27b-v2/checkpoint`, one epoch on `evals/round10/skills/train.jsonl`, `max_state 7552`, `p_none_pair 0.25`, bf16 weights, checkpointing, seed 1, H200, timeout 28,800 s: (a) `replay 10000, lr 2e-5`, (b) `replay 10000, lr 1e-5`.
+
+**Rule:** round 10's rule against the Kev-27B candidate (its reads `runs/r6-27bv2-s2-*`, `runs/hv1-27b`, `runs/dt1-27b`; short state on transfer-v4 development as in round 10). Candidate: the passing arm with the larger primary; confirmation: hard-v1 + devtools-v1 test pooled lower bound > 0 and locked `transfer-v4` (≥ 0.896 − 1 pp, served Brier ≤ 0.160 + 0.005).
+
+### Round 18 - 9B documents and skills in one delta (registered 2026-09-24T09:40Z, before any training or read)
+
+**Arms** (study `r18-9b`, `experiments/round18/joint.json`): from `jaredpalmer/kev-9b`, one epoch on `evals/round15/joint/train.jsonl` (documents + skills, 16,539 records), `replay 10000`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, H200, timeout 14,400 s: (a) lr 2e-5 seed 1, (b) lr 1e-5 seed 1.
+
+**Rule:** round 15's rule (both primaries — documents-v1 development lower bound > 0 and hard-v1 + devtools-v1 development pooled lower bound > 0; pooled short-state panel; externals; unknowable; hard-set ECE) against the released Kev-9B (its reads as round 12). Candidate: the passing arm with the larger sum of primary estimates; confirmation as round 15 (documents-v1 test, hard-v1 + devtools-v1 test, locked transfer-v4, documents-v2 reported).
 
 ## Round 6 - overnight autoresearch (registered 2026-09-23T02:12Z, before any training or read)
 
