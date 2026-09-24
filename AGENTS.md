@@ -72,9 +72,9 @@ Title Case sections, API tables, Authors + License); model cards are formal.
 - Figures: `uv run python scripts/plot_family.py` and `uv run python scripts/plot_tweet.py` regenerate docs/kev-family.png and docs/kev-benchmark{,-dark}.png from
   saved result files. Style lives in `scripts/chartstyle.py` (Geist type, Vercel color tokens, direct labels, no legends, one label/plot/value lane per bar set);
   new figures should import it rather than set their own rcParams. `kev.plot` (loss curves from train logs) is a debugging aid, not a README figure.
-- Current family (2026-09-21, all Qwen3.5 + the dates/unknowable delta): `jaredpalmer/kev-9b` (`night2-9b-du/00-trial-0`), `jaredpalmer/kev-4b` (`night2-4b-du/00-trial-0`;
+- Current family (2026-09-21, all Qwen3.5 + the dates/unknowable delta): `jaredpalmer/kev-9b` (`night2-9b-du/00-trial-0`), `jaredpalmer/kev-4b` (`r8-small/00-trial-0` since 2026-09-24: the night2 checkpoint + one epoch on `documents-v1` train, round 8; previous at tag `night2-du-release`;
   Qwen3 weights at tag `qwen3`), `jaredpalmer/kev-0.8b` (`night2-08b-du2/00-trial-0`). Pre-delta v7 checkpoints at tag `v7-base` (`q35-9b/01-trial-1`, `q35-4b-s23/00-trial-0`, `q35-08b/02-trial-2`).
-  Calibration is built into each checkpoint: `head.pt["temperature"]` (fitted by `scripts/calibrate_checkpoint.py` on the trial's development rows; 9B 2.30, 4B 2.14,
+  Calibration is built into each checkpoint: `head.pt["temperature"]` (fitted by `scripts/calibrate_checkpoint.py` on the trial's development rows; 9B 2.30, 4B 2.96 (2.14 before the round-8 delta),
   0.8B 2.41) is applied by `PointerHead` in eval mode; `KEV_TEMPERATURE=1.0` overrides to raw. The script also reports an out-of-fold grouped-CV ECE with bootstrap CIs alongside the in-sample fit (4B: 0.075 raw -> 0.020 OOF, separated) and stores it under `head.pt["temperature_fit"]["cross_validation"]`; re-run it after any new checkpoint before publishing. Opt-in: `KEV_DATE_FACTS=1` (day counts). Delta data: evals/night2/ (scripts/build_night2_data.py). Previous generation, kept for Mac latency: `kev-8b`, `kev-0.6b`, `kev-4b@qwen3` (cards `*-qwen3.md`). Qwen3.5 backbones are hybrid (Gated DeltaNet): `DecisionModel.hybrid`
   routes them through `forward_rows_batch` (one causal row per question, state repeated) and `_branch_rows_from_prefix` for serving; the packed
   block-causal mask is only valid on attention-only bases. Needs transformers>=5.17, peft>=0.21; CUDA wants `flash-linear-attention` + `triton>=3.7.1`
@@ -97,13 +97,14 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   the playground proxies :8009)
   - TypeSafe-compatible: `POST /v1/systemone`, `GET /v1/models` (model cards for `kev-latest` and `jev-latest`, plus device, dtype, temperature and prefix-cache stats), an `x-typesafe-request-id` header on every response, and bearer auth when `KEV_API_KEY` is set (unset = open server).
   - SDK: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8009", model="kev-latest")`
-  - CUDA: bf16, fused kernels and CUDA graphs by default (`LoadOptions.cuda_graphs`, `KEV_CUDA_GRAPHS=0` to decline). A server pass was
+  - CUDA: bf16, fused kernels and CUDA graphs by default (`LoadOptions.fused` / `LoadOptions.cuda_graphs`, `KEV_FUSED=0` / `KEV_CUDA_GRAPHS=0` to decline). A server pass was
     kernel-launch bound (~60 ms on an H100 at any length). `kev/fused_qwen35.py` rewrites the merged Qwen3.5 layers with fla Triton kernels
-    (fla pinned to 0.5.2 in the images: it patches fla's NB-keyed kernel launches; a pass continuing a cached DeltaNet state does not write
-    it back). `kev/cuda_graphs.py` replays bucketed passes (state left-padded, rows right-padded, masked exactly; equal to eager up to bf16
+    (it needs fla 0.5.2 exactly, pinned in the images, and refuses others: it patches fla's NB-keyed kernel launches; a pass continuing a
+    cached DeltaNet state does not write it back). `kev/cuda_graphs.py` replays bucketed passes (state left-padded, rows right-padded, masked exactly; equal to eager up to bf16
     reassociation) and owns admission (`admits`), batches (`run`), capture policy (`capture_due`: idle, or a bucket that keeps recurring) and
     `stats()`; a failed capture leaves its bucket eager. `kev.serve.Server` runs every pass on one model thread that batches whatever is
-    queued (`DecisionModel.probs_batch`; `probs_one` is the per-request rule every backend shares); `/v1/systemone` is async, `Server.lock`
+    queued (`DecisionModel.probs_batch`, `CudaGraphs.run` over typed `Request`s; `probs_one` is the per-request rule every backend shares;
+    `PrefixCache` keeps only the states that survive a batch); `/v1/systemone` is async, `Server.lock`
     excludes the model thread, `wait_idle()` waits for answers and captures, every response carries `server-timing`.
     Measure with `uv run modal run modal_app.py::serving --run <hub id> --gpu <GPU> --name <name>` (`scripts/serving_bench.py`: latency,
     parity vs fp32, throughput at 1/8/32/64 in-process clients; reports in `runs/serving-*` (graphs only) and `runs/fused-*`).

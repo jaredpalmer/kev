@@ -111,7 +111,7 @@ def main():
         torch.backends.cuda.enable_flash_sdp(True); torch.backends.cuda.enable_mem_efficient_sdp(True)   # serving keeps them
         del ref; gc.collect(); empty_cache("cuda")
     t = time.time()
-    tok, m = ck.load("cuda", LoadOptions(dtype=torch.bfloat16, cuda_graphs=True))
+    tok, m = ck.load("cuda", LoadOptions(dtype=torch.bfloat16, cuda_graphs=True, fused=True))
     report["load_seconds"] = round(time.time() - t, 1)
     report["resident_gb"] = round(torch.cuda.memory_allocated() / 1e9, 1)   # weights + graph buffers
     graphs = m.graphs
@@ -122,8 +122,10 @@ def main():
         for r in recs:
             enc = m.encode(tok, r)
             m.graphs = None; served["eager"].append(m.probs_with_prefix(enc, m.prefix(enc)))
-            m.graphs = graphs; m.probs_and_prefix(enc); graphs.capture_pending()   # so both reads below replay graphs
-            p, prefix = m.probs_and_prefix(enc); served["graphs_miss"].append(p); served["graphs_hit"].append(m.probs_with_prefix(enc, prefix))
+            m.graphs = graphs; m.probs_batch([enc], [None], [False]); graphs.capture_pending()   # so both reads below replay graphs
+            (miss,), (prefix,) = m.probs_batch([enc], [None], [True])                         # the served path, a new state
+            (hit,), _ = m.probs_batch([enc], [prefix], [False])                               # and a cached one
+            served["graphs_miss"].append(miss); served["graphs_hit"].append(hit)
     report["questions"] = sum(len(p) for p in served["eager"])
     pairs = {f"{k}_vs_eager_bf16": (v, served["eager"]) for k, v in served.items() if k != "eager"}
     if targets: pairs.update({f"{k}_vs_fp32": (v, targets) for k, v in served.items()})

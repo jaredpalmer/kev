@@ -35,6 +35,7 @@ waiting). Replays run one at a time (kev.serve has one model thread), each refil
 copied out before the next replay; that is what makes the shared buffers and the shared memory pool safe.
 """
 from collections import OrderedDict
+from typing import NamedTuple
 
 import torch
 from transformers import DynamicCache
@@ -82,6 +83,26 @@ def length_groups(lengths, cap):
             groups.append(cur); cur = []
         cur.append(i)
     return groups + [cur]
+
+
+class Request(NamedTuple):
+    """One request for CudaGraphs.run."""
+    state: list        # the state's token ids
+    positions: list    # and their position ids
+    rows: list         # its question rows, [(token ids, position ids)]
+    cached: object     # the cached state (a DynamicCache) it continues, or None for a new state
+    keep: bool         # return a new state's cache (to keep in the prefix cache)
+    picks: list        # per row, the positions whose hidden states are wanted
+
+
+class _Row(NamedTuple):
+    """One question row of a batch: its tokens, its state's bank entry and length, and where its picks go in the output."""
+    ids: list
+    pos: list
+    entry: int
+    state_len: int
+    picks: list
+    at: int
 
 
 class BufferKV(DynamicLayer):
@@ -236,7 +257,7 @@ class CudaGraphs:
     def stats(self):
         return {"captured": self.captures, "kept": len(self.graphs), "pending": len(self.pending), "failed": len(self.failed)}
 
-    # Batched serving: which requests the graphed passes take, and one batch of them
+    # Serving: which requests the graphed passes take, and one batch of them
 
     @staticmethod
     def admits(state_len, row_lens, cached):
@@ -246,31 +267,31 @@ class CudaGraphs:
 
     @torch.no_grad()
     def run(self, requests):
-        """requests = [(state ids, state positions, rows, cached prefix cache or None, keep, picks)], each admitted; rows =
-        [(ids, positions)], picks = per row the positions whose hidden states are wanted. -> (the picked hidden states,
-        float32, [sum of picks, d] in request, row, pick order; per request its state's cache: the cached one, a new one if
-        `keep`, else None). States of a similar length share a state pass (identical states once); each request takes one
-        bank entry, so at most GRAPH_STATES per group."""
-        parts, order, caches = [], [], [None] * len(requests)
-        for group in length_groups([len(r[0]) for r in requests], GRAPH_STATES):
+        """Admitted requests (Request) -> (their picked hidden states, float32 [sum of picks, d] in request, row, pick
+        order; per request its state's cache: the cached one, a new one if `keep`, else None). States of a similar length
+        share a state pass (identical states once); each request takes one bank entry, so at most GRAPH_STATES per group.
+        Every row pass writes its picks straight to their place in the output."""
+        at = [0]
+        for r in requests: at.append(at[-1] + sum(map(len, r.picks)))
+        out = torch.empty((at[-1], self.lm.config.hidden_size), dtype=torch.float32, device=self.device)
+        caches = [None] * len(requests)
+        for group in length_groups([len(r.state) for r in requests], GRAPH_STATES):
             new = {}                                                 # distinct new states of the group -> (ids, positions, keep)
             for i in group:
-                S, Sp, _, cached, keep, _ = requests[i]
-                if cached is None: new[tuple(S)] = (S, Sp, keep or new.get(tuple(S), (0, 0, False))[2])
+                r = requests[i]
+                if r.cached is None: new[tuple(r.state)] = (r.state, r.positions, r.keep or new.get(tuple(r.state), (0, 0, False))[2])
             made = dict(zip(new, self.states(list(new.values()), bucket(max(map(len, new)))))) if new else {}
             entry = {S: j for j, S in enumerate(new)}                # cached states go into the entries after the new ones
-            rows, sources, picks, free = [], [], [], len(new)
+            rows, free = [], len(new)
             for i in group:                                          # after the state pass: its padded entries are written
-                S, _, rs, cached, _, ps = requests[i]
-                if cached is None: e, caches[i] = entry[tuple(S)], made[tuple(S)]
-                else: e, free, caches[i] = free, free + 1, cached; self.load_state(e, cached, len(S))
-                rows += rs; sources += [(e, len(S))] * len(rs); picks += ps
-            parts.append(self.rows(rows, sources, picks)); order += group
-        rank = {i: k for k, i in enumerate(order)}                  # groups ran out of request order: put it back
-        sizes = [sum(map(len, requests[i][5])) for i in order]
-        starts = [sum(sizes[:k]) for k in range(len(order))]
-        index = [starts[rank[i]] + j for i in range(len(requests)) for j in range(sizes[rank[i]])]
-        return torch.cat(parts).index_select(0, torch.tensor(index).to(self.device, non_blocking=True)), caches
+                r = requests[i]
+                if r.cached is None: e, caches[i] = entry[tuple(r.state)], made[tuple(r.state)]
+                else: e, free, caches[i] = free, free + 1, r.cached; self.load_state(e, r.cached, len(r.state))
+                offset = at[i]
+                for (ids, pos), picks in zip(r.rows, r.picks):
+                    rows.append(_Row(ids, pos, e, len(r.state), picks, offset)); offset += len(picks)
+            self.rows(rows, out)
+        return out, caches
 
     @torch.no_grad()
     def states(self, items, Sb):
@@ -311,33 +332,22 @@ class CudaGraphs:
                 if is_attention(layer): buf[entry, :, BANK_WIDTH - S:].copy_(t[0, :, t.shape[-2] - S:])
                 else: buf[entry].copy_(t[0])
 
-    @torch.no_grad()
-    def rows(self, rows, sources, picks=None):
-        """Hidden states of question rows, rows = [(ids, pos)], sources[i] = (bank entry, state length) of row i's state.
-        With picks (per row, the positions wanted): one float32 tensor [sum of picks, d] in row order; without, one
-        [L_i, d] tensor per row. The rows see the last Sr positions of the bank, Sr the longest state rounded up to a
-        power of two (it only lengthens attention). Runs as few row passes as the buffers allow."""
-        parts, order = [], []
-        for idx in length_groups([len(ids) for ids, _ in rows], GRAPH_ROWS):
-            Lb, Sr = bucket(max(len(rows[i][0]) for i in idx)), pow2(max(16, max(sources[i][1] for i in idx)))
+    def rows(self, rows, out):
+        """Row passes for question rows (_Row), each continuing its state in the bank; each row's picked hidden states land
+        in out[row.at:]. The rows see the last Sr positions of the bank, Sr the longest state rounded up to a power of two
+        (it only lengthens attention). Rows of a similar length share a pass; as few passes as the buffers allow."""
+        for idx in length_groups([len(r.ids) for r in rows], GRAPH_ROWS):
+            Lb, Sr = bucket(max(len(rows[i].ids) for i in idx)), pow2(max(16, max(rows[i].state_len for i in idx)))
             group = min(GRAPH_ROWS, GRAPH_TOKENS // (Sr + Lb))
             group = max(n for n in range(1, group + 1) if count_bucket(n) <= group)   # the most rows whose padded count fits
             for start in range(0, len(idx), group):
-                part = idx[start:start + group]
-                h = self._row_pass([rows[i] for i in part], [sources[i] for i in part], Sr, Lb)
-                if picks is None:
-                    parts += [h[r, :len(rows[i][0])].float() for r, i in enumerate(part)]
-                else:   # only the wanted positions leave the pass buffer
-                    flat = [r * Lb + p for r, i in enumerate(part) for p in picks[i]]
-                    parts.append(h.flatten(0, 1).index_select(0, torch.tensor(flat).to(self.device, non_blocking=True)).float())
-                order += part
-        if picks is None: return [parts[k] for k in sorted(range(len(order)), key=order.__getitem__)]
-        starts, at = {}, 0
-        for i in order: starts[i] = at; at += len(picks[i])
-        index = [starts[i] + j for i in range(len(rows)) for j in range(len(picks[i]))]
-        return torch.cat(parts).index_select(0, torch.tensor(index).to(self.device, non_blocking=True))
+                part = [rows[i] for i in idx[start:start + group]]
+                h = self._row_pass(part, Sr, Lb)
+                src, dst = zip(*[(n * Lb + p, r.at + j) for n, r in enumerate(part) for j, p in enumerate(r.picks)])
+                src, dst = torch.tensor([src, dst]).to(self.device, non_blocking=True)
+                out.index_copy_(0, dst, h.flatten(0, 1).index_select(0, src).float())   # only the wanted positions leave the pass buffer
 
-    def _row_pass(self, rows, sources, Sr, Lb):
+    def _row_pass(self, rows, Sr, Lb):
         """One row pass; -> the pass buffer [rows, Lb, d] (valid until the next pass)."""
         Nb, T = count_bucket(len(rows)), Sr + Lb
         hidden = self.hidden[:Nb * Lb * self.lm.config.hidden_size].view(Nb, Lb, -1)
@@ -355,15 +365,6 @@ class CudaGraphs:
             linear = (torch.arange(Lb, device=self.device)[None] < rowlen).long()
             hidden.copy_(self._forward(buf[:, :Lb], buf[:, Lb:2 * Lb], self._mask(allow), linear, self._cache(views, Sr, True)))
 
-        uploads = [list(ids) + [self.pad_id] * (Lb - len(ids)) + list(p) + [0] * (Lb - len(p)) + [len(ids), S, e] for (ids, p), (e, S) in zip(rows, sources)]
+        uploads = [list(r.ids) + [self.pad_id] * (Lb - len(r.ids)) + list(r.pos) + [0] * (Lb - len(r.pos)) + [len(r.ids), r.state_len, r.entry] for r in rows]
         self._replay(("rows", Nb, Lb, Sr), body, uploads + [[self.pad_id] * Lb + [0] * Lb + [0, 0, 0]] * (Nb - len(rows)))
         return hidden[:len(rows)]
-
-    # Single-request forms, for DecisionModel.prefix / _rows_hidden (tests, scripts, the unbatched callers)
-    def prefix(self, ids, pos):
-        return self.states([(ids, pos, True)], bucket(len(ids)))[0] if bucket(len(ids)) <= GRAPH_STATE else None
-
-    def branches(self, rows, cache, prefix_len):
-        if not self.admits(prefix_len, [len(ids) for ids, _ in rows], cached=True): return None
-        self.load_state(0, cache, prefix_len)
-        return self.rows(rows, [(0, prefix_len)] * len(rows))

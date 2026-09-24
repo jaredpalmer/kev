@@ -53,11 +53,6 @@ def _fix_nb():
 FLA_VERSION = "0.5.2"   # the flash-linear-attention these kernels and _fix_nb were written and measured against
 
 
-def supported():
-    import fla
-    return fla.__version__ == FLA_VERSION
-
-
 def _concat(*linears):
     """One weight [sum(out), in] for several bias-free projections of the same input."""
     if any(l.bias is not None for l in linears): raise ValueError("fused projections assume bias-free Linear layers")
@@ -127,8 +122,12 @@ def decoder_forward(self, hidden_states, position_embeddings, attention_mask=Non
 def fuse(lm):
     """Rewrite a Qwen3.5 text backbone (DecisionModel.lm, merged) in place for fused-kernel serving. Contract changes
     against the reference: no backward, and a pass that continues a cached DeltaNet state leaves that state as it was
-    (Kev's question rows never continue from each other). Needs flash-linear-attention FLA_VERSION: it patches fla's
-    kernel launches (_fix_nb), so kev.checkpoint only calls this when that version is installed (supported())."""
+    (Kev's question rows never continue from each other). Needs flash-linear-attention FLA_VERSION exactly: it patches
+    fla's kernel launches (_fix_nb)."""
+    import fla
+    if fla.__version__ != FLA_VERSION:
+        raise RuntimeError(f"kev's fused kernels need flash-linear-attention=={FLA_VERSION}, found {fla.__version__}; "
+                           "install that version or load with LoadOptions(fused=False) (KEV_FUSED=0 for kev.serve)")
     _fix_nb()
     for layer in lm.layers:
         if layer.block_type == "linear_attention":
