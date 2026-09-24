@@ -93,7 +93,7 @@ It is still a sub-1B model. On the development splits it trails Jev everywhere i
   - Confirmation then required the documents-v1 test and the pooled hard-v1 + devtools-v1 tests to have lower bounds above zero (skills tests pooled +21.7 pp [+19.5, +24.0]), and one locked read (accuracy ≥ parent − 1 pp, served Brier ≤ parent + 0.005). All passed.
   - The in-trial screening gate "held-out pairs ≥ 70 %" fails at this size, as it did for the released parent (0.422 for both), which is why the locked read is named `kev-08b-r15-ungated`.
 
-- Hub: `jaredpalmer/kev-0.8b` (this repo; trial `r15-08b/00-trial-0`; the registration and every read are in `PLAN.md` rounds 9, 11, 12, 13 and 15 on the `research/overnight-r6` branch). The previous version will be at tag `night2-du-release` (not yet created); the pre-delta v7 checkpoint at `v7-base`.
+- Hub: `jaredpalmer/kev-0.8b` (this repo; trial `r15-08b/00-trial-0`; the registration and every read are in `PLAN.md` rounds 9, 11, 12, 13 and 15 on the `research/overnight-r6` branch). The previous version is at tag `night2-du-release`; the pre-delta v7 checkpoint at `v7-base`.
 - Demo: [huggingface.co/spaces/jaredpalmer/kev](https://huggingface.co/spaces/jaredpalmer/kev) runs Kev-4B and Kev-0.8B on ZeroGPU with the same encoder and API code as `kev.serve`.
 - Code, suites, results, and the full research log: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — `PLAN.md`, `runs/leaderboard.md`. The numbers below are in `runs/release/kev-08b-r15.json`; JevBench in `runs/jevbench-public/kev-08b-r15/`.
 
@@ -135,7 +135,7 @@ Paired against the `night2-du` version (record-clustered bootstrap, 95 %): docum
 
 **Calibration.** The fitted temperature moved 2.41 → 2.35 (raw out-of-domain Brier 0.481 on development, 0.416 on the locked test). As served, out-of-domain calibration is unchanged. `KEV_TEMPERATURE=1.0` gives the raw values.
 
-## Previous version: `night2-du` (2026-09-21), to be kept at tag `night2-du-release`
+## Previous version: `night2-du` (2026-09-21) at tag `night2-du-release`
 
 **The small member of the Kev family.** Same data and recipe as the 0.6B it replaces, on the Qwen3.5 base: in-distribution 0.825 (Kev-0.6B 0.801), out of domain 0.652 (0.620), and it is the first small Kev that learns any rule composition (held-out pairs 0.42 vs 0.08). Three seeds of the base recipe: transfer 0.622 / 0.634 / **0.643**; this checkpoint is seed 2 (selected on development accuracy) followed by a 9-minute **delta fine-tune** on 1,425 generated records (date-bearing policy cases with explicit day counts; evidence-free cases with uniform targets) mixed with 2,000 replayed training records — the same delta as Kev-4B and Kev-9B. Locked test against the pre-delta checkpoint: out of domain 0.668 → **0.684** (+2.2 pp [−0.8, +5.5]), Brier 0.473 → 0.460. Out of domain it is still a sub-1B model: use Kev-4B for accuracy; use this one where memory rules the 4B out, and measure on your own data.
 
