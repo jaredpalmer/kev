@@ -14,7 +14,8 @@ from kev.suite import read_json, write_json  # noqa: E402
 from round6_readout import EXTERNALS, boot, knowable, serve  # noqa: E402
 
 KEYS = ("n", "acc", "brier", "ece", "confident_error_rate", "coverage_at_5pct_error")
-READS = ("docs1_dev", "docs1_test", "docs2", "long2", "r6test", "long3", *EXTERNALS)   # optional per release
+READS = ("docs1_dev", "docs1_test", "docs2", "long2", "r6test", "long3", "hard_dev", "devtools_dev", "hard_test", "devtools_test", *EXTERNALS)   # optional per release
+DUPLICATE_IDS = {"codereviewer/cls-test/13657", "codereviewer/cls-test/19245"}   # devtools-v1 ids used twice (PLAN.md round 10 amendment)
 RELEASES = {   # arm: trial + where each read lives
     "kev-27b-v2": {   # PLAN_27b B1 v2; the comparison column is the released Kev-9B (the rule's reference), not a parent
         "candidate": {"trial": "runs/release/kev-27b-v2", "docs1_dev": "runs/r6-27bv2-s2-docs", "v9": "runs/r6-27bv2-s2-v9", "locked": "runs/locked/kev-27b-v2-ungated",
@@ -22,6 +23,14 @@ RELEASES = {   # arm: trial + where each read lives
         "parent": {"trial": "runs/night2-9b-du/00-trial-0", "docs1_dev": "runs/docs1-P9", "v9": "runs/n2-9b-du-v9", "locked": "runs/locked/kev-9b-night2-du-ungated",
                    "long2": "runs/r5r-P9-long", "r6test": "runs/r6c-27b-parent-r6test", "long3": "runs/r6c-27b-parent-long3",
                    "semif": "runs/r5r-P9-semif", "scienthoon": "runs/r5r-P9-scienthoon", "wanli2": "runs/r6-P9-wanli2", "typesafe": "runs/r5r-P9-typesafe"},
+    },
+    "kev-4b-r10": {   # PLAN.md round 10: the round-8 Kev-4B + one epoch on hard-v1 + devtools-v1
+        "candidate": {"trial": "runs/release/kev-4b-r10", "docs1_dev": "runs/r10-4b-skills-docs", "v9": "runs/r10-4b-skills-v9", "locked": "runs/locked/kev-4b-r10-ungated",
+                      "hard_dev": "runs/r10-4b-skills-hard", "devtools_dev": "runs/r10-4b-skills-devtools", "hard_test": "runs/r10c-4b-cand-hardtest", "devtools_test": "runs/r10c-4b-cand-devtest",
+                      **{s: f"runs/r10-4b-skills-{s}" for s in EXTERNALS}},
+        "parent": {"trial": "runs/r8-small/00-trial-0", "docs1_dev": "runs/r8-4b-s2-docs", "v9": "runs/r8-4b-s2-v9", "locked": "runs/locked/kev-4b-r8-ungated",
+                   "hard_dev": "runs/hv1-P4r8", "devtools_dev": "runs/dt1-P4r8", "hard_test": "runs/r10c-4b-parent-hardtest", "devtools_test": "runs/r10c-4b-parent-devtest",
+                   **{s: f"runs/r8-4b-s2-{s}" for s in EXTERNALS}},
     },
     "kev-4b-r8": {
         "candidate": {"trial": "runs/r8-small/00-trial-0", "docs1_dev": "runs/r8-4b-s2-docs", "docs1_test": "runs/r8c-4b-cand-docs1test", "docs2": "runs/r8c-4b-cand-docs2",
@@ -41,7 +50,7 @@ def summary(rows):
 def arm(spec):
     trial = spec["trial"]
     t = served(read_json(Path(trial) / "development/rows.json"), [])[0]
-    rows = lambda path: knowable(serve(trial, path, t)[0])
+    rows = lambda path: [r for r in knowable(serve(trial, path, t)[0]) if r["id"] not in DUPLICATE_IDS]
     read = {k: rows(f"{spec[k]}/rows.json") for k in READS if k in spec}
     out = {"trial": trial, "temperature": t,
            "decision_dev": summary(rows(Path(trial) / "development/rows.json")),
