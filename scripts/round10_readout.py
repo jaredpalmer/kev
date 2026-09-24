@@ -26,13 +26,20 @@ ARMS = {"4b-skills": ("runs/r10-skills/00-trial-0", "4b"), "4b-hard": ("runs/r10
         "27b-skills": ("runs/r10-skills-27b/00-trial-0", "27b")}
 
 
+# devtools-v1 development has one record id used by two different records (a builder bug found at the first read;
+# fixed for the next version); pairing needs unique (id, question), so that id is dropped on both sides and reported.
+DUPLICATE_IDS = {"codereviewer/cls-test/13657"}
+
+
 def arm_rows(trial, reads, t):
-    return {"short": knowable(serve(trial, Path(trial) / "transfer/rows.json", t)[0]), **{s: knowable(serve(trial, f"{reads[s]}/rows.json", t)[0]) for s in SUITES}}
+    rows = {"short": knowable(serve(trial, Path(trial) / "transfer/rows.json", t)[0]), **{s: knowable(serve(trial, f"{reads[s]}/rows.json", t)[0]) for s in SUITES}}
+    rows["devtools"] = [r for r in rows["devtools"] if r["id"] not in DUPLICATE_IDS]
+    return rows
 
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--out", required=True); a = ap.parse_args()
-    report = {"arms": {}}
+    report = {"arms": {}, "excluded_duplicate_ids": sorted(DUPLICATE_IDS)}
     for arm, (trial, size) in ARMS.items():
         reads = {s: f"runs/r10-{arm}-{s}" for s in (*SUITES, "v9")}
         if not (Path(trial) / "transfer/rows.json").exists() or not all(Path(f"{d}/rows.json").exists() for d in reads.values()):
