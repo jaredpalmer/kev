@@ -382,6 +382,28 @@ On Apple Silicon, `uv sync --extra serve` installs [MLX](https://github.com/ml-e
 
 The server runs in bf16 on GPUs and Macs. Its probabilities differ from the fp32 path the published evaluations use by at most about 0.03 on a GPU and 0.05 on a Mac, and the top answer changes on about one question in 300. Set `KEV_DTYPE=fp32` for the exact path. `/v1/models` reports the backend and precision in use. `uv run modal run modal_app.py::serving --run jaredpalmer/kev-4b --gpu L40S --name <name>` measures a row of the table on your own account (the rows above: `runs/serve-*`, `runs/grouping-4b-h100`, `runs/fused-27b-*`).
 
+### Native Apps (ExecuTorch)
+
+To put Kev inside an app with no Python, use [ExecuTorch's Kev example](https://github.com/pytorch/executorch/tree/main/examples/kev). It exports a checkpoint as one program, with the adapter merged and the pointer head and temperature inside, that a C++ app runs on the CPU (XNNPACK) or an Apple GPU (MLX), asking Choice, Noul and Score questions through `kev::SystemOne`. By default a program takes Kev's training context, 384 tokens of text; export with `--max-prefix 8191 --max-context 8192` for documents as long as the server takes.
+
+Kev scores the same programs from Python, so they're held to the bar the MLX backend cleared (ExecuTorch needs its own environment; AGENTS.md has the recipe):
+
+```bash
+KEV_BACKEND=executorch KEV_PROGRAM=kev-mlx/model.pte python -m kev.serve --run jaredpalmer/kev-0.8b
+```
+
+Largest difference from the fp32 path and changed top answers on all 1,264 decision-v7 development questions, with the time on an M5 for a new text and all of its questions:
+
+| Model | Runs on | Largest difference | Changed answers | 3 questions, 19-token text | 5 questions, 314-token text |
+|---|---|---|---|---|---|
+| Kev-0.8B | ExecuTorch, CPU, fp32 | 0.00001 | 0 | 276 ms | 733 ms |
+| Kev-0.8B | ExecuTorch, GPU, bf16 | 0.055 | 4 | 107 ms | 170 ms |
+| Kev-0.8B | MLX backend | 0.085 | 5 | 77 ms | 97 ms |
+| Kev-4B | ExecuTorch, GPU, bf16 | 0.104 | 2 | 567 ms | 1,126 ms |
+| Kev-4B | MLX backend | 0.077 | 2 | 377 ms | 479 ms |
+
+On documents-v1's 568 development complaints (920 questions), a Kev-0.8B GPU program exported for 8,192 tokens differs by at most 0.039, and ExecuTorch's C++ tokenizer reproduces Kev's tokens on every question. The MLX backend stays faster on a Mac, so the server never picks ExecuTorch on its own: the programs are for apps that can't ship Python. `scripts/backend_parity.py --backend executorch --program <pte>` measures a program on your machine (the rows above: `runs/et-*`).
+
 ## Limitations
 
 - Calibration is a single temperature fitted in distribution. It can't reorder confidences, so the share of decisions you can automate at a 5% error budget (0.45–0.57) is still below Jev's 0.70. Test a probability threshold on your own data before you rely on it.

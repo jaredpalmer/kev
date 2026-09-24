@@ -192,8 +192,9 @@ class PointerHead(nn.Module):
         return z if self.training or self.temperature == 1.0 else z / self.temperature
 
 
-# What a loaded model exposes to kev.serve, kev.predictors and the Space: the scoring interface both DecisionModel (torch)
-# and kev.mlx_model.MLXDecisionModel implement. tests/test_mlx.py checks the MLX class against this list.
+# What a loaded model exposes to kev.serve, kev.predictors and the Space: the scoring interface DecisionModel (torch),
+# kev.mlx_model.MLXDecisionModel and kev.executorch_model.ExecuTorchDecisionModel implement. tests/test_mlx.py and
+# tests/test_executorch.py check the other classes against this list.
 SCORING_INTERFACE = ("encode", "forward", "probs", "probs_and_prefix", "probs_with_prefix", "probs_batch", "eval",
                      "head", "backend", "dtype", "device", "hybrid", "option_isolation", "prefix_min_tokens")
 
@@ -207,6 +208,36 @@ def probs_one(model, enc, prefix, keep):
     pass that also returns the prefix when it is to be kept, the plain pass otherwise."""
     if prefix is not None: return model.probs_with_prefix(enc, prefix), prefix
     return model.probs_and_prefix(enc) if keep else (model.probs(enc), None)
+
+
+class PrefixScorer:
+    """The scoring interface for backends that always run the state once and the questions as rows on it (MLX,
+    ExecuTorch). A subclass provides `prefix(enc) -> (state length, state)` and `_branch_logits(enc, state)`, which must
+    leave `state` unchanged so a cached prefix can answer the next request."""
+
+    def forward(self, enc):
+        """List of logits tensors, one per question."""
+        return self._branch_logits(enc, self.prefix(enc)[1])
+
+    def _branch_probs(self, enc, state):
+        return [F.softmax(z, -1) for z in self._branch_logits(enc, state)]
+
+    def probs(self, enc):
+        return self._branch_probs(enc, self.prefix(enc)[1])
+
+    def probs_and_prefix(self, enc):
+        prefix = self.prefix(enc)
+        return self._branch_probs(enc, prefix[1]), prefix
+
+    def probs_with_prefix(self, enc, prefix):
+        Ls, state = prefix
+        if enc["seg"].count(0) != Ls: raise ValueError("prefix does not match this record's state")
+        return self._branch_probs(enc, state)
+
+    def probs_batch(self, encs, prefixes, keep):
+        """kev.serve's batch call: one request at a time."""
+        out = [probs_one(self, e, p, k) for e, p, k in zip(encs, prefixes, keep)]
+        return [o[0] for o in out], [o[1] for o in out]
 
 
 class DecisionModel(nn.Module):

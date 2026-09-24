@@ -99,7 +99,12 @@ class LoadOptions:
                  bases, which MPS already runs well). "auto" = mlx when the device is mps, the base is hybrid, mlx-lm is
                  installed and fp32 was not asked for (an explicit dtype=float32 means "the exact path"), else torch;
                  kev.serve uses auto. The MLX path always merges the adapter and ignores `attn` and `dtype` (the backbone
-                 runs as stored, bf16).
+                 runs as stored, bf16). "executorch" = kev.executorch_model, scoring the program at `program`; never
+                 chosen by auto.
+    program      backend executorch: the model.pte exported from this checkpoint by pytorch/executorch examples/kev.
+                 Weights, precision and delegate are fixed at export: `dtype` and `attn` are ignored (as on MLX), an
+                 unmerged adapter or a `lora_scale` would change the weights and is refused, and `temperature` still
+                 applies (kev.executorch_model.ProgramHead).
     cuda_graphs  replay the serving passes of a hybrid backbone on CUDA (state prefix, question rows on a cached state) as
                  CUDA graphs, batched across requests (kev.cuda_graphs, DecisionModel.probs_batch). None = off, the eager
                  path every reported number uses; kev.serve turns it on for CUDA. Exact up to floating-point
@@ -116,24 +121,25 @@ class LoadOptions:
     backend: str | None = None
     cuda_graphs: bool | None = None
     fused: bool | None = None
+    program: str | None = None
 
-    BACKENDS = (None, "torch", "mlx", "auto")
+    BACKENDS = (None, "torch", "mlx", "executorch", "auto")
 
     @classmethod
     def from_env(cls, env=os.environ):
-        """KEV_DTYPE=bf16|fp16|fp32, KEV_MERGE=0, KEV_ATTN=sdpa|eager, KEV_LORA_SCALE, KEV_TEMPERATURE, KEV_BACKEND=torch|mlx|auto,
-        KEV_CUDA_GRAPHS=0|1, KEV_FUSED=0|1.
+        """KEV_DTYPE=bf16|fp16|fp32, KEV_MERGE=0, KEV_ATTN=sdpa|eager, KEV_LORA_SCALE, KEV_TEMPERATURE,
+        KEV_BACKEND=torch|mlx|executorch|auto, KEV_PROGRAM (the .pte for executorch), KEV_CUDA_GRAPHS=0|1, KEV_FUSED=0|1.
         For command-line entry points only; library code passes an explicit LoadOptions. Explicit values that equal a
         library default are kept (fp32 as torch.float32, "torch" as a string) so a caller with its own default, like
         kev.serve, can tell "asked for it" from "did not say"."""
         backend = env.get("KEV_BACKEND") or None
-        if backend not in cls.BACKENDS: raise ValueError(f"KEV_BACKEND must be one of torch, mlx, auto; got {backend!r}")
+        if backend not in cls.BACKENDS: raise ValueError(f"KEV_BACKEND must be one of torch, mlx, executorch, auto; got {backend!r}")
         return cls(dtype={"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}.get(env.get("KEV_DTYPE", "")),
                    merge=env.get("KEV_MERGE", "1") != "0", attn=env.get("KEV_ATTN") or None,
                    lora_scale=float(env.get("KEV_LORA_SCALE", "1")),
                    temperature=float(env["KEV_TEMPERATURE"]) if env.get("KEV_TEMPERATURE") else None, backend=backend,
                    cuda_graphs={"0": False, "1": True}.get(env.get("KEV_CUDA_GRAPHS", "")),
-                   fused={"0": False, "1": True}.get(env.get("KEV_FUSED", "")))
+                   fused={"0": False, "1": True}.get(env.get("KEV_FUSED", "")), program=env.get("KEV_PROGRAM") or None)
 
 
 def mlx_available():
@@ -182,13 +188,28 @@ class Checkpoint:
 
     def load(self, device, opts=LoadOptions()):
         """-> (tokenizer, model) in eval mode with the LoRA applied and the pointer head loaded. The model is a
-        DecisionModel (torch) or an MLXDecisionModel (backend mlx); both expose the same scoring interface."""
+        DecisionModel (torch), an MLXDecisionModel (backend mlx) or an ExecuTorchDecisionModel (backend executorch, whose
+        program already carries the merged weights and the head); all expose the same scoring interface."""
         meta = self.meta
         tok = load_tokenizer(meta.base, revision=meta.base_revision)
-        m = self._load_mlx(tok, opts) if self.backend(device, opts) == "mlx" else self._load_torch(tok, device, opts)
-        m.head.load_state_dict(meta.head); m.eval()
+        backend = self.backend(device, opts)
+        if backend == "executorch":
+            m = self._load_executorch(tok, opts)
+        else:
+            m = self._load_mlx(tok, opts) if backend == "mlx" else self._load_torch(tok, device, opts)
+            m.head.load_state_dict(meta.head)
+        m.eval()
         m.head.temperature = meta.temperature if opts.temperature is None else opts.temperature
         return tok, m
+
+    def _load_executorch(self, tok, opts):
+        from .executorch_model import ExecuTorchDecisionModel, load_program
+        if not opts.program: raise ValueError("backend executorch needs LoadOptions.program (KEV_PROGRAM): the model.pte exported from this checkpoint")
+        if not opts.merge or opts.lora_scale != 1: raise ValueError("an exported program carries the merged adapter at scale 1; KEV_MERGE=0 and KEV_LORA_SCALE need backend=torch")
+        if self.meta.option_isolation: raise ValueError("option_isolation needs the packed mask; not available on the ExecuTorch backend")
+        from .suite import digest   # lazy: the Space vendors this module without kev/suite.py
+        return ExecuTorchDecisionModel(load_program(opts.program), tok, temperature=self.meta.temperature,
+                                       checkpoint_id="sha256:" + digest(self.file("head.pt")))
 
     def _load_mlx(self, tok, opts):
         from .mlx_model import MLXDecisionModel, merge_lora

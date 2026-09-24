@@ -247,6 +247,7 @@ outcomes.
 | Round 17 | 09-24 | 27B skills, replay 10,000 | arm (a) lr 2e-5: no candidate (documents, scienthoon); arm (b) lr 1e-5: **pending** | `r17.json`; `A:PLAN.md` "Round 17" |
 | Round 18 | 09-24 | 9B documents + skills, replay 10,000 | no candidate (WANLI-v2, scienthoon) | `r18.json`; `A:runs/r18-readout` |
 | AutoJev head-to-head | 09-24 | AutoJev-27B vs Kev-27B, report only | see "Against Jev" above | `A:runs/autojev-h2h/report.json` |
+| ExecuTorch programs | 09-22/24 | pytorch/executorch `examples/kev` programs (a second Qwen3.5 forward, a C++ encoder and tokenizer) vs fp32 torch on all 1,264 decision-v7 development questions, registered after an 8-record smoke: fp32 within 1e-4 with no flips, bf16 inside the MLX backend's figures, native tokenizer exact | night2 0.8B: XNNPACK fp32 7e-6 / 0 flips, bf16 0.035 / 3, MLX 0.039 / 3; C++ tokenizer dropped accents (29 questions), fixed upstream. Current releases: 0.8B XNNPACK fp32 1e-5 / 0, MLX 0.055 / 4 (mlx-lm 0.085 / 5); 4B MLX 0.104 / 2 (mlx-lm 0.077 / 2, max over the bar on one question); documents-v1 dev at 8k 0.039 / 5; C++ runner 1e-5 / 0. `KEV_BACKEND=executorch` supported, never chosen by `auto` (slower than mlx-lm on a Mac) | `runs/et-*`; PR #69 |
 
 Older milestones, all in `A:PLAN.md` (sections named in parentheses):
 

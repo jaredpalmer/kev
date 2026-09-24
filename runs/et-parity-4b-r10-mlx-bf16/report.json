@@ -1,0 +1,56 @@
+{
+  "run": "jaredpalmer/kev-4b@139fdd94f1b6a6ad80cc15e08fcb99cac885a101",
+  "suite": "evals/v7/decision-v7",
+  "context": {
+    "max_state": 384,
+    "max_branch": 1024
+  },
+  "backend": "executorch",
+  "program": "/tmp/et-out/r15/kev-4b-mlx-bf16/model.pte",
+  "records": 1024,
+  "questions": 1264,
+  "rejected_records": 0,
+  "torch_dtype": "float32",
+  "executorch_dtype": "bfloat16",
+  "native_token_mismatch_questions": 0,
+  "prefix": {
+    "max_dp": 0.10362398624420166,
+    "mean_dp": 0.0015612324505127617,
+    "argmax_flips": 2,
+    "over_0.02": 5
+  },
+  "alone": {
+    "max_dp": 0.10362398624420166,
+    "mean_dp": 0.0015821698000222627,
+    "argmax_flips": 2,
+    "over_0.02": 5
+  },
+  "native_tokenizer": {
+    "max_dp": 0.10362398624420166,
+    "mean_dp": 0.0015612324505127617,
+    "argmax_flips": 2,
+    "over_0.02": 5
+  },
+  "latency_ms": {
+    "tokens": 703,
+    "questions_in_record": 1,
+    "executorch_miss": 1847.8,
+    "executorch_prefix_hit": 1769.8,
+    "torch_fp32_full": 3601.0,
+    "torch_fp32_prefix_hit": 4660.3,
+    "support_request": {
+      "state_tokens": 19,
+      "questions": 3,
+      "prefill": 146.0,
+      "cached_evaluation": 422.3,
+      "total": 567.0
+    },
+    "document_request": {
+      "state_tokens": 314,
+      "questions": 5,
+      "prefill": 791.2,
+      "cached_evaluation": 334.9,
+      "total": 1125.5
+    }
+  }
+}

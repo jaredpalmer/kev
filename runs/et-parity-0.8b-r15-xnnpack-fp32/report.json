@@ -1,0 +1,56 @@
+{
+  "run": "jaredpalmer/kev-0.8b@9a45d25eb2ab761841196625383fa1dff0e56c1e",
+  "suite": "evals/v7/decision-v7",
+  "context": {
+    "max_state": 384,
+    "max_branch": 1024
+  },
+  "backend": "executorch",
+  "program": "/tmp/et-out/r15/kev-0.8b-xnnpack-fp32/model.pte",
+  "records": 1024,
+  "questions": 1264,
+  "rejected_records": 0,
+  "torch_dtype": "float32",
+  "executorch_dtype": "float32",
+  "native_token_mismatch_questions": 0,
+  "prefix": {
+    "max_dp": 1.0609626770019531e-05,
+    "mean_dp": 5.451449765190128e-07,
+    "argmax_flips": 0,
+    "over_0.02": 0
+  },
+  "alone": {
+    "max_dp": 1.0609626770019531e-05,
+    "mean_dp": 5.409963912687182e-07,
+    "argmax_flips": 0,
+    "over_0.02": 0
+  },
+  "native_tokenizer": {
+    "max_dp": 1.0609626770019531e-05,
+    "mean_dp": 5.451449765190128e-07,
+    "argmax_flips": 0,
+    "over_0.02": 0
+  },
+  "latency_ms": {
+    "tokens": 703,
+    "questions_in_record": 1,
+    "executorch_miss": 1099.5,
+    "executorch_prefix_hit": 1229.9,
+    "torch_fp32_full": 708.9,
+    "torch_fp32_prefix_hit": 704.8,
+    "support_request": {
+      "state_tokens": 19,
+      "questions": 3,
+      "prefill": 53.3,
+      "cached_evaluation": 223.5,
+      "total": 276.5
+    },
+    "document_request": {
+      "state_tokens": 314,
+      "questions": 5,
+      "prefill": 465.9,
+      "cached_evaluation": 266.9,
+      "total": 732.8
+    }
+  }
+}

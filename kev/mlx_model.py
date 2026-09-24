@@ -17,12 +17,11 @@ from pathlib import Path
 import mlx.core as mx
 import numpy as np
 import torch
-import torch.nn.functional as F
 from mlx.utils import tree_flatten
 from mlx_lm.models.cache import make_prompt_cache
 from mlx_lm.utils import load_model
 
-from .model import PointerHead, encode, probs_one, rows_of, rows_per_pass
+from .model import PointerHead, PrefixScorer, encode, rows_of, rows_per_pass
 
 
 def merge_lora(lm, adapter_dir, scale=1.0):
@@ -54,7 +53,7 @@ def merge_lora(lm, adapter_dir, scale=1.0):
     return len(merged)
 
 
-class MLXDecisionModel:
+class MLXDecisionModel(PrefixScorer):
     """Prefill-only scorer: hidden states from mlx-lm, logits from the shared torch PointerHead."""
     backend, device, hybrid, option_isolation = "mlx", "mlx", True, False
     prefix_min_tokens = 0   # kev.serve caches the state prefix for every request: on Metal the branch-only pass is always the cheaper one
@@ -123,27 +122,3 @@ class MLXDecisionModel:
             h = self._hidden([r["ids"] for r in part], batch)
             out += [self._logits(h[i], r["decide"], r["opts"]) for i, r in enumerate(part)]
         return out
-
-    def _branch_probs(self, enc, cache):
-        return [F.softmax(z, -1) for z in self._branch_logits(enc, cache)]
-
-    def forward(self, enc):
-        """List of logits tensors, one per question."""
-        return self._branch_logits(enc, self.prefix(enc)[1])
-
-    def probs(self, enc):
-        return self._branch_probs(enc, self.prefix(enc)[1])
-
-    def probs_and_prefix(self, enc):
-        prefix = self.prefix(enc)
-        return self._branch_probs(enc, prefix[1]), prefix
-
-    def probs_with_prefix(self, enc, prefix):
-        Ls, cache = prefix
-        if enc["seg"].count(0) != Ls: raise ValueError("prefix does not match this record's state")
-        return self._branch_probs(enc, cache)
-
-    def probs_batch(self, encs, prefixes, keep):
-        """kev.serve's batch call: one request at a time on Metal."""
-        out = [probs_one(self, e, p, k) for e, p, k in zip(encs, prefixes, keep)]
-        return [o[0] for o in out], [o[1] for o in out]

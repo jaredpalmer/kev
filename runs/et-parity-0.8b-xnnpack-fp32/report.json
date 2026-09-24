@@ -1,0 +1,50 @@
+{
+  "run": "jaredpalmer/kev-0.8b",
+  "backend": "executorch",
+  "program": "/tmp/et-out/kev-0.8b-xnnpack-fp32/model.pte",
+  "records": 1024,
+  "questions": 1264,
+  "torch_dtype": "float32",
+  "executorch_dtype": "float32",
+  "native_token_mismatch_questions": 29,
+  "prefix": {
+    "max_dp": 7.271766662597656e-06,
+    "mean_dp": 4.417701739275569e-07,
+    "argmax_flips": 0,
+    "over_0.02": 0
+  },
+  "alone": {
+    "max_dp": 7.271766662597656e-06,
+    "mean_dp": 4.41306354654835e-07,
+    "argmax_flips": 0,
+    "over_0.02": 0
+  },
+  "native_tokenizer": {
+    "max_dp": 0.008253872394561768,
+    "mean_dp": 3.249913154406063e-05,
+    "argmax_flips": 0,
+    "over_0.02": 0
+  },
+  "latency_ms": {
+    "tokens": 703,
+    "questions_in_record": 1,
+    "executorch_miss": 1093.4,
+    "executorch_prefix_hit": 1036.5,
+    "torch_fp32_full": 682.8,
+    "torch_fp32_prefix_hit": 685.3,
+    "support_request": {
+      "state_tokens": 19,
+      "questions": 3,
+      "prefill": 47.3,
+      "cached_evaluation": 195.0,
+      "total": 242.3
+    },
+    "document_request": {
+      "state_tokens": 314,
+      "questions": 5,
+      "prefill": 365.7,
+      "cached_evaluation": 217.7,
+      "total": 591.2
+    }
+  }
+}
