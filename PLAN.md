@@ -130,6 +130,18 @@ Jev on the same development splits: hard-v1 0.777, devtools-v1 0.713. **Confirma
 
 From the released Kev-0.8B: hard-v1 development 0.350 → 0.651 (+30.1 [+26.8, +33.5]), devtools-v1 0.487 → 0.616 (+12.9 [+10.2, +15.8]), documents +1.1 [−0.8, +2.9], short state (pooled panel) +0.2 [−1.2, +1.7], pooled externals **+2.1 [+0.6, +3.7]**, hard ECE 0.140 → 0.122: passes rules 1-3. **Confirmation:** hard-v1 test 0.396 → **0.689** (+29.3 [+25.7, +32.8]), devtools-v1 test 0.472 → **0.641** (+16.8 [+13.7, +19.6]), pooled +23.1 [+20.8, +25.4]; locked `transfer-v4` 0.685 → 0.683 (−0.15 [−2.9, +2.7]), served Brier 0.412 → 0.396 (`kev-08b-r12-ungated`). **Passes every registered criterion.** 0.8B now has two confirmed single deltas (documents, round 11; skills, round 12); round 13 tests them stacked. The 9B arms of this round are still training.
 
+## Round 13 result (2026-09-24; `runs/r13-readout/round13.json`) — no candidate
+
+Skills on top of the round-11 0.8B documents candidate: seed 1 primary +20.6 [+18.5, +23.0] (hard-v1 0.355 → 0.640, devtools 0.485 → 0.612) but documents −0.5 [−2.0, +1.0] (lower bound just under −2) and scienthoon below its bound; seed 2 +19.9 with short state −1.6 [−3.2, 0.0] and documents −1.1 [−2.4, +0.3]. Stacking a second delta on the 0.8B erodes the first.
+
+## Round 15 - 0.8B documents and skills in one delta (registered 2026-09-24T06:45Z, before any training or read)
+
+**Why.** 0.8B has two confirmed single deltas from the released checkpoint (documents, round 11; skills, round 12) and stacking them failed (round 13). This round trains both datasets together in one epoch from the released Kev-0.8B.
+
+**Arms** (study `r15-08b`, `experiments/round15/joint.json`): from `jaredpalmer/kev-0.8b`, one epoch on `evals/round15/joint/train.jsonl` (documents-v1 train + round-10 skills = 16,539 records), `replay 6000`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, H200, timeout 12,600 s: (a) lr 2e-5 seed 1, (b) lr 4e-5 seed 1, (c) lr 2e-5 seed 2.
+
+**Rule** (against the released Kev-0.8B; reads `runs/r15-<arm>-{docs,hard,devtools,r3test,semif,scienthoon,wanli2,typesafe,v9}`): both primaries must hold — documents-v1 development lower bound > 0 and hard-v1 + devtools-v1 development pooled lower bound > 0; guards as round 12 (pooled short-state panel, WANLI-v2 / scienthoon ≥ −2 pp, pooled externals ≥ −1.5 pp, unknowable ≤ 0.05, hard-set ECE ≤ parent + 0.01). Candidate: the passing arm with the larger sum of the two primary estimates. Confirmation, once: documents-v1 test lower bound > 0, hard-v1 + devtools-v1 test pooled lower bound > 0, locked `transfer-v4` (≥ parent − 1 pp, Brier ≤ parent + 0.005), documents-v2 reported.
+
 ## Round 14 - more skill data on top of the round-10 Kev-4B candidate (registered 2026-09-24T05:52Z, before any training or read)
 
 **Why.** Round 10's 4B skills arm moved hard-v1 by +26 pp and JevBench's hard tier by +9 pp; JevBench's weakest families for it remain temporal/numeric (0.20), probability (0.50) and judging (0.53). `evals/round14/hard-extra` (`scripts/build_hard_extra.py`) is 12,000 more hard-v1 training records from a fresh seed on the same training templates (0-3), deduplicated against every frozen hard-v1 state; `skills-plus` = hard-extra + devtools-v1 train (17,320 records). hard-v1 development and test keep measuring unseen templates.
