@@ -6,17 +6,19 @@ The exact base checkpoint is recorded in the model card's `base_model` field and
     uv run python -m kev.publish --run runs/kev --repo jaredpalmer/kev-0.5b
     uv run python -m kev.publish --run runs/kev2 --repo jaredpalmer/kev-0.5b --message "v0.2: none-of-the-above fix"
 
-Uploads: adapter, head.pt, tokenizer files, eval.json, training log (if found), and the model card (--card) as README.md
-with the repo id and run name filled in. Requires `hf auth login`.
+Uploads: the adapter (or, for a full-weight run, config.json and every model*.safetensors shard with its index), head.pt,
+tokenizer files, eval.json, training log (if found), and the model card (--card) as README.md with the repo id and run
+name filled in. Requires `hf auth login`.
 """
 import argparse, os, re, shutil, tempfile
 from pathlib import Path
 from huggingface_hub import HfApi
-from .checkpoint import read_meta
+from .checkpoint import Checkpoint
 from .suite import read_json, write_json
 
-FILES = ["adapter_config.json", "adapter_model.safetensors", "head.pt", "tokenizer.json", "tokenizer_config.json",
+FILES = ["head.pt", "tokenizer.json", "tokenizer_config.json", "chat_template.jinja",
          "vocab.json", "merges.txt", "added_tokens.json", "special_tokens_map.json", "eval.json"]
+WEIGHTS = {False: ["adapter_config.json", "adapter_model.safetensors"], True: ["config.json", "model.safetensors.index.json"]}   # by Checkpoint.full
 
 
 def main():
@@ -30,18 +32,19 @@ def main():
     ap.add_argument("--revision", help="upload to this branch instead of main (created if missing); for candidates that must not replace the released weights")
     a = ap.parse_args()
 
-    base, run_name = read_meta(a.run).base, os.path.basename(a.run.rstrip("/"))
+    checkpoint, run_name = Checkpoint(a.run), os.path.basename(a.run.rstrip("/"))
+    base, full = checkpoint.meta.base, checkpoint.full
     api = HfApi()
     api.create_repo(a.repo, repo_type="model", exist_ok=True, private=a.private)
 
     with tempfile.TemporaryDirectory() as tmp:
-        for f in FILES:
+        for f in FILES + WEIGHTS[full] + [p.name for p in checkpoint.shards() if full]:
             src = f"{a.run}/{f}"
             if os.path.exists(src): shutil.copy(src, tmp)
             else: print(f"skip {f} (not found)")
-        # runs before task_type was set saved null; the Hub warns about it and PEFT treats both the same for a bare backbone
-        cfg_path = f"{tmp}/adapter_config.json"; cfg = read_json(cfg_path)
-        if not cfg.get("task_type"): cfg["task_type"] = "FEATURE_EXTRACTION"; write_json(cfg_path, cfg)
+        if not full:   # runs before task_type was set saved null; the Hub warns about it and PEFT treats both the same for a bare backbone
+            cfg_path = f"{tmp}/adapter_config.json"; cfg = read_json(cfg_path)
+            if not cfg.get("task_type"): cfg["task_type"] = "FEATURE_EXTRACTION"; write_json(cfg_path, cfg)
         if os.path.exists(f"runs/logs/train_{run_name}.log"):   # standalone runs keep their log there (see .gitignore)
             shutil.copy(f"runs/logs/train_{run_name}.log", f"{tmp}/train.log")
         # research trials: runs/<study>/<trial>/checkpoint -> ship the trial's result, provenance and training log too
@@ -54,7 +57,7 @@ def main():
 
         # the card's prose names the Hub repo and trial itself; only the frontmatter is filled from the checkpoint
         card = re.sub(r"^base_model: .*$", f"base_model: {base}", Path(a.card).read_text(encoding="utf-8"), flags=re.M)
-        if "base_model_relation:" not in card: card = card.replace(f"base_model: {base}", f"base_model: {base}\nbase_model_relation: adapter")
+        if "base_model_relation:" not in card: card = card.replace(f"base_model: {base}", f"base_model: {base}\nbase_model_relation: {'finetune' if full else 'adapter'}")
         Path(tmp, "README.md").write_text(card, encoding="utf-8")
 
         ev = read_json(f"{tmp}/eval.json") if os.path.exists(f"{tmp}/eval.json") else {}

@@ -297,3 +297,167 @@ def test_option_isolation_mask_rule():
     assert m[7, 6] and m[5, 4]                        # option sees itself (causal within span)
     assert all(m[8, j] for j in range(9))             # decide sees everything in its question
     assert m[3, 4] == False                           # instruction never sees options (causal)
+
+
+# --- full-weight training (kev.train --full_ft 1, kev.full_ft): a 2-layer Qwen3.5 with random weights, no downloads ----
+
+@pytest.fixture(scope="module")
+def tiny_base(tmp_path_factory):
+    """A hybrid base (one Gated DeltaNet layer, one attention layer) saved like a Hub snapshot, with a word-level tokenizer
+    that carries Kev's delimiter tokens, and 16 labelled requests."""
+    import json
+    from tokenizers import Tokenizer, models, pre_tokenizers
+    from transformers import PreTrainedTokenizerFast, Qwen3_5ForCausalLM, Qwen3_5TextConfig
+    root = tmp_path_factory.mktemp("tiny")
+    words = "it is charged twice which team billing shipping refund angry the customer".split()
+    vocab = {t: i for i, t in enumerate(["<unk>", "<pad>", *SPECIAL, *words])}
+    tk = Tokenizer(models.WordLevel(vocab, unk_token="<unk>")); tk.pre_tokenizer = pre_tokenizers.Whitespace()
+    config = Qwen3_5TextConfig(vocab_size=len(vocab), hidden_size=32, intermediate_size=64, num_hidden_layers=2, num_attention_heads=2, num_key_value_heads=1,
+                               head_dim=16, linear_num_value_heads=2, linear_num_key_heads=1, linear_key_head_dim=8, linear_value_head_dim=8,
+                               layer_types=["linear_attention", "full_attention"], pad_token_id=1)
+    torch.manual_seed(0)
+    Qwen3_5ForCausalLM(config).to(torch.bfloat16).save_pretrained(root / "base")
+    PreTrainedTokenizerFast(tokenizer_object=tk, unk_token="<unk>", pad_token="<pad>", additional_special_tokens=SPECIAL).save_pretrained(root / "base")
+    rows = [{"state": "the customer is charged twice" + " it" * i, "questions": {
+        "team": {"type": "choice", "instructions": "which team", "criteria": {"billing": None, "shipping": None, "refund": None}, "label": ["billing", "shipping", "refund"][i % 3]},
+        "angry": {"type": "noul", "instructions": "is the customer angry", "label": i % 2 == 0}}} for i in range(16)]
+    (root / "data.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    return root
+
+
+def train_tiny(tiny_base, out, *args, monkeypatch=None):
+    import sys
+    from kev import train
+    argv = ["kev.train", "--base", str(tiny_base / "base"), "--data", str(tiny_base / "data.jsonl"), "--device", "cpu", "--batch", "2", "--lr", "1e-3", "--out", str(out), *args]
+    monkeypatch.setattr(sys, "argv", argv)
+    train.main()
+
+
+FULL = ("--full_ft", "1", "--weights_dtype", "bf16")
+
+
+def test_full_weight_checkpoint_round_trip(tiny_base, tmp_path, monkeypatch):
+    """A full-weight run saves the bf16 backbone with save_pretrained (config.json + safetensors, no adapter) and head.pt in
+    today's format marked weights="full"; kev.checkpoint loads the backbone from the checkpoint directory itself (bf16 by
+    default, fp32 when asked) with exactly the saved values, and the trained weights moved away from the base."""
+    from safetensors.torch import load_file
+    from kev.checkpoint import Checkpoint, LoadOptions, read_meta
+    from kev.data import load_records, materialize
+    train_tiny(tiny_base, tmp_path / "full", *FULL, "--max_steps", "3", monkeypatch=monkeypatch)
+    files = {p.name for p in (tmp_path / "full").iterdir()}
+    assert {"config.json", "model.safetensors", "head.pt", "tokenizer.json", "tokenizer_config.json"} <= files and "adapter_config.json" not in files
+    meta = read_meta(tmp_path / "full")
+    assert (meta.weights, meta.lora, meta.weights_dtype, meta.base) == ("full", 0, "bf16", str(tiny_base / "base")) and set(meta.head) == {"q.weight", "q.bias", "k.weight", "k.bias"}
+    ck = Checkpoint(tmp_path / "full")
+    assert ck.full and len(ck.weights_sha256()) == 64
+    tok, model = ck.load("cpu")
+    saved, base = load_file(tmp_path / "full/model.safetensors"), load_file(tiny_base / "base/model.safetensors")
+    assert model.dtype == "bfloat16" and all(torch.equal(model.lm.state_dict()[k], v) for k, v in saved.items())
+    assert any(not torch.equal(v, base["model." + k]) for k, v in saved.items()), "training moved no weight"
+    rec = materialize(load_records(tiny_base / "data.jsonl")[0])
+    _, fp32 = ck.load("cpu", LoadOptions(dtype=torch.float32))
+    assert fp32.dtype == "float32"
+    assert max(float((a - b).abs().max()) for a, b in zip(model.probs(model.encode(tok, rec)), fp32.probs(fp32.encode(tok, rec)))) < 0.02
+    with pytest.raises(ValueError, match="lora_scale"):
+        ck.load("cpu", LoadOptions(lora_scale=0.5))
+
+
+def test_loader_rule_needs_head_pt_and_files_to_agree(tmp_path):
+    """adapter_config.json -> LoRA; config.json + model*.safetensors and no adapter -> full weights; head.pt's `weights` must
+    name the same layout, so a half-copied directory fails loudly instead of loading the wrong thing."""
+    from kev.checkpoint import Checkpoint, Meta, write_meta
+    for weights, present in (("full", ["adapter_config.json", "adapter_model.safetensors"]), ("lora", ["config.json", "model.safetensors"]), ("full", ["config.json"])):
+        d = tmp_path / f"{weights}-{len(present)}-{present[0]}"; d.mkdir()
+        write_meta(d, Meta(base="b", weights=weights))
+        for name in present: (d / name).write_text("{}", encoding="utf-8")
+        with pytest.raises(ValueError, match="head.pt says"):
+            Checkpoint(d).full
+
+
+def test_full_weight_warm_start(tiny_base, tmp_path, monkeypatch):
+    """--init_from a full checkpoint copies every backbone tensor over the base (coverage checked) and records the shard
+    hash; a LoRA run cannot start from full weights."""
+    from kev.checkpoint import Checkpoint
+    from kev.suite import read_json
+    train_tiny(tiny_base, tmp_path / "a", *FULL, "--max_steps", "2", monkeypatch=monkeypatch)
+    train_tiny(tiny_base, tmp_path / "b", *FULL, "--max_steps", "1", "--init_from", str(tmp_path / "a"), monkeypatch=monkeypatch)
+    source = read_json(tmp_path / "b/training_config.json")["init_source"]
+    assert source["tensors"] == 27 and source["weights_sha256"] == Checkpoint(tmp_path / "a").weights_sha256()
+    with pytest.raises(ValueError, match="lora is 0 there and 4 here"):
+        train_tiny(tiny_base, tmp_path / "c", "--lora", "4", "--init_from", str(tmp_path / "a"), monkeypatch=monkeypatch)
+
+
+def test_master_adamw_is_adamw_on_fp32_masters():
+    """MasterAdamW with host masters = torch AdamW after clip_grad_norm_, step for step; bf16 weights hold bf16(master)."""
+    from kev.full_ft import MasterAdamW
+    torch.manual_seed(0)
+    ref = [torch.nn.Parameter(torch.randn(5, 3)), torch.nn.Parameter(torch.randn(4))]
+    ours = [torch.nn.Parameter(p.detach().clone()) for p in ref]
+    low = [torch.nn.Parameter(p.detach().to(torch.bfloat16)) for p in ref]
+    opt_ref = torch.optim.AdamW([{"params": ref[:1], "lr": 1e-2}, {"params": ref[1:], "lr": 1e-3}], weight_decay=0.01, foreach=False)
+    opt = MasterAdamW([{"params": ours[:1], "lr": 1e-2}, {"params": ours[1:], "lr": 1e-3}], lr=1e-2, weight_decay=0.01, offload=True)
+    opt_low = MasterAdamW([{"params": low}], lr=1e-2, weight_decay=0.01, offload=True)
+    for step in range(4):
+        g = [torch.randn_like(p) * (5 if step == 1 else 0.1) for p in ref]   # step 1 is clipped
+        for ps in (ref, ours): 
+            for p, gi in zip(ps, g): p.grad = gi.clone()
+        for p, gi in zip(low, g): p.grad = gi.to(torch.bfloat16)
+        torch.nn.utils.clip_grad_norm_(ref, 1.0); opt_ref.step(); opt.step(); opt_low.step()
+        assert all(torch.allclose(a, b, atol=1e-6) for a, b in zip(ref, ours)) and all(p.grad is None for p in ours)
+    assert all(torch.equal(p, opt_low.state[p]["master"].to(torch.bfloat16)) for p in low)
+
+
+def test_row_budget_changes_passes_not_gradients(tiny_base):
+    """--row_budget splits a micro-batch into forward/backward passes (here every record by question, each part carrying
+    half of its record's mean); the accumulated gradient equals the single pass's."""
+    import contextlib
+    from kev.data import load_records
+    from kev.model import MAX_STATE, load_tokenizer
+    from kev.train import batch_loss, encode_batch, row_passes
+    tok = load_tokenizer(str(tiny_base / "base"))
+    model = DecisionModel(str(tiny_base / "base"), tok, "cpu"); model.train()
+    reqs = load_records(tiny_base / "data.jsonl")[:4]
+    knobs = dict(seed=0, p_none=0.0, p_none_distract=0.0, p_distract=0.0, p_none_pair=0.0, perm_kl=0.0, perm_frac=0.0, max_state=MAX_STATE,
+                 ord_w=0.0, label_smoothing=0.0, brier_w=0.0, focal_gamma=0.0, anchor_w=0.0)
+    grads, sizes = [], []
+    for budget in (0, 16):
+        a = SimpleNamespace(**knobs, row_budget=budget)
+        batch = encode_batch(model, tok, a, reqs, 0); model.zero_grad()
+        passes = row_passes(batch, budget)
+        for part in passes:
+            batch_loss(model, a, part, "cpu", {}, None, contextlib.nullcontext())[0].backward()
+        grads.append([p.grad.clone() for p in model.parameters() if p.grad is not None]); sizes.append((len(batch), len(passes), sum(v.share for v in batch)))
+    assert sizes == [(4, 1, 4.0), (8, 8, 4.0)]
+    assert all(torch.allclose(a, b, atol=1e-6) for a, b in zip(*grads))
+
+
+def test_fsdp2_ranks_train_what_one_process_trains(tiny_base, tmp_path):
+    """Two gloo ranks under torchrun (FSDP2 over the layers, the head replicated) take the same first step as one process
+    with the same records per step: the sharded gradient is the sum over ranks, not the mean."""
+    import subprocess, sys
+    from safetensors.torch import load_file
+    common = ["-m", "kev.train", "--base", str(tiny_base / "base"), "--data", str(tiny_base / "data.jsonl"), "--device", "cpu", "--batch", "2",
+              "--lr", "1e-3", "--max_steps", "1", *FULL]
+    subprocess.run([sys.executable, *common, "--accum", "2", "--out", str(tmp_path / "one")], check=True, capture_output=True)
+    subprocess.run([sys.executable, "-m", "torch.distributed.run", "--standalone", "--nproc_per_node=2", *common, "--accum", "1", "--out", str(tmp_path / "two")], check=True, capture_output=True)
+    one, two = load_file(tmp_path / "one/model.safetensors"), load_file(tmp_path / "two/model.safetensors")
+    assert one.keys() == two.keys() and all(torch.equal(one[k], two[k]) for k in one)
+
+
+def test_full_ft_plumbing():
+    """Allowlist, admission bound and resources for full-weight trials; each rank's equal share of an epoch."""
+    from kev.budget import GPU_HOURLY, compute_bound, trial_resources
+    from kev.experiment import validated_trial
+    from kev.full_ft import rank_share
+    manifest = {"base_revisions": {"b": "0" * 40}, "trainable_sources": []}
+    trial = validated_trial({"base": "b", "full_ft": 1, "weights_dtype": "bf16", "row_budget": 16384, "max_steps": 20, "accum": 128}, manifest)
+    assert (trial["full_ft"], trial["row_budget"], trial["max_steps"]) == (1, 16384, 20) and "max_steps" not in validated_trial({"base": "b"}, manifest)
+    for bad in ({"full_ft": 1}, {"full_ft": 1, "weights_dtype": "bf16", "row_budget": -1}, {"max_steps": 1.5}):
+        with pytest.raises(ValueError):
+            validated_trial({"base": "b", **bad}, manifest)
+    assert trial_resources("H200", True)[1][0] >= 12 * 25.6e9 / 2 ** 20 and trial_resources("H200:8", True) != trial_resources("H200", True)
+    assert compute_bound("H200:8", 3600, 1) == pytest.approx(compute_bound("H200", 3600, 1) + 7 * GPU_HOURLY["H200"])
+    assert [rank_share(list(range(5)), r, 2) for r in (0, 1)] == [[0, 2, 4], [1, 3, 0]] and rank_share([1, 2], 0, 1) == [1, 2]
+    from kev.train import length_sorted_steps
+    reqs = [{"state": "s" * n, "questions": {"q": {}}} for n in (1, 9, 5, 7, 3)]
+    assert [len(r["state"]) for r in length_sorted_steps(reqs, 2)] == [9, 1, 7, 5, 3]   # same records per step, longest first

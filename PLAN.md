@@ -195,9 +195,13 @@ Goals and open questions, not registered rounds; each becomes a spec and a PLAN 
    - Data: what broad decision corpus, built under the policy above (sources, sizes, open-weight teachers, contamination
      screens against JevBench public items and our frozen suites), and how much of it replaces or joins decision-v7 replay.
    - Method: full-weight SFT against the current LoRA recipe on the same data, so method and data are separated (the
-     AutoJev comparison confounds them). What it costs (a 27B full fine-tune does not fit the one-H200 trial we run today),
-     and whether the result still serves through our path (pointer head, question isolation, CUDA graphs, `kev-deploy`) and
-     what it does to checkpoint size (full weights instead of an adapter).
+     AutoJev comparison confounds them). The trainer exists (`kev.train --full_ft 1`, PR #PRNUM; checkpoints are a
+     `save_pretrained` bf16 backbone of 51 GB plus `head.pt`, loaded by the same `kev.checkpoint` path, fused kernels and
+     CUDA graphs included). Measured on Qwen3.8-27B with ~1,000-token records (`runs/sft-probe/`): one H200 with the fp32
+     masters in host memory runs 0.84 records/s (100k records ≈ 30 h, $268); 8 H200s with FSDP2 and length-balanced
+     micro-batches 3.4 records/s (≈ 7.5 h, $294). Neither fits 100k records plus the in-trial reads inside today's 8 h study
+     cap, and there is no resume yet. Open: the 27B served path at the release isolation tolerance, and the prefix-sharing
+     cost (the row form repeats a state once per question in training too).
    - Calibration: fit the served temperature on a mixed development pool (decision-v7 + hard-v1 + devtools-v1) and gate on
      hard-set calibration, not only on easy rows (finding 5).
    - Evaluation: every existing short-state confirmation panel has been read at least once, so the round needs a new frozen

@@ -28,6 +28,15 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   - architecture / precision: `--lora`, `--lora_targets all|dense|attn|qv` (`dense` freezes the DeltaNet projections on
     hybrid bases), `--head_dim`, `--option_isolation`, `--special_embeddings`, `--dtype` (autocast) vs `--weights_dtype`
     (frozen backbone; bf16 is required by the fused MoE experts of 35B-A3B).
+  - full-weight: `--full_ft 1 --weights_dtype bf16` trains the whole text backbone (vision tower, LM head and MTP are never
+    loaded) plus the head, with `kev.full_ft.MasterAdamW` (fp32 masters + moments; one GPU: in host memory, AutoJev's
+    technique; under `torchrun`: FSDP2 shards, state on the GPUs, the head replicated). `--row_budget N` (one GPU):
+    padded row tokens per forward/backward pass, a record whose rows do not fit is split by question (27B on one H200
+    needs 8192); `--length_sort 1` orders each step's records longest first across ranks (less padding, no rank waiting
+    on another's long record); `--max_steps N` stops early. `experiment.train_checkpoint` launches a full-weight trial
+    under torchrun on every GPU of its container (`--gpu H200:8`). 27B, ~1,000-token records (`runs/sft-probe/`): one
+    H200 `--batch 8 --accum 4 --row_budget 8192` 0.84 records/s; 8 H200 `--batch 4 --accum 4 --length_sort 1` 3.4
+    records/s (121 GB peak per GPU). Memory plan and projections: PR #PRNUM.
   - Only one training process at a time: two on MPS slow each other ~10x.
 - Smoke: `uv run python -m kev.train --n_per_source 40 --accum 4 --out runs/smoke` (~1 min).
 - Benchmark (the eval path for everything current): `uv run python -m kev.benchmark --run <run dir | Hub id[@rev]>
@@ -97,7 +106,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   access (`hf auth login` / `HF_TOKEN`; Modal images already carry a locally fetched copy under `evals/`) and raises a
   PermissionError naming the repo for everyone else; `tests/test_conventions.py` fails if such a suite tracks a partition.
 - Modal (default for anything beyond smoke): `modal_app.py`; `uv run modal run modal_app.py::{smoke,study,pull,resume,
-  locked_test,evaluate,base_probe,benchmarks,smoke_base,anchors}`; `uv run modal deploy modal_app.py` once so studies
+  locked_test,evaluate,base_probe,benchmarks,smoke_base,anchors,sft_probe}`; `uv run modal deploy modal_app.py` once so studies
   survive a disconnect. Image = `uv_sync` of pyproject/uv.lock (Linux torch wheel is CUDA) + `kev/` + `evals/`; Volumes
   `kev-hf-cache` (HF_HOME) and `kev-runs` (trial outputs, pulled to `runs/<study>` then ranked by
   `kev.experiment --aggregate`). `KEV_GPU` picks the GPU type (H100 default; T4 for the free tier), `KEV_APP_NAME`
@@ -119,6 +128,11 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   (in the Modal image). MPS has no fast DeltaNet kernels, so on Apple Silicon `kev.serve` runs these checkpoints through `kev/mlx_model.py` (mlx-lm's Metal kernels; M5, 5 questions on a ~270-token state: Kev-4B 721 ms new state / 136 ms cached state vs 3302 / 847 ms for torch bf16; parity with fp32 torch on the full decision-v7 development partition: 4B max |dp| 0.025, 1 flip in 1,264 questions; 0.8B max 0.054, 4 flips (`runs/r4-mlx-parity-*`)). Plan and results: PLAN.md at tag `research-archive-2026-09-24`, History > "Qwen3.5 port".
 - Delta fine-tuning: `kev.train --init_from <run dir | Hub id[@rev]>` warm-starts LoRA + head (compatibility checked before load; source hashes in
   provenance; allowlisted in `kev/experiment.py` so studies can run cheap delta trials from a released checkpoint). Use lr <= 2e-5 for deltas.
+  A full-weight checkpoint warm-starts a `--full_ft 1` run (every backbone tensor copied over the base, coverage checked); LoRA and full do not mix.
+- Checkpoint layouts (`kev.checkpoint`, the loader rule): `adapter_config.json` -> LoRA on `head.pt`'s base; no adapter and `config.json` +
+  `model*.safetensors` (`save_pretrained` of the bf16 backbone, 5 GB shards + index) -> full weights, loaded from the checkpoint directory
+  (`meta.weights == "full"`, `lora == 0`, `base`/`base_revision` kept for the tokenizer). Full weights load in bf16 by default (`KEV_DTYPE=fp32`
+  upcasts); fused kernels and CUDA graphs apply as to a merged adapter; no MLX path.
 - Publish: `uv run python -m kev.publish --run runs/<run> --repo jaredpalmer/kev-<size> --card docs/model-cards/<name>.md` (needs `hf auth login`;
   `--private`, `--tag`, `--revision <branch>` for candidates). Repos are named by
   base model size (Kev-0.5B = Qwen2.5-0.5B); versions within a size are Hub tags (`hf repos tag create jaredpalmer/kev-0.5b vX.Y`).
@@ -197,10 +211,11 @@ runs / the endpoint / the volumes. Tests: `tests/test_skill_scripts.py`.
 - `kev/study_v3.py`  builds the v3+ decision/transfer suites (public pool + generated families, grouped splits)
 - `kev/transfer_v9.py` transfer-v9: transfer-v4 byte-for-byte plus MMLU-Pro, buried states and unknowable items
 - `kev/model.py`     encode(), branch_mask(), `fits`/MAX_STATE/MAX_BRANCH/MAX_PACKED, PointerHead (carries the temperature), DecisionModel (packed mask, or `hybrid` row batches)
-- `kev/train.py`     LoRA fine-tune: `training_requests` (suite / built / --data+--replay, context filter, policy checks, mix ablations),
+- `kev/full_ft.py`   full-weight training: `MasterAdamW` (fp32 masters, host or device), FSDP2 `shard`, `rank_share`, `save_backbone`, `init_distributed`
+- `kev/train.py`     LoRA (or `--full_ft`) fine-tune: `training_requests` (suite / built / --data+--replay, context filter, policy checks, mix ablations),
                      `encode_batch` + `batch_loss` (CE, anchor KL, permutation KL, RPS, smoothing/Brier/focal), `main` orchestration. Grad accumulation over small padded batches.
 - `kev/anchors.py`   frozen-base zero-shot distributions per training question, the target for `--anchor_w`
-- `kev/checkpoint.py` Checkpoint (resolve run dir or Hub id, `head.pt` schema = `Meta`, load with `LoadOptions` -> torch `DecisionModel` or, with `backend="mlx"`/`"auto"`, `MLXDecisionModel`; `warm_start` for deltas)
+- `kev/checkpoint.py` Checkpoint (resolve run dir or Hub id, `head.pt` schema = `Meta`, the LoRA-vs-full loader rule `full`/`shards`/`weights_sha256`, load with `LoadOptions` -> torch `DecisionModel` or, with `backend="mlx"`/`"auto"`, `MLXDecisionModel`; `warm_start` for deltas)
 - `kev/mlx_model.py` Apple Silicon backend: mlx-lm Qwen3.5 backbone, LoRA merged in fp32 on the CPU stream (`merge_lora`), Kev's encoder/rows and the torch PointerHead unchanged; state prefix = mlx-lm prompt cache, branches on a replicated copy
 - `kev/device.py`    default_device / sync / empty_cache / allocated_bytes for cuda, mps, cpu
 - `kev/metrics.py`   pure-numpy scoring of benchmark rows: ECE, Brier, NLL, selective prediction (tie-aware coverage@error, AURC), temperature fit, out-of-fold CV calibration report (`cross_validated_temperature`), paired bootstrap

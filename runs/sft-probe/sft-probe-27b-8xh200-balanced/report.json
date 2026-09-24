@@ -1,0 +1,72 @@
+{
+  "gpu": "H200:8",
+  "base": "Qwen/Qwen3.8-27B",
+  "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "train_args": "--batch 4 --accum 4 --length_sort 1 --max_steps 12 --lr 1e-5 --head_lr 1e-4",
+  "data": {
+    "records": 3000,
+    "record_tokens_mean": 1102.0353333333333,
+    "record_tokens_p50": 219.0,
+    "record_tokens_max": 7827,
+    "forward_tokens_mean": 1372.183,
+    "questions_mean": 1.2343333333333333
+  },
+  "seconds_per_step": 37.937444444444445,
+  "records_per_step": 128.0,
+  "records_per_second": 3.373975286802543,
+  "record_tokens_per_second": 3718.2399798498695,
+  "forward_tokens_per_second": 4629.711530970574,
+  "optimizer_seconds_per_step": 0.13256287574768066,
+  "peak_allocated_gb_rank0": 121.1,
+  "peak_nvidia_smi_gb": 127.8,
+  "peak_host_rss_gb_rank0": 61.1,
+  "fixed_overhead_seconds": 126,
+  "usd_per_hour": 39.12,
+  "gpu_usd_per_hour": 36.32,
+  "projections_1000_token_records": {
+    "50000": {
+      "hours": 3.77,
+      "usd": 147.51
+    },
+    "100000": {
+      "hours": 7.51,
+      "usd": 293.66
+    },
+    "200000": {
+      "hours": 14.98,
+      "usd": 585.95
+    }
+  },
+  "training_metrics": {
+    "wall_seconds": 468.7454586029053,
+    "records_seen": 1536,
+    "requested_records": 3000,
+    "truncated_records": 0,
+    "rejected_records": 0,
+    "optimizer_steps": 12,
+    "forward_tokens": 1951008,
+    "step_seconds": [
+      30.249,
+      60.131,
+      36.929,
+      52.662,
+      34.378,
+      60.959,
+      36.139,
+      31.124,
+      32.822,
+      32.786,
+      32.317,
+      28.25
+    ],
+    "optimizer_seconds": 1.590754508972168,
+    "world_size": 8,
+    "weights": "full",
+    "peak_device_bytes": 121148841472,
+    "device": "cuda",
+    "dtype": "bf16",
+    "batch": 4,
+    "peak_rss_bytes": 61097377792
+  },
+  "warmup": 3
+}

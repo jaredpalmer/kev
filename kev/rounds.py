@@ -226,7 +226,7 @@ def _validate_plan(study, s, root, partitions):
         trials = load_plan(root / s["suite"], root / s["plan"]) if partitions else [validated_trial(t, read_manifest(root / s["suite"])) for t in read_json(root / s["plan"])]
     except (ValueError, KeyError) as error:
         return [f"study {study}: plan {s['plan']} does not validate ({type(error).__name__}: {error})"]
-    bound = compute_bound(s["gpu"], s["timeout"], len(trials))
+    bound = compute_bound(s["gpu"], s["timeout"], len(trials), any(t.get("full_ft") for t in trials))
     if bound > s["budget"]: problems.append(f"study {study}: admission bound ${bound:.2f} exceeds budget ${s['budget']:.2f} (modal_app.admit_study would refuse it)")
     return problems
 

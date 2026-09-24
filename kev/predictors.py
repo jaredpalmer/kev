@@ -29,7 +29,7 @@ class LocalPredictor:
         context by default, the serving limits for external suites frozen without admission)."""
         if opts.temperature is not None and not (math.isfinite(opts.temperature) and opts.temperature > 0):
             raise ValueError("temperature must be finite and positive")
-        checkpoint = Checkpoint(run)
+        checkpoint = self.checkpoint = Checkpoint(run)
         self.run = checkpoint.path
         if device == "cuda":
             # evaluation is fp32-exact: TF32 (10-bit mantissa) moves probabilities by ~1e-3, the isolation gate's tolerance

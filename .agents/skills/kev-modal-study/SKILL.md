@@ -57,6 +57,14 @@ log; all three skip names that already exist locally / on the volume.
   `uv run modal run --detach modal_app.py::benchmarks --jobs "jaredpalmer/kev-9b@evals/external/semif-v1@kev-9b-semif,/runs/X/00-trial-0/checkpoint@evals/v9/transfer-v9@x-v9@--date_facts"`
   Output pulled to `runs/<name>/report.json`. This is how the external evals (SemIf, MMLU-Pro sample) and delta benches were scored.
   Each job gets its suite's timeout (`modal_app.READ_TIMEOUTS`: long-state panels 7,200 s, documents 5,400 s, transfer-v9 3,600 s, else 1,800 s); `--timeout N` sets one for every job (a 27B's fp32 reads run about three times longer than a 9B's).
+- **Full-weight training probe** (`scripts/sft_probe.py`: ~1,000-token records built from decision-v7, `kev.train --full_ft 1` for
+  `--max_steps`, peak GPU / host memory, s/step, tokens/s, projected hours and dollars for 50k / 100k / 200k records, optional
+  bf16-vs-fp32 loader check on the checkpoint it writes to scratch disk):
+  `uv run modal run --detach modal_app.py::sft_probe --name <name> --gpu H200 --train "--batch 8 --accum 4 --max_steps 20 --row_budget 8192"`
+  (`--gpu H200:8 --train "--batch 4 --accum 4 --length_sort 1 ..."` runs FSDP2 under torchrun; `--row_budget` is one-GPU only;
+  without `--length_sort` eight ranks wait on whichever holds a long record). Report in `runs/sft-probe/<name>/report.json`.
+  Full-weight studies: plans set `full_ft: 1, weights_dtype: bf16`; `admit_study` asks for `kev.budget.trial_resources` (one GPU:
+  24 CPU, 360-400 GiB for the host-side masters; `--gpu H200:8`: 16 CPU, 128-256 GiB) and prices the bound per GPU.
 - **Does a new base fit?** (LoRA footprint, which modules it hits, peak GB, steady step time on two real records):
   `uv run modal run modal_app.py::smoke_base --base Qwen/X-Base --revision <sha> [--gpu H200]`
 - Always give the entrypoint (`::base_probe`, `::benchmarks`, `::smoke_base`): the file has several.

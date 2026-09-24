@@ -1,23 +1,27 @@
 """LoRA fine-tune of the decision model on labelled requests (a frozen suite's training partition, records built on the
-fly from the public sources, or your own JSONL), with the pointer head trained from scratch.
+fly from the public sources, or your own JSONL), with the pointer head trained from scratch. `--full_ft 1` trains the
+whole backbone instead (kev.full_ft: bf16 weights, fp32 masters; several GPUs through torchrun + FSDP2).
 
     uv run python -m kev.train --suite evals/v7/decision-v7 --out runs/<name>          # what studies run
     uv run python -m kev.train --n_per_source 40 --accum 4 --out runs/smoke               # ~1 min smoke test
     uv run python -m kev.train --data mine.jsonl --init_from jaredpalmer/kev-4b --lr 2e-5 --out runs/mine   # delta
+    torchrun --standalone --nproc_per_node 8 -m kev.train --full_ft 1 --weights_dtype bf16 --dtype bf16 --checkpointing 1 ...
 
-Batch size is small (variable-length records with custom masks) and gradients are accumulated over --accum micro-batches.
+Batch size is small (variable-length records with custom masks) and gradients are accumulated over --accum micro-batches
+(per rank: a step sees accum x batch x world size records).
 """
-import argparse, contextlib, json, math, random, resource, sys, time
+import argparse, contextlib, json, math, os, random, resource, sys, time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 import torch
 import torch.nn.functional as F
+from . import full_ft
 from .checkpoint import Checkpoint, Meta, write_meta
-from .device import allocated_bytes, default_device, empty_cache
+from .device import allocated_bytes, default_device, empty_cache, sync
 from .data import EVAL_ONLY, build, augment, load_records, materialize, none_pair, source_seed
 from .suite import SYNTHETIC_SOURCES, digest, load_split, read_json, read_manifest, validate_training, write_json
-from .model import MAX_STATE, MAX_TRAIN_STATE, DecisionModel, fits, load_tokenizer, training_context
+from .model import MAX_STATE, MAX_TRAIN_STATE, DecisionModel, fits, load_tokenizer, rows_of, training_context
 
 
 # --- losses -----------------------------------------------------------------------------------------------------------
@@ -138,10 +142,54 @@ class Variant:
     request_id: str
     source: str
     permuted: tuple | None = None   # (encoding under the other order, perms from permuted_copy)
+    share: float = 1.0              # the part of its variant this is, when --row_budget split the variant's questions (row_passes)
 
     @property
     def tokens(self):
         return len(self.enc["ids"]) + (len(self.permuted[0]["ids"]) if self.permuted else 0)
+
+
+def row_lengths(enc):
+    """The causal rows a hybrid backbone runs for this encoding: the state plus one question each (kev.model.rows_of)."""
+    state, _, rows = rows_of(enc)
+    return [len(state) + len(r["ids"]) for r in rows]
+
+
+def question_parts(enc, budget):
+    """--row_budget: a record's questions in consecutive groups whose rows, padded to the group's longest, fit `budget`
+    tokens (a single row always fits: it is at most kev.model.MAX_TRAIN_STATE + a branch); one group without a budget."""
+    if not budget: return [list(range(len(enc["decide_idx"])))]
+    lengths, parts = row_lengths(enc), [[]]
+    for q, n in enumerate(lengths):
+        if parts[-1] and (len(parts[-1]) + 1) * max(n, *(lengths[i] for i in parts[-1])) > budget: parts.append([])
+        parts[-1].append(q)
+    return parts
+
+
+def length_sorted_steps(reqs, per_step):
+    """--length_sort: each optimizer step's records (consecutive slices of `per_step`, over all ranks) ordered longest
+    first. A step still sees the same records (the same gradient up to summation order); only which micro-batch, and which
+    rank, carries which record changes. Length = the rows' characters (state once per question, plus the questions). FSDP2
+    ranks wait for the slowest at every layer, and the longest 10 % of records carry half the tokens: a 27B on 8 H200s
+    ran 2.3 records/s at batch 1 unsorted, 1.05 at batch 4 unsorted, 3.4 at batch 4 sorted (one H200: 0.84)."""
+    size = lambda r: len(json.dumps(r["state"], ensure_ascii=False)) * len(r["questions"]) + len(json.dumps(r["questions"], ensure_ascii=False))
+    return [r for i in range(0, len(reqs), per_step) for r in sorted(reqs[i:i + per_step], key=size, reverse=True)]
+
+
+def row_passes(batch, budget):
+    """--row_budget: a micro-batch's variants in forward/backward passes of at most `budget` padded row tokens, longest
+    first; [batch] without a budget. The loss is a sum over variants (a split record's parts carry their share of its
+    mean), so the gradient is the same sum, but only one pass's activations are alive at a time: on one H200 a 27B's
+    bf16 weights and gradients leave ~35 GB; the first probe, with passes of up to 16k tokens, ran out of memory."""
+    if not budget: return [batch]
+    passes = []   # [variants, rows, longest row]
+    for v in sorted(batch, key=lambda v: max(row_lengths(v.enc)), reverse=True):
+        lengths = row_lengths(v.enc)
+        if passes and (passes[-1][1] + len(lengths)) * passes[-1][2] <= budget:
+            passes[-1][0].append(v); passes[-1][1] += len(lengths)
+        else:
+            passes.append([[v], len(lengths), max(lengths)])
+    return [p[0] for p in passes]
 
 
 def encode_batch(model, tok, a, chunk, epoch):
@@ -159,7 +207,11 @@ def encode_batch(model, tok, a, chunk, epoch):
             enc = model.encode(tok, rec, strict=True, **limits)
             if len(enc["ids"]) > c["max_packed"]:
                 raise ValueError(f"training request exceeds {c['max_packed']} packed tokens")
-            out.append(Variant(rec, enc, req["_meta"]["id"], req["_meta"]["source"]))
+            parts = question_parts(enc, a.row_budget)
+            for part in parts:   # one part unless --row_budget splits a record whose rows do not fit one pass
+                sub = rec if len(parts) == 1 else {**rec, "questions": [rec["questions"][q] for q in part]}
+                out.append(Variant(sub, enc if sub is rec else model.encode(tok, sub, strict=True, **limits), req["_meta"]["id"], req["_meta"]["source"],
+                                   share=len(part) / len(rec["questions"])))
         if a.perm_kl > 0 and item_rng.random() < a.perm_frac and any(q["qtype"] == "choice" and len(q["options"]) >= 3 for q in rec["questions"]):
             rec2, perms = permuted_copy(rec, item_rng)
             out[-1].permuted = (model.encode(tok, rec2, strict=True, **limits), perms)
@@ -177,12 +229,12 @@ def batch_loss(model, a, batch, dev, anchors, anchor_sources, autocast):
     loss = 0.0
     for v, logits in zip(batch, logits_b):
         ce = sum(question_loss(z.float(), q, dev, a.ord_w, a.label_smoothing, a.brier_w, a.focal_gamma)
-                 for z, q in zip(logits, v.rec["questions"])) / len(logits)
+                 for z, q in zip(logits, v.rec["questions"])) / len(logits) * v.share
         terms["ce"] += ce.item(); loss = loss + ce
         if anchors and v.request_id in anchors and (anchor_sources is None or v.source in anchor_sources):
             kls = [t for t in (anchor_loss(z.float(), q, anchors[v.request_id].get(q["qid"]), dev) for z, q in zip(logits, v.rec["questions"])) if t is not None]
             if kls:
-                kl_a = sum(kls) / len(kls); loss = loss + a.anchor_w * kl_a; terms["anchor"] += kl_a.item(); terms["anchor_n"] += 1
+                kl_a = sum(kls) / len(kls) * v.share; loss = loss + a.anchor_w * kl_a; terms["anchor"] += kl_a.item(); terms["anchor_n"] += v.share
     for v, logits2 in zip(permuted, logits2_b):
         logits = logits_b[batch.index(v)]
         kls = [permutation_kl(z1.float(), z2.float(), perm, dev) for z1, z2, perm in zip(logits, logits2, v.permuted[1]) if perm is not None]
@@ -240,6 +292,12 @@ def parse_args():
     ap.add_argument("--init_from", default="", help="delta mode: warm-start LoRA and the pointer head from an existing run "
                                                    "(local directory or hub id) instead of starting from the base model; keeps the "
                                                    "released model's in-domain skill while adapting to a new domain")
+    ap.add_argument("--full_ft", type=int, choices=[0, 1], default=0, help="train every backbone weight (bf16, fp32 masters in kev.full_ft.MasterAdamW) instead of a LoRA; "
+                                                                          "needs --weights_dtype bf16. One GPU: masters in host memory. Under torchrun: FSDP2 across the GPUs")
+    ap.add_argument("--row_budget", type=int, default=0, help="padded row tokens per forward/backward pass (0 = the whole micro-batch at once); a micro-batch over it "
+                                                              "runs in several passes, a record whose rows do not fit is split by question (long states x many questions)")
+    ap.add_argument("--length_sort", type=int, choices=[0, 1], default=0, help="order each optimizer step's records by length before cutting micro-batches (less padding when --batch > 1; same records per step)")
+    ap.add_argument("--max_steps", type=int, default=0, help="stop after this many optimizer steps (0 = every epoch); the lr schedule spans them")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
     if min(a.epochs, a.accum, a.n_per_source, a.lora, a.batch, a.synthetic_repeat) < 1 or not 0 < a.public_frac <= 1:
@@ -257,7 +315,14 @@ def parse_args():
         ap.error(f"--max_state must be in [{MAX_STATE}, {MAX_TRAIN_STATE}]")
     if a.replay and not (a.data and a.suite):
         ap.error("--replay needs both --data and --suite")
-    if Path(a.out).exists():
+    if a.full_ft and (a.weights_dtype != "bf16" or a.special_embeddings):
+        ap.error("--full_ft 1 trains bf16 weights (--weights_dtype bf16) and every embedding already (no --special_embeddings)")
+    if a.row_budget < 0 or a.max_steps < 0:
+        ap.error("--row_budget and --max_steps are >= 0")
+    if a.row_budget and (a.perm_kl > 0 or int(os.environ.get("WORLD_SIZE", "1")) > 1):
+        ap.error("--row_budget splits micro-batches into passes: not with --perm_kl (a record and its permuted copy share a loss term), "
+                 "nor under torchrun (FSDP2 ranks must run the same number of backward passes; sharded ranks have the memory without it)")
+    if Path(a.out).exists() and os.environ.get("RANK", "0") == "0":   # under torchrun rank 0 creates it; the others would race it
         ap.error("refusing to overwrite an existing run")
     return a
 
@@ -275,9 +340,12 @@ def pinned_revision(a, manifest):
 
 def main():
     a = parse_args()
-    out_dir = Path(a.out); out_dir.mkdir(parents=True)
-    torch.manual_seed(a.seed); rng = random.Random(a.seed)
     dev = a.device or default_device()
+    rank, world = full_ft.init_distributed(dev) if a.full_ft else (0, 1)   # torchrun: each rank's "cuda" is its own GPU
+    out_dir = Path(a.out)
+    if rank: sys.stdout = open(os.devnull, "w", encoding="utf-8")   # one log: rank 0's (errors still reach stderr)
+    else: out_dir.mkdir(parents=True)
+    torch.manual_seed(a.seed); rng = random.Random(a.seed)
     if dev == "cuda":
         torch.backends.cuda.matmul.allow_tf32 = True; torch.backends.cudnn.allow_tf32 = True
     autocast = torch.autocast("cuda", dtype=torch.bfloat16) if a.dtype == "bf16" else contextlib.nullcontext()
@@ -289,65 +357,82 @@ def main():
     anchor_sources = set(a.anchor_sources.split(",")) if a.anchor_sources else None
 
     tok = load_tokenizer(a.base, revision=revision)
-    model = DecisionModel(a.base, tok, dev, lora=a.lora, revision=revision, head_dim=a.head_dim, lora_targets=a.lora_targets,
+    model = DecisionModel(a.base, tok, dev, lora=None if a.full_ft else a.lora, revision=revision, head_dim=a.head_dim, lora_targets=a.lora_targets,
                           option_isolation=bool(a.option_isolation), special_embeddings=bool(a.special_embeddings),
-                          dtype=torch.bfloat16 if a.weights_dtype == "bf16" else torch.float32)
+                          dtype=torch.bfloat16 if a.weights_dtype == "bf16" else torch.float32, direct_load=bool(a.full_ft))
     if a.checkpointing:
         model.lm.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.lm.config.use_cache = False
     # what this run will save as head.pt; also the architecture a warm start must match
-    meta = Meta(base=a.base, base_revision=revision, lora=a.lora, head_dim=a.head_dim, option_isolation=bool(a.option_isolation),
-                special_embeddings=bool(a.special_embeddings), weights_dtype=a.weights_dtype, holdout=holdout)
+    meta = Meta(base=a.base, base_revision=revision, lora=0 if a.full_ft else a.lora, head_dim=a.head_dim, option_isolation=bool(a.option_isolation),
+                special_embeddings=bool(a.special_embeddings), weights_dtype=a.weights_dtype, holdout=holdout, weights="full" if a.full_ft else "lora")
     init_source = None
     if a.init_from:
-        # delta mode (PR #9, Radexito): start from an already trained adapter + pointer head instead of the base model, so a
-        # fine-tune on new data keeps what the released checkpoint knows
+        # delta mode (PR #9, Radexito): start from an already trained adapter (or full backbone) + pointer head instead of the
+        # base model, so a fine-tune on new data keeps what the released checkpoint knows
         init_source = Checkpoint(a.init_from).warm_start(model, meta)
-        print(f"delta: warm start from {init_source['resolved']}: {init_source['adapter_tensors']} adapter tensors and the pointer head loaded", flush=True)
-    print(f"device={dev} trainable params={sum(p.numel() for p in model.trainable_parameters())/1e6:.1f}M", flush=True)
+        print(f"delta: warm start from {init_source['resolved']}: {init_source['tensors']} {meta.weights} tensors and the pointer head loaded", flush=True)
+    if world > 1: full_ft.shard(model)
+    print(f"device={dev} world={world} trainable params={sum(p.numel() for p in model.trainable_parameters())/1e6:.1f}M", flush=True)
 
     reqs = training_requests(a, tok, manifest, holdout)
     suite_hash = digest(Path(a.suite) / "manifest.json") if manifest else None
-    write_json(out_dir / "training_config.json", {"args": vars(a), "suite_sha256": suite_hash, "base_revision": revision, "init_source": init_source,
-                                                "ordinal_objective": "ranked_probability_score", "holdout": holdout})
+    if not rank:
+        write_json(out_dir / "training_config.json", {"args": vars(a), "suite_sha256": suite_hash, "base_revision": revision, "init_source": init_source,
+                                                    "ordinal_objective": "ranked_probability_score", "holdout": holdout})
     print(f"{len(reqs)} training requests (holdout={holdout}), questions by type "
           f"{dict(Counter(q['qtype'] for r in reqs for q in materialize(r)['questions']))}")
 
     head_params = list(model.head.parameters()); head_ids = {id(p) for p in head_params}
     groups = [{"params": [p for p in model.trainable_parameters() if id(p) not in head_ids], "lr": a.lr},
               {"params": head_params, "lr": a.head_lr or a.lr}]
-    opt = torch.optim.AdamW(groups, lr=a.lr, weight_decay=a.weight_decay)
-    micro_per_epoch = math.ceil(len(reqs) / a.batch)
+    # full weights: one GPU keeps the fp32 masters and moments in host memory; FSDP2 ranks keep their shard's on the GPU
+    opt = full_ft.MasterAdamW(groups, lr=a.lr, weight_decay=a.weight_decay, offload=world == 1) if a.full_ft else torch.optim.AdamW(groups, lr=a.lr, weight_decay=a.weight_decay)
+    micro_per_epoch = math.ceil(len(full_ft.rank_share(reqs, rank, world)) / a.batch)
     steps = a.epochs * math.ceil(micro_per_epoch / a.accum)
+    steps = min(steps, a.max_steps) if a.max_steps else steps
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=[a.lr, a.head_lr or a.lr], total_steps=max(steps, 1), pct_start=0.1)
-    model.train(); t0 = time.time(); run = Counter(); step = seen = tokens_seen = peak_mem = 0
+    model.train(); t0 = last = time.time(); run = Counter(); step = seen = tokens_seen = peak_mem = optimizer_seconds = 0; step_seconds = []
     for ep in range(a.epochs):
         rng.shuffle(reqs)
+        # every record once per epoch across the ranks (all of them on one GPU); sorted, each rank's k-th micro-batch holds
+        # the k-th longest records of the step, so no micro-batch pads much and no rank waits long for the slowest one
+        mine = full_ft.rank_share(length_sorted_steps(reqs, a.batch * a.accum * world) if a.length_sort else reqs, rank, world)
         for mb in range(micro_per_epoch):
-            chunk = reqs[mb * a.batch : (mb + 1) * a.batch]
+            chunk = mine[mb * a.batch : (mb + 1) * a.batch]
             batch = encode_batch(model, tok, a, chunk, ep)
-            loss, terms = batch_loss(model, a, batch, dev, anchors, anchor_sources, autocast)
-            # weight by source records in the accumulation group so none-pair siblings do not inflate a record's share
-            group_records = accumulation_records(len(reqs), a.batch, a.accum, mb) * (len(batch) / len(chunk))
-            (loss / group_records).backward()
-            run += terms; run["n"] += len(batch); seen += len(batch); tokens_seen += sum(v.tokens for v in batch)
+            variants = sum(v.share for v in batch)   # a record split by --row_budget counts once
+            # weight by source records in the accumulation group (over all ranks) so none-pair siblings do not inflate a record's share
+            group_records = world * accumulation_records(len(mine), a.batch, a.accum, mb) * (variants / len(chunk))
+            for part in row_passes(batch, a.row_budget):
+                loss, terms = batch_loss(model, a, part, dev, anchors, anchor_sources, autocast)
+                (loss / group_records).backward()
+                run += terms
+            run["n"] += variants; seen += round(variants); tokens_seen += sum(v.tokens for v in batch)
             peak_mem = max(peak_mem, allocated_bytes(dev))
             if (mb + 1) % a.accum == 0 or mb + 1 == micro_per_epoch:
-                torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), 1.0)
-                opt.step(); sched.step(); opt.zero_grad(); step += 1
+                if not a.full_ft: torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), 1.0)   # MasterAdamW clips by the global norm itself
+                started = time.time(); opt.step(); sync(dev); optimizer_seconds += time.time() - started
+                sched.step(); opt.zero_grad(); step += 1
+                step_seconds.append(round(time.time() - last, 3)); last = time.time()
                 if dev == "mps": empty_cache(dev)   # MPS only: per-step cache release keeps the unified-memory footprint down; on CUDA it would just slow the step
                 if step % 10 == 0:
                     print(f"ep{ep} step {step}/{steps} loss {run['ce']/run['n']:.3f} kl {run['kl']/max(run['kl_n'],1):.3f} anchor {run['anchor']/max(run['anchor_n'],1):.3f} {(time.time()-t0)/seen:.3f}s/rec", flush=True)
                     run = Counter()
+                if step == steps: break
+        if step == steps: break
 
-    model.lm.save_pretrained(a.out)
+    wall = time.time() - t0
+    if a.full_ft: full_ft.save_backbone(model.lm, a.out)   # every rank: FSDP2 gathers to rank 0
+    else: model.lm.save_pretrained(a.out)
+    if rank: return
     meta.head, meta.extra = model.head.state_dict(), {"args": vars(a), "suite_sha256": suite_hash, "init_source": init_source}
     write_meta(a.out, meta)
     tok.save_pretrained(a.out)
-    write_json(out_dir / "training_metrics.json", {"wall_seconds": time.time() - t0, "records_seen": seen,
+    write_json(out_dir / "training_metrics.json", {"wall_seconds": wall, "records_seen": seen * world,
                "requested_records": a.epochs * len(reqs), "truncated_records": 0, "rejected_records": 0,
-               "optimizer_steps": step, "forward_tokens": tokens_seen,
-               "peak_device_bytes": peak_mem, "device": dev, "dtype": a.dtype, "batch": a.batch,
+               "optimizer_steps": step, "forward_tokens": tokens_seen * world, "step_seconds": step_seconds, "optimizer_seconds": optimizer_seconds, "world_size": world,
+               "weights": meta.weights, "peak_device_bytes": peak_mem, "device": dev, "dtype": a.dtype, "batch": a.batch,
                "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)})
     print("saved", a.out, flush=True)
 

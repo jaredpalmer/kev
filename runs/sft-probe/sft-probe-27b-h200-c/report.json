@@ -1,0 +1,96 @@
+{
+  "gpu": "H200",
+  "base": "Qwen/Qwen3.8-27B",
+  "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "train_args": "--batch 8 --accum 4 --max_steps 20 --row_budget 8192 --lr 1e-5 --head_lr 1e-4",
+  "data": {
+    "records": 2000,
+    "record_tokens_mean": 1100.5575,
+    "record_tokens_p50": 198.0,
+    "record_tokens_max": 7520,
+    "forward_tokens_mean": 1345.9255,
+    "questions_mean": 1.2315
+  },
+  "seconds_per_step": 38.219,
+  "records_per_step": 32.0,
+  "records_per_second": 0.8372798869672152,
+  "record_tokens_per_second": 921.4746592009209,
+  "forward_tokens_per_second": 1126.9163505062927,
+  "optimizer_seconds_per_step": 9.748383259773254,
+  "peak_allocated_gb_rank0": 112.1,
+  "peak_nvidia_smi_gb": 110.4,
+  "peak_host_rss_gb_rank0": 341.7,
+  "fixed_overhead_seconds": 238,
+  "usd_per_hour": 8.88,
+  "gpu_usd_per_hour": 4.54,
+  "projections_1000_token_records": {
+    "50000": {
+      "hours": 15.14,
+      "usd": 134.36
+    },
+    "100000": {
+      "hours": 30.21,
+      "usd": 268.13
+    },
+    "200000": {
+      "hours": 60.36,
+      "usd": 535.67
+    }
+  },
+  "training_metrics": {
+    "wall_seconds": 780.0114266872406,
+    "records_seen": 640,
+    "requested_records": 2000,
+    "truncated_records": 0,
+    "rejected_records": 0,
+    "optimizer_steps": 20,
+    "forward_tokens": 742699,
+    "step_seconds": [
+      52.512,
+      45.214,
+      32.56,
+      29.467,
+      39.839,
+      38.961,
+      34.112,
+      44.481,
+      41.978,
+      33.655,
+      29.97,
+      40.745,
+      28.654,
+      41.5,
+      46.319,
+      37.107,
+      36.461,
+      51.738,
+      45.159,
+      29.577
+    ],
+    "optimizer_seconds": 194.9676651954651,
+    "world_size": 1,
+    "weights": "full",
+    "peak_device_bytes": 112088315392,
+    "device": "cuda",
+    "dtype": "bf16",
+    "batch": 8,
+    "peak_rss_bytes": 341650657280
+  },
+  "load_check": {
+    "bf16": {
+      "dtype": "bfloat16",
+      "load_seconds": 21.0,
+      "peak_allocated_gb": 52.8
+    },
+    "fp32": {
+      "dtype": "float32",
+      "load_seconds": 40.6,
+      "peak_allocated_gb": 115.3
+    },
+    "questions": 27,
+    "max_abs_dp": 0.0058022141456604,
+    "mean_abs_dp": 0.0017619442401660813,
+    "argmax_flips": 0
+  },
+  "warmup": 3
+}

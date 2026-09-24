@@ -27,7 +27,7 @@ from typing import NamedTuple
 
 import modal
 
-from kev.budget import TRIAL_CPU, TRIAL_MEMORY, compute_bound   # run_trial's resources and the admission bound (admit_study)
+from kev.budget import TRIAL_CPU, TRIAL_MEMORY, compute_bound, trial_resources   # run_trial's resources and the admission bound (admit_study)
 
 APP_NAME = os.environ.get("KEV_APP_NAME", "kev-research")
 
@@ -241,6 +241,44 @@ def run_smoke_base(base, revision):
 
 @app.function(image=image, gpu=GPU, cpu=2, memory=(32768, 65536), retries=0, timeout=3600,
               volumes={RUNS_MOUNT: runs_volume, HF_MOUNT: hf_cache}, secrets=secrets)
+def run_sft_probe(name, base, revision, gpu, train, records, check_load):
+    """scripts/sft_probe.py (full-weight memory, s/step, throughput, projections, loader check) in the container's scratch
+    disk: the checkpoint it writes (51 GB for a 27B) stays there; report.json, train.log and training_metrics.json land in
+    /runs/sft-probe/<name>."""
+    out, scratch = Path(RUNS_MOUNT) / "sft-probe" / name, Path("/tmp/sft-probe")
+    if out.exists():
+        raise FileExistsError(f"{out} exists on the volume")
+    try:
+        subprocess.run([sys.executable, "/root/scripts/sft_probe.py", "--base", base, "--revision", revision, "--gpu", gpu, "--out", str(scratch),
+                        "--records", str(records), "--train", train, "--check_load", str(check_load)], check=True, cwd="/root", env={**os.environ, "PYTHONPATH": "/root"})
+    finally:
+        out.mkdir(parents=True)
+        for f in ("report.json", "train.log", "checkpoint/training_metrics.json"):
+            if (scratch / f).exists(): shutil.copy(scratch / f, out / Path(f).name)
+        runs_volume.commit(); hf_cache.commit()
+    from kev.suite import read_json
+    return read_json(out / "report.json")
+
+
+KEV_27B_BASE = ("Qwen/Qwen3.8-27B", "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0")   # Kev-27B's base (post-trained), what full-weight SFT targets
+
+
+@app.local_entrypoint()
+def sft_probe(name: str, gpu: str = "H200", base: str = KEV_27B_BASE[0], revision: str = KEV_27B_BASE[1], train: str = "", records: int = 2000,
+              check_load: int = 0, timeout: int = 3600):
+    """Full-weight training probe on one container: `--gpu H200` (masters in host memory) or `--gpu H200:8` (FSDP2). `--train`
+    passes kev.train arguments (batch, accum, max_steps, lr, row_budget). Pulled to runs/sft-probe/<name>."""
+    cpu, memory = trial_resources(gpu, full_ft=True)
+    print(f"admission bound ${compute_bound(gpu, timeout, 1, full_ft=True):.2f} ({gpu}, {cpu} CPU, {memory[0] // 1024}-{memory[1] // 1024} GiB, {timeout} s)", flush=True)
+    call = run_sft_probe.with_options(gpu=gpu, cpu=cpu, memory=memory, timeout=timeout).spawn(name, base, revision, gpu, train, records, check_load)
+    print(f"spawned sft probe {name}: call {call.object_id}", flush=True)
+    report = call.get()
+    pull_volume(f"/sft-probe/{name}", ROOT / "runs/sft-probe")
+    print(json.dumps({k: v for k, v in report.items() if k != "training_metrics"}, indent=1))
+
+
+@app.function(image=image, gpu=GPU, cpu=2, memory=(32768, 65536), retries=0, timeout=3600,
+              volumes={RUNS_MOUNT: runs_volume, HF_MOUNT: hf_cache}, secrets=secrets)
 def run_anchors(base, suite, name, revision=None):
     """Frozen-base zero-shot targets for a suite's training partition -> /runs/anchors/<name>.json (kev.anchors)."""
     from kev.anchors import build
@@ -350,7 +388,8 @@ class Job(NamedTuple):
 
 def admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout):
     """Validate a study locally before anything is spawned (name, budget bound against the timeout, plan, uncommitted
-    changes) and build the run_trial jobs. Returns (jobs, bound_usd)."""
+    changes) and build the run_trial jobs. Returns (jobs, bound_usd, run_trial options: GPU, timeout and the resources a
+    full-weight study needs, kev.budget.trial_resources)."""
     from kev.experiment import load_plan
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", name):
         raise ValueError("study name must be a simple unique identifier")
@@ -359,7 +398,8 @@ def admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout
     if not 60 <= timeout <= 28800 or not 0 < budget <= 250:   # 8 h: a 2-epoch 27B on H200 takes ~4 h; budgets tracked in PLAN.md
         raise ValueError("timeout must be 60..28800 seconds and study budget <= $250")
     trials = load_plan(ROOT / suite, ROOT / plan_path) if plan_path else []
-    upper = compute_bound(gpu, timeout, len(trials) + len(existing))
+    full_ft = any(t.get("full_ft") for t in trials)
+    upper = compute_bound(gpu, timeout, len(trials) + len(existing), full_ft)
     if upper > budget:
         raise ValueError(f"timeout-based compute bound ${upper:.2f} exceeds budget ${budget:.2f}")
     print(f"Compute admission bound ${upper:.2f}; excludes image build, startup, and storage; no automatic retries.", flush=True)
@@ -367,7 +407,9 @@ def admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout
     if subprocess.run(["git", "status", "--porcelain", "kev", "evals"], cwd=ROOT, capture_output=True, text=True).stdout.strip():
         print("warning: kev/ or evals/ has uncommitted changes; provenance records the last commit, not the working tree", flush=True)
     entries = [(None, p) for p in existing] + [(t, None) for t in trials]
-    return [Job(name, i, Path(ex).name if ex else f"trial-{i}", cfg or {}, suite, sources, commit, ex, transfer) for i, (cfg, ex) in enumerate(entries)], upper
+    cpu, memory = trial_resources(gpu, full_ft)
+    options = {"gpu": gpu, "timeout": timeout, "retries": 0, "cpu": cpu, "memory": memory}
+    return [Job(name, i, Path(ex).name if ex else f"trial-{i}", cfg or {}, suite, sources, commit, ex, transfer) for i, (cfg, ex) in enumerate(entries)], upper, options
 
 
 def deployed_run_trial(sources):
@@ -388,8 +430,8 @@ def launch_detached(suite, plan_path, name, gpu, existing=(), transfer=None, bud
     """Validate locally, spawn every trial as its own call on the deployed app, record the call ids and return. Results
     land on the volume; `pull --name` collects and ranks them."""
     from kev.suite import write_json
-    jobs, upper = admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout)
-    fn = deployed_run_trial(local_source_hashes()).with_options(gpu=gpu, timeout=timeout, retries=0)
+    jobs, upper, options = admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout)
+    fn = deployed_run_trial(local_source_hashes()).with_options(**options)
     calls = [fn.spawn(*job) for job in jobs]
     (ROOT / "runs").mkdir(exist_ok=True)
     write_json(ROOT / "runs" / f"{name}.spawn.json", {"name": name, "calls": {j.label: c.object_id for j, c in zip(jobs, calls)}, "bound_usd": round(upper, 2), "timeout": timeout})
@@ -398,8 +440,8 @@ def launch_detached(suite, plan_path, name, gpu, existing=(), transfer=None, bud
 
 def launch(suite, plan_path, name, gpu, existing=(), transfer=None, budget=20.0, timeout=1800):
     """Attached variant: run the trials on this app, wait, then pull and rank. Dies with the local client."""
-    jobs, _ = admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout)
-    fn = run_trial.with_options(gpu=gpu, timeout=timeout, retries=0, max_containers=24)
+    jobs, _, options = admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout)
+    fn = run_trial.with_options(**options, max_containers=24)
     print(f"launching {len(jobs)} trial(s) on {gpu} for study {name}", flush=True)
     results = list(fn.starmap(jobs, return_exceptions=True))
     for job, result in zip(jobs, results):

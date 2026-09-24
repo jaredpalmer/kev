@@ -39,25 +39,30 @@ DEFAULTS = {"epochs": 1, "seed": 0, "lr": 0.0002, "lora": 16, "accum": 8, "batch
             "perm_kl": 0.0, "perm_frac": 0.3, "ord_w": 0.0,
             "p_none": 0.1, "p_none_distract": 0.12, "p_distract": 0.15, "p_none_pair": 0.0, "synthetic_repeat": 1, "public_frac": 1.0, "head_lr": 0.0, "weight_decay": 0.01, "anchor_w": 0.0,
             "label_smoothing": 0.0, "brier_w": 0.0, "focal_gamma": 0.0}
-RANGES = {"epochs": (1, 5), "seed": (0, 10000), "lr": (1e-6, 0.001), "lora": (1, 64), "accum": (1, 64), "batch": (1, 64),
+RANGES = {"epochs": (1, 5), "seed": (0, 10000), "lr": (1e-6, 0.001), "lora": (1, 64), "accum": (1, 256), "batch": (1, 64),
           "perm_kl": (0, 2), "perm_frac": (0, 1), "ord_w": (0, 2),
           "label_smoothing": (0, 0.2), "brier_w": (0, 2), "focal_gamma": (0, 4),
           "p_none": (0, 0.4), "p_none_distract": (0, 0.4), "p_distract": (0, 0.4), "p_none_pair": (0, 1), "synthetic_repeat": (1, 6), "public_frac": (0.05, 1.0), "head_lr": (0, 0.01), "weight_decay": (0, 0.3), "anchor_w": (0, 5)}
 CHOICES = {"dtype": ("fp32", "bf16"), "checkpointing": (0, 1), "option_isolation": (0, 1), "special_embeddings": (0, 1), "head_dim": (128, 256, 512, 1024),
-           "lora_targets": ("all", "dense", "attn", "qv"), "weights_dtype": ("fp32", "bf16")}
-CHOICE_DEFAULTS = {"dtype": "fp32", "checkpointing": 0, "option_isolation": 0, "special_embeddings": 0, "head_dim": 256, "lora_targets": "all", "weights_dtype": "fp32"}   # kev.train's defaults for the categorical knobs
+           "lora_targets": ("all", "dense", "attn", "qv"), "weights_dtype": ("fp32", "bf16"), "full_ft": (0, 1), "length_sort": (0, 1)}
+CHOICE_DEFAULTS = {"dtype": "fp32", "checkpointing": 0, "option_isolation": 0, "special_embeddings": 0, "head_dim": 256, "lora_targets": "all", "weights_dtype": "fp32", "full_ft": 0, "length_sort": 0}   # kev.train's defaults for the categorical knobs
+# optional integer knobs, passed to kev.train only when a trial sets them (so existing plans keep their config hashes)
+OPTIONAL_INTS = {"max_state": (MAX_STATE, MAX_TRAIN_STATE), "row_budget": (0, 65536), "max_steps": (0, 100000)}
 
 
 def validated_trial(value, manifest):
-    if not isinstance(value, dict) or set(value) - (DEFAULTS.keys() | CHOICES.keys() | {"base", "train_sources", "base_revision", "anchor", "anchor_sources", "init_from", "data", "replay", "max_state"}):
+    if not isinstance(value, dict) or set(value) - (DEFAULTS.keys() | CHOICES.keys() | OPTIONAL_INTS.keys() | {"base", "train_sources", "base_revision", "anchor", "anchor_sources", "init_from", "data", "replay"}):
         raise ValueError("trial may change only the allowlisted training parameters and base")
     result = {**DEFAULTS, **value}
+    if result.get("full_ft") and result.get("weights_dtype") != "bf16":
+        raise ValueError("full_ft trains bf16 weights: set weights_dtype bf16")
     if "data" in result and not re.fullmatch(r"evals/[\w./-]+\.jsonl", str(result["data"])):
         raise ValueError("data must be a .jsonl under evals/ (shipped with the image, hashed in provenance)")
     if "replay" in result and (not isinstance(result["replay"], int) or not 0 <= result["replay"] <= 20000 or "data" not in result):
         raise ValueError("replay is an int <= 20000 and needs data")
-    if "max_state" in result and (isinstance(result["max_state"], bool) or not isinstance(result["max_state"], int) or not MAX_STATE <= result["max_state"] <= MAX_TRAIN_STATE):
-        raise ValueError(f"max_state is an int in [{MAX_STATE}, {MAX_TRAIN_STATE}] (state tokens per training record; optional, kev.model.MAX_STATE when absent)")
+    for key, (lo, hi) in OPTIONAL_INTS.items():
+        if key in result and (isinstance(result[key], bool) or not isinstance(result[key], int) or not lo <= result[key] <= hi):
+            raise ValueError(f"{key} is an int in [{lo}, {hi}] (optional; kev.train's default when absent)")
     if "init_from" in result and not re.fullmatch(r"(/runs/[\w./-]+|[\w-]+/[\w.-]+(@[\w.-]+)?)", str(result["init_from"])):
         raise ValueError("init_from must be a checkpoint path on the runs volume or a Hub id (optionally @revision); the trainer records its adapter and head hashes in provenance")
     if result.get("base") not in manifest["base_revisions"]:
@@ -220,7 +225,10 @@ def resume_trial(suite, output, expected_sources, device, transfer_suite=None):
 def train_checkpoint(config, suite, output, device):
     """Run kev.train as a subprocess on the suite's training partition; train.log is the record, stdout gets progress."""
     run = str(Path(output) / "checkpoint")
-    args = [sys.executable, "-m", "kev.train", "--suite", str(suite), "--out", run, "--device", device]
+    # a full-weight trial uses every GPU of its container: FSDP2 ranks under torchrun (kev.full_ft); one GPU runs plainly
+    gpus = torch.cuda.device_count() if config.get("full_ft") and device == "cuda" else 1
+    launcher = ["-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={gpus}"] if gpus > 1 else []
+    args = [sys.executable, *launcher, "-m", "kev.train", "--suite", str(suite), "--out", run, "--device", device]
     for key, value in config.items():
         args += ["--" + key, str(value)]
     with (Path(output) / "train.log").open("w", encoding=ENCODING) as log, subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=ROOT) as proc:
@@ -241,7 +249,7 @@ def score_trial(run, suite, output, expected_sources, device, provenance, transf
     predictor = LocalPredictor(run, device, LoadOptions(temperature=1.0))
     provenance["measured_checkpoint"] = {"requested": run, "resolved": str(predictor.run),
                                           "head_sha256": digest(Path(predictor.run) / "head.pt"),
-                                          "adapter_sha256": digest(Path(predictor.run) / "adapter_model.safetensors"),
+                                          "weights_sha256": predictor.checkpoint.weights_sha256(),
                                           "inference_temperature": predictor.temperature}
     write_json(output / "provenance.json", provenance)
     try:
