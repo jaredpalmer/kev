@@ -15,7 +15,7 @@ jobs:
           enable-cache: true
       - run: uv sync --extra serve
       # Unit tests only: no model weights, no server. The tokenizer (~10 MB) is downloaded from the Hub.
-      - run: uv run python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py tests/test_documents_tools.py tests/test_hard_v1.py tests/test_devtools_v1.py -q
+      - run: uv run python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py tests/test_documents_tools.py tests/test_hard_v1.py tests/test_devtools_v1.py tests/test_rounds.py -q
 
   playground:
     runs-on: ubuntu-latest
