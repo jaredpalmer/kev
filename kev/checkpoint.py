@@ -1,7 +1,9 @@
 """Trained checkpoints: a run directory or a Hub repo holding `head.pt`, the tokenizer, and either a LoRA adapter
 (`adapter_config.json` + `adapter_model.safetensors`, every released Kev) or, for a full-parameter fine-tune, the
-backbone's own weights (`config.json` + `model*.safetensors`, as `DecisionModel.lm.save_pretrained` writes them, with
-`lora: 0` in `head.pt`; `Meta.base` still names the base the tokenizer and architecture come from).
+text backbone's own weights, as `save_pretrained` writes them (`config.json` + `model-*.safetensors` shards +
+`model.safetensors.index.json`) and no adapter. `head.pt` is the shared contract for both: the pointer head,
+`temperature` / `temperature_fit`, `base` / `base_revision` (the tokenizer comes from there), and for a full checkpoint
+`full: true` and `weights_dtype` naming the dtype the weights were saved in ("bf16" for Kev-27B).
 
 This is the one place that knows the layout of `head.pt` and how a checkpoint becomes a `DecisionModel`:
 `kev.serve`, `kev.benchmark`, `kev.train --init_from`, `kev.publish`, the scripts and the Hugging Face Space all go
@@ -53,11 +55,12 @@ class Meta:
     option_isolation: bool = False
     special_embeddings: bool = False
     weights_dtype: str = "fp32"
+    full: bool = False          # a full-parameter checkpoint: the backbone's weights ship instead of a LoRA adapter
     temperature: float = 1.0
     holdout: list = field(default_factory=list)
     extra: dict = field(default_factory=dict)
 
-    KNOWN = ("base", "head", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings", "weights_dtype", "temperature", "holdout")
+    KNOWN = ("base", "head", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings", "weights_dtype", "full", "temperature", "holdout")
 
     @classmethod
     def from_dict(cls, d):
@@ -158,11 +161,15 @@ class Checkpoint:
 
     @property
     def full(self):
-        """A full-parameter checkpoint: the fine-tuned backbone's weights instead of a LoRA adapter."""
-        if self.file("adapter_config.json").exists(): return False
-        if not self.file("config.json").exists():
+        """A full-parameter checkpoint: the fine-tuned backbone's weights instead of a LoRA adapter. The files decide
+        (adapter_config.json = the LoRA path) and head.pt's `full` must say the same, so an export that ships one kind
+        of weights and describes the other fails here, not as wrong probabilities."""
+        adapter, backbone = self.file("adapter_config.json").exists(), self.file("config.json").exists()
+        if not adapter and not backbone:
             raise FileNotFoundError(f"{self.path} has neither a LoRA adapter (adapter_config.json) nor backbone weights (config.json)")
-        return True
+        if self.meta.full == adapter:
+            raise ValueError(f"{self.path}: head.pt says full={self.meta.full} but the checkpoint {'has' if adapter else 'has no'} adapter_config.json")
+        return not adapter
 
     def adapter_config(self):
         return json.loads(self.file("adapter_config.json").read_text(encoding="utf-8"))
@@ -227,6 +234,10 @@ class Checkpoint:
         arch = dict(head_dim=meta.head_dim, option_isolation=meta.option_isolation, dtype=dtype, attn=opts.attn)
         if self.full:   # the weights are the model: nothing to fold in, so the merged-only paths (fused kernels) apply
             if opts.lora_scale != 1: raise ValueError(f"lora_scale scales a LoRA adapter; {self.path} is a full-parameter checkpoint")
+            cfg = json.loads(self.file("config.json").read_text(encoding="utf-8"))
+            saved = {"bfloat16": "bf16", "float32": "fp32"}.get(cfg.get("dtype") or cfg.get("torch_dtype"))
+            if saved and saved != meta.weights_dtype:   # else the exact path would silently upcast (55 GB of bf16 -> 110 GB for the 27B)
+                raise ValueError(f"{self.path}: weights saved in {saved} but head.pt says weights_dtype={meta.weights_dtype!r}")
             m, merge = DecisionModel(self.path, tok, device, lora=None, **arch), True
         else:
             from peft import PeftModel

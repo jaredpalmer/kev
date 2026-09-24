@@ -39,7 +39,7 @@ def test_full_parameter_checkpoint_serves_like_the_adapter(smoke_run, tmp_path):
     recs = [materialize(r) for r in load_split("evals/smoke-v1", "development")[:3]]
     tok, adapter = Checkpoint(smoke_run).load("cpu")
     adapter.lm.save_pretrained(tmp_path)                       # the merged backbone, as a full fine-tune would save it
-    meta = read_meta(smoke_run); meta.lora = 0; write_meta(tmp_path, meta)
+    meta = read_meta(smoke_run); meta.lora, meta.full = 0, True; write_meta(tmp_path, meta)   # fp32 weights: weights_dtype stays fp32
     ck = Checkpoint(str(tmp_path))
     assert ck.full and [f.name for f in ck.weight_files()] == ["model.safetensors"] and ck.backend("mps", LoadOptions(backend="auto")) == "torch"
     _, full = ck.load("cpu")
@@ -48,6 +48,9 @@ def test_full_parameter_checkpoint_serves_like_the_adapter(smoke_run, tmp_path):
             assert (torch.cat(adapter.probs(adapter.encode(tok, r))) - torch.cat(full.probs(full.encode(tok, r)))).abs().max() < 1e-6
     for opts in (LoadOptions(lora_scale=0.5), LoadOptions(backend="mlx")):
         with pytest.raises(ValueError): ck.load("cpu", opts)
+    meta.weights_dtype = "bf16"; write_meta(tmp_path, meta)                   # head.pt disagreeing with the saved dtype
+    with pytest.raises(ValueError): Checkpoint(str(tmp_path)).load("cpu")
+    meta.weights_dtype = "fp32"; write_meta(tmp_path, meta)
     with pytest.raises(ValueError): ck.warm_start(full, meta)
 
 
