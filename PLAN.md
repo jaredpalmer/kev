@@ -139,6 +139,16 @@ From the released Kev-0.8B: hard-v1 development 0.350 → 0.651 (+30.1 [+26.8, +
 
 Both 9B seeds beat Jev on hard-v1 (0.777) and devtools-v1 (0.713) development, and both pay on the external suites; this is the 9B pattern of rounds 7, 9 and 11 again (the delta is learnt; the 9B gives up NLI and ticket routing for it). Round 16 tests more replay at a smaller step.
 
+## Round 15 result (2026-09-24; `runs/r15-readout/round15.json`, `runs/r15-verdict/`) — **joint Kev-0.8B candidate confirmed**
+
+| arm (from the released Kev-0.8B, documents + skills in one epoch, replay 6000) | documents dev | skills primary (hard + devtools dev) | short (pooled) | pooled externals | verdict |
+|---|---|---|---|---|---|
+| (a) lr 2e-5, seed 1 | +21.0 [+18.0, +24.0] | +18.0 [+15.8, +20.0] (hard 0.594, devtools 0.602) | −0.1 [−1.4, +1.3] | +2.1 [+0.6, +3.5] | **pass (candidate)** |
+| (b) lr 4e-5, seed 1 | +22.4 [+19.3, +25.6] | +21.0 [+18.8, +23.2] | −0.9 [−2.2, +0.4] | +1.6 [−0.0, +3.0] | short bound, scienthoon |
+| (c) lr 2e-5, seed 2 | +20.2 [+16.9, +23.5] | +16.7 [+14.5, +18.9] | −0.3 [−1.7, +1.1] | +2.2 [+0.7, +3.7] | pass (replication) |
+
+**Confirmation of (a), read once:** documents-v1 test 0.608 → **0.851** (+24.4 [+21.3, +27.6]); hard-v1 test 0.396 → **0.665** (+26.9 [+23.4, +30.4]); devtools-v1 test 0.472 → **0.637** (+16.4 [+13.1, +19.4]), skills tests pooled +21.7 [+19.5, +24.0]; documents-v2 (private, reported) 0.616 → 0.848; locked `transfer-v4` 0.684 → **0.697** (+1.2 [−1.1, +3.7]), served Brier 0.412 → 0.397 (`kev-08b-r15-ungated`; in-trial screening gate "held-out pairs ≥ 70 %" fails for this size as for its parent). **Passes every registered criterion.** It carries both confirmed single deltas (round 11 documents, round 12 skills) in one model, which stacking could not (round 13); it supersedes both as the 0.8B release candidate.
+
 ## Round 16 - 9B skills with more replay and a smaller step (registered 2026-09-24T07:30Z, before any training or read)
 
 **Arms** (study `r16-9b`, `experiments/round16/skills.json`): from `jaredpalmer/kev-9b`, one epoch on `evals/round10/skills/train.jsonl`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seed 1, H200, timeout 14,400 s: (a) `replay 10000, lr 1e-5`, (b) `replay 10000, lr 2e-5`. Reads as round 12.
