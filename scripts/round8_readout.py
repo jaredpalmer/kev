@@ -14,12 +14,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from kev.metrics import metrics, served, unknowable_report  # noqa: E402
 from kev.suite import read_json, write_json  # noqa: E402
-from round6_readout import EXTERNALS, boot, serve  # noqa: E402
+from round6_readout import EXTERNALS, boot, knowable, serve  # noqa: E402
 from round7_readout import JEV, PARENTS, rows_at  # noqa: E402
 
 ROUNDS = {8: {"4b-s2": ("runs/r8-small/00-trial-0", "P4"), "08b-s2": ("runs/r8-small/01-trial-1", "P08")},
           9: {"9b-a": ("runs/r9-docs/00-trial-0", "P9"), "9b-b": ("runs/r9-docs/01-trial-1", "P9"), "9b-c": ("runs/r9-docs/02-trial-2", "P9"),
-              "08b-d": ("runs/r9-docs/03-trial-3", "P08"), "08b-e": ("runs/r9-docs/04-trial-4", "P08")}}
+              "08b-d": ("runs/r9-docs/03-trial-3", "P08"), "08b-e": ("runs/r9-docs/04-trial-4", "P08")},
+          11: {"9b-s4": ("runs/r11-docs/00-trial-0", "P9"), "9b-s5": ("runs/r11-docs/01-trial-1", "P9"),
+               "08b-s4": ("runs/r11-docs/02-trial-2", "P08"), "08b-s5": ("runs/r11-docs/03-trial-3", "P08")}}
+# round 11 (PLAN.md): the short-state guard pools transfer-v4 dev with transfer-r3 test (1,260 records)
+SHORT_EXTRA = {11: {"cand": "runs/r11-{arm}-r3test", "P9": "runs/rc-parent-r3test", "P08": "runs/r11-P08-r3test"}}
 GATING_SUITES = ("wanli2", "scienthoon")   # large enough to resolve a -2 pp floor; SemIf-144 and TypeSafe-89 only enter the pooled guard
 
 
@@ -29,11 +33,16 @@ def main():
     jev = [r for r in read_json(JEV) if r["variant"] == "clean"]
     report = {"jev_docs_acc": metrics(jev)["acc"], "arms": {}}
     for arm, (trial, ptag) in ARMS.items():
-        if not (Path(trial) / "result.json").exists() or not Path(f"runs/{tag}-{arm}-docs/rows.json").exists():
+        needed = [f"runs/{tag}-{arm}-docs/rows.json"] + ([f"{SHORT_EXTRA[a.round]['cand'].format(arm=arm)}/rows.json"] if a.round in SHORT_EXTRA else [])
+        if not (Path(trial) / "result.json").exists() or not all(Path(n).exists() for n in needed):
             report["arms"][arm] = "not read yet"; continue
         ptrial, preads = PARENTS[ptag]
         pt, t = (served(read_json(Path(x) / "development/rows.json"), [])[0] for x in (ptrial, trial))
         P, C = rows_at(ptrial, preads, pt), rows_at(trial, {s: f"runs/{tag}-{arm}-{s}" for s in ("docs", *EXTERNALS)}, t)
+        if a.round in SHORT_EXTRA:
+            extra = SHORT_EXTRA[a.round]
+            P["short"] = P["short"] + knowable(serve(ptrial, f"{extra[ptag]}/rows.json", pt)[0])
+            C["short"] = C["short"] + knowable(serve(trial, f"{extra['cand'].format(arm=arm)}/rows.json", t)[0])
         rep = {"trial": trial, "parent": ptrial, "temperature": t, "docs": boot(C["docs"], P["docs"], "acc"), "docs_acc": metrics(C["docs"])["acc"],
                "parent_docs_acc": metrics(P["docs"])["acc"], "docs_vs_jev": boot(C["docs"], jev, "acc"),
                "short": {m: boot(C["short"], P["short"], m) for m in ("acc", "brier", "confident_error_rate")},
