@@ -1,0 +1,86 @@
+{
+  "run": "jaredpalmer/kev-9b",
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "records": 200,
+  "load_seconds": 6.6,
+  "resident_gb": 17.5,
+  "latency_graphs": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 158.0,
+      "new_ms": 26.1,
+      "cached_ms": 14.2
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 82.8,
+      "new_ms": 36.6,
+      "cached_ms": 24.5
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 184.2,
+      "new_ms": 42.3,
+      "cached_ms": 22.95
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 151.0,
+      "new_ms": 116.1,
+      "cached_ms": 26.7
+    }
+  },
+  "questions": 280,
+  "graphs_miss_vs_eager_bf16": {
+    "max_dp": 0.020023301243782043,
+    "mean_dp": 0.0015651108771895191,
+    "argmax_flips": 0
+  },
+  "graphs_hit_vs_eager_bf16": {
+    "max_dp": 0.020023301243782043,
+    "mean_dp": 0.0015651108771895191,
+    "argmax_flips": 0
+  },
+  "eager_vs_fp32": {
+    "max_dp": 0.029356151819229126,
+    "mean_dp": 0.001650011672713195,
+    "argmax_flips": 1
+  },
+  "graphs_miss_vs_fp32": {
+    "max_dp": 0.018904060125350952,
+    "mean_dp": 0.0012746534655369553,
+    "argmax_flips": 1
+  },
+  "graphs_hit_vs_fp32": {
+    "max_dp": 0.018904060125350952,
+    "mean_dp": 0.0012746534655369553,
+    "argmax_flips": 1
+  },
+  "graphs_captured": 55,
+  "latency_eager": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 110.7,
+      "new_ms": 109.69999999999999,
+      "cached_ms": 57.9
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 74.8,
+      "new_ms": 112.25,
+      "cached_ms": 59.5
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 143.4,
+      "new_ms": 108.45,
+      "cached_ms": 54.4
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 189.0,
+      "new_ms": 149.64999999999998,
+      "cached_ms": 57.85
+    }
+  }
+}

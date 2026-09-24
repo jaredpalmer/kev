@@ -61,10 +61,14 @@ class LocalPredictor:
 class RemotePredictor:
     """Score any TypeSafe System One-compatible endpoint (POST <base_url>/v1/systemone) on frozen records. Probabilities are
     taken from the response as returned (renormalised by validate_distribution like every other predictor). Records the
-    server-reported model id so the manifest can pin what was scored."""
+    server-reported model id so the manifest can pin what was scored. `concurrency` is how many requests kev.benchmark may
+    keep in flight at once (each call is independent: one request, its own retries); 1 scores sequentially."""
 
-    def __init__(self, base_url, model="kev-latest", api_key="local", timeout=120, retries=3):
+    def __init__(self, base_url, model="kev-latest", api_key="local", timeout=120, retries=3, concurrency=1):
+        if concurrency < 1:
+            raise ValueError("concurrency must be >= 1")
         self.base_url, self.model, self.api_key, self.timeout, self.retries = base_url.rstrip("/"), model, api_key, timeout, retries
+        self.concurrency = concurrency
         self.served_model = None
 
     def __call__(self, record):
@@ -107,6 +111,7 @@ class RotationAveraged:
             raise ValueError("rotation averaging needs at least 2 rotations")
         self.predictor, self.rotations = predictor, rotations
         self.temperature = getattr(predictor, "temperature", None)
+        self.concurrency = getattr(predictor, "concurrency", 1)
 
     @staticmethod
     def rotated(record, r):

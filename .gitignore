@@ -163,3 +163,18 @@ runs/night2-08b-du2/00-trial-0/development/*
 !runs/night2-08b-du2/00-trial-0/development/rows.json
 !runs/r5-verdict/
 !runs/r5-verdict/*.json
+# documents-v1 train partition (23 MB; sha256 in evals/documents-v1/manifest.json; rebuild with scripts/build_documents_v1.py + label + freeze)
+evals/documents-v1/train.jsonl
+!runs/documents-v1-work/
+!runs/documents-v1-work/adjudications.jsonl
+!runs/documents-v1-work/spot_check.jsonl
+!runs/documents-v1-work/spot_check_reviews.jsonl
+!runs/documents-v1-work/labels/
+!runs/documents-v1-work/labels/spend.json
+!runs/documents-v1-work/candidates/
+!runs/documents-v1-work/candidates/build.json
+# documents-v2: private held-out suite; partitions live only in jaredpalmer/kev-private-evals (kev.suite mirror)
+evals/documents-v2/*.jsonl
+runs/documents-v2-work/
+# hard-v1 train partition (23 MB; sha256 in evals/hard-v1/manifest.json; scripts/build_hard_v1.py regenerates the same bytes)
+evals/hard-v1/train.jsonl

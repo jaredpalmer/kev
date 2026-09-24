@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
+from transformers.cache_utils import LinearAttentionCacheLayerMixin
 
 # Reuse existing rarely-used Qwen special tokens as delimiters (state, q, opt, /opt, decide) so no
 # embedding rows need to be added/trained; LoRA adapts their meaning.
@@ -185,11 +186,23 @@ class PointerHead(nn.Module):
         z = (self.k(h_opts) @ self.q(h_decide)) * self.scale
         return z if self.training or self.temperature == 1.0 else z / self.temperature
 
+    def many(self, h_decide, h_opts, owner):  # [Q,d], [sum K,d], question of each option [sum K] -> logits [sum K]
+        """forward() for many questions at once (serving batches): one pass instead of one per question."""
+        z = (self.k(h_opts) * self.q(h_decide)[owner]).sum(-1) * self.scale
+        return z if self.training or self.temperature == 1.0 else z / self.temperature
+
 
 # What a loaded model exposes to kev.serve, kev.predictors and the Space: the scoring interface both DecisionModel (torch)
 # and kev.mlx_model.MLXDecisionModel implement. tests/test_mlx.py checks the MLX class against this list.
-SCORING_INTERFACE = ("encode", "forward", "probs", "probs_and_prefix", "probs_with_prefix", "eval",
+SCORING_INTERFACE = ("encode", "forward", "probs", "probs_and_prefix", "probs_with_prefix", "probs_batch", "eval",
                      "head", "backend", "dtype", "device", "hybrid", "option_isolation", "prefix_min_tokens")
+
+
+def probs_one(model, enc, prefix, keep):
+    """-> (probs, prefix to keep) for one request, on any backend: the question rows on the cached prefix on a hit, one
+    pass that also returns the prefix when it is to be kept, the plain pass otherwise."""
+    if prefix is not None: return model.probs_with_prefix(enc, prefix), prefix
+    return model.probs_and_prefix(enc) if keep else (model.probs(enc), None)
 
 
 class DecisionModel(nn.Module):
@@ -223,6 +236,7 @@ class DecisionModel(nn.Module):
         self.to(device)
 
     backend = "torch"           # kev.mlx_model.MLXDecisionModel is the other implementation of this scoring interface
+    graphs = None               # kev.cuda_graphs.CudaGraphs for the serving passes of a hybrid backbone on CUDA (LoadOptions.cuda_graphs)
 
     @property
     def prefix_min_tokens(self):
@@ -279,8 +293,8 @@ class DecisionModel(nn.Module):
     def _rows_hidden(self, rows, cache=None, prefix_len=0):
         """Hidden states of causal token rows, one [L_i, d] tensor per row. In eval mode the rows go through the backbone
         rows_per_pass at a time; training keeps one batch (its batches are small and autograd needs the whole graph anyway).
-        With `cache`, the rows are branches continuing the cached state: the cache is replicated once per chunk (a copy,
-        so the caller's prefix stays pristine) and the cached tokens are marked real in the attention mask."""
+        With `cache`, the rows are branches continuing the cached state: in eager mode the cache is replicated once per
+        chunk, leaving the caller's prefix pristine, and the cached tokens are marked real in the attention mask."""
         chunk = len(rows) if self.training else rows_per_pass([ids for ids, _ in rows], prefix_len)
         out = []
         for start in range(0, len(rows), chunk):
@@ -288,7 +302,17 @@ class DecisionModel(nn.Module):
             ids, pos, att = self._pad_rows(part)
             past = {}
             if cache is not None:
-                replica = copy.deepcopy(cache); replica.reorder_cache(torch.zeros(len(part), dtype=torch.long, device=self.device))
+                replica = copy.copy(cache)
+                replica.layers = [copy.copy(layer) for layer in cache.layers]
+                for source, target in zip(cache.layers, replica.layers):
+                    if isinstance(source, LinearAttentionCacheLayerMixin):
+                        target.conv_states = source.conv_states.copy()
+                        target.recurrent_states = source.recurrent_states.copy()
+                        target.is_conv_states_initialized = source.is_conv_states_initialized.copy()
+                        target.is_recurrent_states_initialized = source.is_recurrent_states_initialized.copy()
+                        target.has_previous_state = source.has_previous_state.copy()
+                        target.conv_kernel_size = source.conv_kernel_size.copy()
+                replica.reorder_cache(torch.zeros(len(part), dtype=torch.long, device=self.device))
                 att = torch.cat([torch.ones((len(part), prefix_len), dtype=torch.long, device=self.device), att], 1)
                 past = {"past_key_values": replica, "use_cache": True}
             h = self.lm(input_ids=ids, position_ids=pos, attention_mask=att, **past).last_hidden_state.float()
@@ -334,7 +358,8 @@ class DecisionModel(nn.Module):
         layout, minus the recomputed state)."""
         S, _, rows = rows_of(enc)
         hs = self._rows_hidden([(r["ids"], r["pos"]) for r in rows], cache=cache, prefix_len=len(S))
-        return [F.softmax(self.head(h[r["decide"]], h[torch.tensor(r["opts"], device=self.device)]), -1).cpu() for h, r in zip(hs, rows)]
+        ps = [F.softmax(self.head(h[r["decide"]], h[torch.tensor(r["opts"], device=self.device)]), -1) for h, r in zip(hs, rows)]
+        return list(torch.cat(ps).cpu().split([len(p) for p in ps]))   # one device sync for the request, not one per question
 
     @torch.no_grad()
     def prefix(self, enc):
@@ -380,6 +405,45 @@ class DecisionModel(nn.Module):
         finally:
             cache.crop(-(len(enc["ids"]) - Ls))
         return [F.softmax(z, -1).cpu() for z in self._readout(h, enc)]
+
+    @torch.no_grad()
+    def probs_batch(self, encs, prefixes, keep):
+        """kev.serve's model thread: several requests at once. prefixes[i] is request i's cached state prefix or None;
+        keep[i] whether to return its new prefix. -> (probs per request, prefix per request: the cached one, the new one if
+        kept, else None). With CUDA graphs the requests the graphed passes admit run together (kev.cuda_graphs: shared
+        state and row passes; a state too long for the graphed state pass gets its own eager pass first); the rest, and
+        every other backend, one at a time. Rows are independent, so a request's answers do not depend on the batch."""
+        splits, pre = [rows_of(e) for e in encs], list(prefixes)   # pre: the cached prefixes plus eager ones made below
+        def fits(i, cached):
+            S, _, rows = splits[i]
+            return self.graphs is not None and self.graphs.admits(len(S), [len(r["ids"]) for r in rows], cached)
+        for i in range(len(encs)):
+            if pre[i] is None and not fits(i, False) and fits(i, True): pre[i] = self.prefix(encs[i])
+        batched = [i for i in range(len(encs)) if fits(i, pre[i] is not None)]
+        out = {i: probs_one(self, encs[i], pre[i], keep[i]) for i in sorted(set(range(len(encs))) - set(batched))}
+        if batched:
+            from .cuda_graphs import Request   # here, not at the top: the HF Space vendors model.py without cuda_graphs.py
+            questions = [r for i in batched for r in splits[i][2]]   # per question its picks: the <decide> position, then its options
+            X, caches = self.graphs.run([Request(splits[i][0], splits[i][1], [(r["ids"], r["pos"]) for r in splits[i][2]],
+                                                 None if pre[i] is None else pre[i][1], keep[i], [[r["decide"], *r["opts"]] for r in splits[i][2]])
+                                         for i in batched])
+            ps = iter(self._readout_many(X, [len(r["opts"]) for r in questions]))
+            for i, cache in zip(batched, caches):
+                out[i] = [next(ps) for _ in splits[i][2]], pre[i] or (None if cache is None else (len(splits[i][0]), cache, None))
+        return [out[i][0] for i in range(len(encs))], [out[i][1] for i in range(len(encs))]
+
+    def _readout_many(self, X, ks):
+        """Probabilities of many questions from their picked hidden states X, laid out per question as its <decide> then
+        its ks[q] options, in a fixed number of kernels and one device sync. -> one tensor per question."""
+        owner = [q for q, k in enumerate(ks) for _ in range(k)]
+        slot = [j for k in ks for j in range(k)]
+        starts = [0]
+        for k in ks: starts.append(starts[-1] + 1 + k)
+        dec = torch.tensor(starts[:-1]).to(self.device, non_blocking=True)
+        opt, own, sl = torch.tensor([[starts[q] + 1 + j for q, j in zip(owner, slot)], owner, slot]).to(self.device, non_blocking=True)
+        z = self.head.many(X[dec], X[opt], own)
+        Z = torch.full((len(ks), max(ks)), float("-inf"), device=self.device).index_put_((own, sl), z)
+        return torch.softmax(Z, -1)[own, sl].cpu().split(ks)
 
     def trainable_parameters(self):
         return [p for p in self.parameters() if p.requires_grad]

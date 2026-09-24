@@ -1,0 +1,105 @@
+{
+  "version": "documents-v2",
+  "partitions": [
+    "test"
+  ],
+  "locked": [
+    "test"
+  ],
+  "files": {
+    "test.jsonl": {
+      "sha256": "e5b53be5c6b34b5d0f912d7e14adaac45f1df4ba8ec77a3e544ada5b3197eef7",
+      "records": 577,
+      "questions": 953,
+      "by_length": {
+        "short": 193,
+        "medium": 192,
+        "long": 192
+      }
+    }
+  },
+  "mirror": {
+    "dataset": "jaredpalmer/kev-private-evals",
+    "revision": "a54a79c4a4272d7ae458af57645252c5644e4fb0"
+  },
+  "source": "davidheineman/consumer-finance-complaints-large@44cfa170a402e254407470275ce05d7dcaccde30",
+  "rights": "consumer narratives published by the US CFPB with consent; the CFPB considers them public domain for FOIA purposes",
+  "label_protocol": "PLAN_27b B2 revised: train = native label kept where both open-weight teachers agree; development/test = native label verified by a unanimous three-judge panel or adjudicated",
+  "teachers": [
+    "deepseek/deepseek-v3.2",
+    "alibaba/qwen3-235b-a22b-thinking"
+  ],
+  "judges": [
+    "anthropic/claude-opus-4.5",
+    "openai/gpt-5",
+    "google/gemini-3-flash"
+  ],
+  "adjudicators": "two independent Devin subagents per item (Claude family); decided only on agreement",
+  "label_report": {
+    "test": {
+      "questions": 1089,
+      "verified_unanimous": 800,
+      "dropped_agreed": 85,
+      "kept_native": 73,
+      "dropped_disagreement": 51,
+      "relabelled": 80
+    }
+  },
+  "spot_check": {
+    "reviewer": "Jared Palmer",
+    "tool": "tools/review",
+    "sample": "50 test questions, seed documents-v1-spot-check",
+    "agreement": "50/50",
+    "disagreements": [],
+    "reviews_sha256": "d728e55d3f51bd64c8409a982d1c396f04aa0e38fad3f9a6b41207df2bb55721"
+  },
+  "description": "AI-adjudicated, human spot-checked (50/50 agreement)",
+  "trainable_sources": [
+    "cfpb"
+  ],
+  "holdout_sources": [],
+  "context": {
+    "max_state": 8192,
+    "max_branch": 8192,
+    "max_packed": 16384,
+    "truncate": false
+  },
+  "base_revisions": {
+    "Qwen/Qwen3-0.6B-Base": "da87bfb608c14b7cf20ba1ce41287e8de496c0cd",
+    "Qwen/Qwen3-4B-Base": "906bfd4b4dc7f14ee4320094d8b41684abff8539"
+  },
+  "candidates_build": {
+    "repo": "davidheineman/consumer-finance-complaints-large",
+    "revision": "44cfa170a402e254407470275ce05d7dcaccde30",
+    "seed": "documents-v2",
+    "per_cell": 22,
+    "excluded_v1_candidates": 7182,
+    "stats": {
+      "excluded_or_duplicate": 521508
+    },
+    "per_split": {
+      "test": 594
+    },
+    "questions": {
+      "test": 1089
+    },
+    "buckets": [
+      [
+        "short",
+        200,
+        1200
+      ],
+      [
+        "medium",
+        1200,
+        4000
+      ],
+      [
+        "long",
+        4000,
+        28000
+      ]
+    ],
+    "code_sha256": "4f26da1e6b619f31d7cc8cb0e74fccb4a52d0891b82590def1864c8ea66289d3"
+  }
+}

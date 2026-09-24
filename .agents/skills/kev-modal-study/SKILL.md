@@ -24,8 +24,8 @@ All GPU work in this repo goes through `modal_app.py`. Never train large models 
        except TimeoutError: print(name, "running")
    ```
    A trial's own log: `uv run modal volume get kev-runs /X/00-trial-0/train.log /tmp/x.log --force`.
-5. **Pull** when done: `uv run modal run modal_app.py::pull --name X` → `runs/X/<trial>/{result.json, provenance.json, checkpoint/, transfer/rows.json}`. Then `PYTHONPATH=. uv run python scripts/compare_q35.py` or a paired bootstrap (`kev.metrics.paired_bootstrap(rows_a, rows_b, metric="acc")`) against the released checkpoint's `transfer/rows.json`.
-6. **Locked test** (once per candidate, selected on dev only): `uv run modal run --detach modal_app.py::locked_test --trial X/00-trial-0 --name <candidate> --decision evals/v7/decision-v7`; result at volume `/locked/<candidate>/summary.json`.
+5. **Pull** when done (safe to repeat while trials are still finishing: a second pull keeps the trial directories that have a `result.json`, deletes and re-fetches the ones that do not (copies taken mid-run), prints which are still running and re-ranks): `uv run modal run modal_app.py::pull --name X` → `runs/X/<trial>/{result.json, provenance.json, checkpoint/, transfer/rows.json}`. Then `PYTHONPATH=. uv run python scripts/compare_q35.py` or a paired bootstrap (`kev.metrics.paired_bootstrap(rows_a, rows_b, metric="acc")`) against the released checkpoint's `transfer/rows.json`.
+6. **Locked test** (once per candidate, selected on dev only): `uv run modal run --detach modal_app.py::locked_test --trial X/00-trial-0 --name <candidate> --decision evals/v7/decision-v7`; result at volume `/locked/<candidate>/summary.json`. Defaults are 3,600 s and 48 GB host memory; a 27B needs `--gpu H200 --timeout 14400 --memory-mb 131072` (bf16 weights are staged through host memory while loading).
 
 Timing (H100, row-batched hybrid): 0.8B ≈ 20 min, 4B ≈ 60 min, 9B ≈ 90 min for the full v7 recipe; deltas (1 epoch over ~1k records + 2k replay) ≈ 10–20 min. Set `--timeout` with ≥ 50 % headroom; a timed-out container loses everything.
 
@@ -41,6 +41,7 @@ log; all three skip names that already exist locally / on the volume.
 - **Benchmark any checkpoint on any suite or `--data` JSONL** (`run@suite@name[@flags]` entries; flags are extra `kev.benchmark` switches):
   `uv run modal run --detach modal_app.py::benchmarks --jobs "jaredpalmer/kev-9b@evals/external/semif-v1@kev-9b-semif,/runs/X/00-trial-0/checkpoint@evals/v9/transfer-v9@x-v9@--date_facts"`
   Output pulled to `runs/<name>/report.json`. This is how the external evals (SemIf, MMLU-Pro sample) and delta benches were scored.
+  Each job gets its suite's timeout (`modal_app.READ_TIMEOUTS`: long-state panels 7,200 s, documents 5,400 s, transfer-v9 3,600 s, else 1,800 s); `--timeout N` sets one for every job (a 27B's fp32 reads run about three times longer than a 9B's).
 - **Does a new base fit?** (LoRA footprint, which modules it hits, peak GB, steady step time on two real records):
   `uv run modal run modal_app.py::smoke_base --base Qwen/X-Base --revision <sha> [--gpu H200]`
 - Always give the entrypoint (`::base_probe`, `::benchmarks`, `::smoke_base`): the file has several.

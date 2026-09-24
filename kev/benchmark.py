@@ -7,9 +7,11 @@ Every prediction becomes one row per question (prediction_rows); kev.metrics sco
 predictions.jsonl, rows.json and report.json. Predictors live in kev.predictors.
 """
 import argparse
+import functools
 import json
 import math
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -100,6 +102,24 @@ def summarize(rows, temperature=1.0, heldout_sources=()):
                               "returned_zeros": sum(r["zero_count"] for r in rows)}}
 
 
+def predictions(records, predictor):
+    """Yield, in record order, a zero-argument callable that returns predictor(record) or raises what it raised. A
+    predictor with `concurrency` > 1 (RemotePredictor: one independent HTTP request per call) keeps that many calls in
+    flight on a thread pool; in-process predictors (one GPU) have no `concurrency` and run one record at a time. Either
+    way the caller sees each outcome in the same order as the plain sequential loop."""
+    workers = getattr(predictor, "concurrency", 1)
+    if workers <= 1 or len(records) <= 1:
+        for record in records:
+            yield functools.partial(predictor, record)
+        return
+    executor = ThreadPoolExecutor(max_workers=min(workers, len(records)))
+    try:
+        for future in [executor.submit(predictor, record) for record in records]:
+            yield future.result
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
 def evaluate_records(records, predictor, directory, temperature=1.0, heldout_sources=(), skip_overlong=False):
     """skip_overlong: for external data that was not admitted to a context (--data, or an eval-only suite frozen as published),
     records the predictor cannot encode are counted in coverage["rejected_records"] and listed in rejected.json instead of
@@ -110,9 +130,10 @@ def evaluate_records(records, predictor, directory, temperature=1.0, heldout_sou
                 "evaluated_records": 0, "evaluated_questions": 0, "rejected_records": 0, "truncated_records": 0}
     rows, latencies, rejected = [], [], []
     with (directory / "predictions.jsonl").open("w", encoding=ENCODING) as output:
+        preds = predictions(records, predictor)
         for record in records:
             try:
-                pred = predictor(record)
+                pred = next(preds)()
                 new_rows = prediction_rows(record, pred)
             except ContextOverflow as error:
                 if skip_overlong:
@@ -148,6 +169,7 @@ def main():
     ap.add_argument("--run", help="checkpoint dir or Hub id (local scoring)")
     ap.add_argument("--remote", help="base URL of a System One-compatible endpoint to score instead of a local checkpoint")
     ap.add_argument("--remote-model", default="kev-latest")
+    ap.add_argument("--remote-concurrency", type=int, default=1, help="requests kept in flight against --remote (1 = sequential); rows and their order do not depend on it")
     ap.add_argument("--suite", help="frozen suite directory (scores its development partition)")
     ap.add_argument("--data", help="your own labelled requests, one JSON object per line (kev.data.load_records); an alternative to --suite")
     ap.add_argument("--out", required=True)
@@ -160,6 +182,7 @@ def main():
     a = ap.parse_args()
     if bool(a.run) == bool(a.remote): ap.error("give exactly one of --run or --remote")
     if a.rotations < 1: ap.error("--rotations must be >= 1")
+    if a.remote_concurrency < 1: ap.error("--remote-concurrency must be >= 1")
     if bool(a.suite) == bool(a.data): ap.error("give exactly one of --suite or --data")
     if a.data:
         records, heldout, split, source_hash = load_records(a.data), [], "custom", digest(Path(a.data))
@@ -172,12 +195,12 @@ def main():
         context, skip_overlong = manifest.get("context", CONTEXT), bool(manifest.get("eval_only"))
     if a.date_facts:
         records = [{**r, "state": with_date_facts(r["state"])} for r in records]
-    predictor = RemotePredictor(a.remote, a.remote_model, os.environ.get("KEV_REMOTE_API_KEY", "local")) if a.remote else LocalPredictor(a.run, a.device, LoadOptions.from_env(), context=context)
+    predictor = RemotePredictor(a.remote, a.remote_model, os.environ.get("KEV_REMOTE_API_KEY", "local"), concurrency=a.remote_concurrency) if a.remote else LocalPredictor(a.run, a.device, LoadOptions.from_env(), context=context)
     scorer = RotationAveraged(predictor, a.rotations) if a.rotations > 1 else predictor
     report, _ = evaluate_records(records, scorer, a.out, heldout_sources=tuple(heldout), skip_overlong=skip_overlong)
     report.update(suite_sha256=source_hash, data=a.data, date_facts=a.date_facts, rotations=a.rotations, run=a.run or a.remote, split=split,
                   calibration_applied=predictor.temperature != 1.0 if not a.remote else None,
-                  remote={"base_url": a.remote, "requested_model": a.remote_model, "served_model": predictor.served_model} if a.remote else None)
+                  remote={"base_url": a.remote, "requested_model": a.remote_model, "served_model": predictor.served_model, "concurrency": a.remote_concurrency} if a.remote else None)
     write_json(Path(a.out) / "report.json", report)
     print(json.dumps({"objective": report["objective"], "clean": report["clean"], "coverage": report["coverage"]}, indent=2))
 

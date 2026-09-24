@@ -29,7 +29,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   - Only one training process at a time: two on MPS slow each other ~10x.
 - Smoke: `uv run python -m kev.train --n_per_source 40 --accum 4 --out runs/smoke` (~1 min).
 - Benchmark (the eval path for everything current): `uv run python -m kev.benchmark --run <run dir | Hub id[@rev]>
-  --suite evals/v4/transfer-v4 --out runs/<name>`; `--remote <url>` scores any System One endpoint, `--data x.jsonl` your
+  --suite evals/v4/transfer-v4 --out runs/<name>`; `--remote <url>` scores any System One endpoint (`--remote-concurrency N` keeps N requests in flight; rows are identical), `--data x.jsonl` your
   own labelled rows, `--date_facts` the opt-in preprocessing, `--allow-test` is the only way to read a locked test.
   Writes `rows.json` (per question, with logits) + `report.json` (accuracy, ECE/Brier/NLL, selective coverage and AURC,
   permutation, isolation). `kev.calibrate --rows <rows.json>` reports what one temperature fitted on those rows would do (raw / shipped / workload in-sample / workload group-disjoint OOF, paired bootstrap vs shipped; report only, writes `calibration.json` next to the rows); external-suite `rows.json` are committed for this. `kev.evaluate` is the legacy prototype eval (`runs/kev`, `eval.json`) and is not used for
@@ -47,11 +47,32 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   unknowable) for OOD, `evals/round3/{decision-r3,transfer-r3}` (calibration audit; the 1,260-record final panel is
   unscored), `evals/smoke-v1` for tests, plus `evals/external/` (semif-v1, scienthoon-v1, ekzhang-mmlupro-v1, and SemIf's pinned third-party selections wanli-v1 + typesafe-v1 via
   `scripts/freeze_semif_external.py`; `scripts/compare_typesafe.py` reports equal-case agreement/TVD against the reference and published answers, `--tokenizer` adds accuracy by state length; Kev-9B/4B scored 2026-09-22: WANLI 0.703/0.695 vs Jev 0.758, TypeSafe 0.809/0.856 agreement on 89 answered rows vs 0.891, `runs/kev-*-{wanli,typesafe}-v1`),
-  `evals/night2/` (delta training data, `scripts/build_night2_data.py`) and `evals/diagnostics/` (binding-v1).
+  `evals/night2/` (delta training data, `scripts/build_night2_data.py`), `evals/diagnostics/` (binding-v1), `evals/hard-v1`
+  (programmatically labelled skill records in seven families: long policy documents, trade-offs, probability, multi-hop,
+  temporal/numeric, judging a proposed answer, missing-fact abstention; `scripts/build_hard_v1.py` + `hard_v1_{common,policy,families,numeric}.py`,
+  labels from each family's solver over `_meta.facts`, templates 0-3 train / 4 development / 5 test; long_policy states reach ~5k tokens, so train with
+  `--max_state` >= 5120; its 23 MB train partition is not in git and not yet in the kev-suites mirror: the builder regenerates it byte for byte, ~1 min;
+  `scripts/screen_overlap.py` checks it against JevBench's public items, counts only, in `overlap.json`), `evals/devtools-v1`
+  (developer-tooling decisions from six licence-checked sources, human / heuristic / by-construction labels, no LLM labels; `scripts/build_devtools_v1.py --reproduce-v1`
+  rebuilds it byte for byte from cached downloads; When2Call and prompt injection are eval-only. Known defects, frozen: CodeReviewer ids came from the dataset's
+  non-unique `id` field, so `codereviewer/cls-test/13657` names two development records and `codereviewer/cls-test/19245` two test records
+  (paired comparisons drop both; 66 more ids repeat inside train or across train and an eval partition, so check train/eval overlap by `text_sha256`),
+  and its CodeReviewer `text_sha256` hashes the hunk without `lines_before_hunk`. Without `--reproduce-v1` the builder makes line-based unique ids, keys the
+  whole state and admits commitpackft records after their message question is added; see its docstring), and the real-document suites
+  `evals/documents-v1` (CFPB complaint narratives, product + issue Choice questions; its 23 MB train partition, Kev-4B's round-8 delta data, is not in git and not yet in the kev-suites mirror)
+  and `evals/documents-v2` (held-out test only, private mirror, manifest only): `scripts/build_documents_v{1,2}.py` -> `label_documents_v1.py`
+  (AI Gateway teachers/judges, spend ledger) -> `freeze_documents_v1.py` (no flag: report + adjudication queue; `--combine`, `--spot-check`, `--freeze ... --min-agreement 47`);
+  label provenance in `runs/documents-v1-work/`.
   Partitions over ~10 MB are not in git; they are mirrored at the Hub dataset `jaredpalmer/kev-suites` (revision pinned
   in `kev/suite.py: SUITES_REVISION`) and `load_split` fetches + verifies them on first use. After freezing a new suite:
   `hf upload jaredpalmer/kev-suites evals . --type dataset --include "*.jsonl" --include "*.json"`, bump
   `SUITES_REVISION`, gitignore the large partitions. Never modify a frozen file; new data = new version.
+  Held-out suites whose text must never be public (a private test set) keep only `manifest.json` in git and name their
+  own mirror in it, `"mirror": {"dataset": "jaredpalmer/kev-private-evals", "revision": "<commit sha>"}` (`kev.suite.PRIVATE_DATASET`,
+  a private dataset repo): freeze locally, `hf upload jaredpalmer/kev-private-evals evals . --type dataset --include "<suite path under evals/>/*.jsonl"` (e.g. `held/documents-v2/*.jsonl`),
+  write the returned commit into the manifest, gitignore the partitions. `load_split` fetches and hash-checks them for accounts with
+  access (`hf auth login` / `HF_TOKEN`; Modal images already carry a locally fetched copy under `evals/`) and raises a
+  PermissionError naming the repo for everyone else; `tests/test_conventions.py` fails if such a suite tracks a partition.
 - Modal (default for anything beyond smoke): `modal_app.py`; `uv run modal run modal_app.py::{smoke,study,pull,resume,
   locked_test,evaluate,base_probe,benchmarks,smoke_base,anchors}`; `uv run modal deploy modal_app.py` once so studies
   survive a disconnect. Image = `uv_sync` of pyproject/uv.lock (Linux torch wheel is CUDA) + `kev/` + `evals/`; Volumes
@@ -66,9 +87,9 @@ Title Case sections, API tables, Authors + License); model cards are formal.
 - Figures: `uv run python scripts/plot_family.py` and `uv run python scripts/plot_tweet.py` regenerate docs/kev-family.png and docs/kev-benchmark{,-dark}.png from
   saved result files. Style lives in `scripts/chartstyle.py` (Geist type, Vercel color tokens, direct labels, no legends, one label/plot/value lane per bar set);
   new figures should import it rather than set their own rcParams. `kev.plot` (loss curves from train logs) is a debugging aid, not a README figure.
-- Current family (2026-09-21, all Qwen3.5 + the dates/unknowable delta): `jaredpalmer/kev-9b` (`night2-9b-du/00-trial-0`), `jaredpalmer/kev-4b` (`night2-4b-du/00-trial-0`;
+- Current family (2026-09-21, all Qwen3.5 + the dates/unknowable delta): `jaredpalmer/kev-9b` (`night2-9b-du/00-trial-0`), `jaredpalmer/kev-4b` (`r8-small/00-trial-0` since 2026-09-24: the night2 checkpoint + one epoch on `documents-v1` train, round 8; previous at tag `night2-du-release`;
   Qwen3 weights at tag `qwen3`), `jaredpalmer/kev-0.8b` (`night2-08b-du2/00-trial-0`). Pre-delta v7 checkpoints at tag `v7-base` (`q35-9b/01-trial-1`, `q35-4b-s23/00-trial-0`, `q35-08b/02-trial-2`).
-  Calibration is built into each checkpoint: `head.pt["temperature"]` (fitted by `scripts/calibrate_checkpoint.py` on the trial's development rows; 9B 2.30, 4B 2.14,
+  Calibration is built into each checkpoint: `head.pt["temperature"]` (fitted by `scripts/calibrate_checkpoint.py` on the trial's development rows; 9B 2.30, 4B 2.96 (2.14 before the round-8 delta),
   0.8B 2.41) is applied by `PointerHead` in eval mode; `KEV_TEMPERATURE=1.0` overrides to raw. The script also reports an out-of-fold grouped-CV ECE with bootstrap CIs alongside the in-sample fit (4B: 0.075 raw -> 0.020 OOF, separated) and stores it under `head.pt["temperature_fit"]["cross_validation"]`; re-run it after any new checkpoint before publishing. Opt-in: `KEV_DATE_FACTS=1` (day counts). Delta data: evals/night2/ (scripts/build_night2_data.py). Previous generation, kept for Mac latency: `kev-8b`, `kev-0.6b`, `kev-4b@qwen3` (cards `*-qwen3.md`). Qwen3.5 backbones are hybrid (Gated DeltaNet): `DecisionModel.hybrid`
   routes them through `forward_rows_batch` (one causal row per question, state repeated) and `_branch_rows_from_prefix` for serving; the packed
   block-causal mask is only valid on attention-only bases. Needs transformers>=5.17, peft>=0.21; CUDA wants `flash-linear-attention` + `triton>=3.7.1`
@@ -91,6 +112,20 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   the playground proxies :8009)
   - TypeSafe-compatible: `POST /v1/systemone`, `GET /v1/models` (model cards for `kev-latest` and `jev-latest`, plus device, dtype, temperature and prefix-cache stats), an `x-typesafe-request-id` header on every response, and bearer auth when `KEV_API_KEY` is set (unset = open server).
   - SDK: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8009", model="kev-latest")`
+  - CUDA: bf16, fused kernels and CUDA graphs by default (`LoadOptions.fused` / `LoadOptions.cuda_graphs`, `KEV_FUSED=0` / `KEV_CUDA_GRAPHS=0` to decline). A server pass was
+    kernel-launch bound (~60 ms on an H100 at any length). `kev/fused_qwen35.py` rewrites the merged Qwen3.5 layers with fla Triton kernels
+    (it needs fla 0.5.2 exactly, pinned in the images, and refuses others: it patches fla's NB-keyed kernel launches; a pass continuing a
+    cached DeltaNet state does not write it back). `kev/cuda_graphs.py` replays bucketed passes (state left-padded, rows right-padded, masked exactly; equal to eager up to bf16
+    reassociation) and owns admission (`admits`), batches (`run`), capture policy (`capture_due`: idle, or a bucket that keeps recurring) and
+    `stats()`; a failed capture leaves its bucket eager. `kev.serve.Server` runs every pass on one model thread that batches whatever is
+    queued (`DecisionModel.probs_batch`, `CudaGraphs.run` over typed `Request`s; `probs_one` is the per-request rule every backend shares;
+    `PrefixCache` keeps only the states that survive a batch); `/v1/systemone` is async, `Server.lock`
+    excludes the model thread, `wait_idle()` waits for answers and captures, every response carries `server-timing`.
+    Measure with `uv run modal run modal_app.py::serving --run <hub id> --gpu <GPU> --name <name>` (`scripts/serving_bench.py`: latency,
+    parity vs fp32, throughput at 1/8/32/64 in-process clients, `--flags=--isolation` for question isolation on the served path; reports in `runs/serving-*` (graphs only) and `runs/fused-*`).
+    `tests/test_model.py::test_cuda_graphs_match_eager` needs CUDA (run it on Modal). Over HTTP, Modal's `asgi_app` path caps a container at
+    ~40-50 req/s; `modal.experimental.http_server` served ~99 req/s at 64 clients (Kev-4B, H100).
+    Loading merges the fp32 adapter straight into bf16 weights (same bits as the old fp32 merge + cast), so Kev-9B needs ~17 GB, not 36 GB.
 - Extra endpoints for the demo: `POST /v1/systemone/permute` (one Choice under n option orders), `POST /v1/systemone/separate`
   (each question alone; packed-vs-separate comparison). `/v1/systemone` also returns `latency_ms`.
 - Web demo: `cd playground && npm run dev -- -p 3001` (:3000 is used by another project). Next 16 app router; `/kev/*` is
@@ -101,7 +136,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   - Next 16 dev only trusts `localhost`; other hostnames need `allowedDevOrigins` or the page SSRs but never hydrates
     (no console errors). `127.0.0.1` is allowed in `next.config.ts`. Verify hydration with `agent-browser` (CDP), not curl.
   - `playground/AGENTS.md` (regenerated by `next dev`) is the Next 16 rules file; read `node_modules/next/dist/docs/` before writing app code.
-- Unit tests (no weights; the CI `python` job): `uv run --extra serve python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py -q`.
+- Unit tests (no weights; the CI `python` job): `uv run --extra serve python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py tests/test_documents_tools.py tests/test_hard_v1.py tests/test_devtools_v1.py -q`.
   `tests/test_skill_scripts.py` covers the kev-finetune stdlib scripts (stdlib only, no network). Weight-backed parity tests
   (`runs/smoke-hl/00-trial-0/checkpoint` + a Qwen2.5-0.5B / Qwen3.5-0.8B-Base download, ~2.5 min, local only): `tests/test_model.py`; `tests/test_mlx.py` (Apple Silicon, ~30 s) for the MLX backend.
   `test_conventions.py` is a table of "one canonical home" rules (head.pt via `kev.checkpoint`, `KEV_*` via `LoadOptions.from_env`,
@@ -120,7 +155,7 @@ Repo skills (`.agents/skills`, tracked in git):
 Installed from other repos by `npx skills add` and pinned in `skills-lock.json` (`deslop`, `unslop` from cursor/plugins,
 `grill-me` from mattpocock/skills); `.agents/skills/modal/` is gitignored and reinstalled with `uv run modal skills install`.
 
-Published from this repo (`skills/kev-finetune`, `npx skills add jaredpalmer/kev@kev-finetune`): the user-facing fine-tuning skill (SKILL.md for agents,
+Published from this repo: `skills/kev-deploy` (`npx skills add jaredpalmer/kev@kev-deploy`), one self-contained Modal file (`scripts/kev_serve.py`, pinned `KEV_REF`, GPU list per released model from `runs/serving-*`: 0.8B L4, 4B L40S, 9B H100; CUDA graphs captured at start (`server.wait_idle()`); 64 concurrent inputs per container, autoscaling at 32; optional `KEV_REGION`; `KEV_FLASH=1` = Modal's experimental direct HTTP server, needs `KEV_REGION`, keeps one container up; fla pinned to 0.5.2; bearer key via a deploy-time Modal secret) that serves a released Kev checkpoint as a System One endpoint in one `modal deploy`; bump its `KEV_REF` after a serving change it should pick up. And `skills/kev-finetune` (`npx skills add jaredpalmer/kev@kev-finetune`): the user-facing fine-tuning skill (SKILL.md for agents,
 README.md is the human cookbook, `references/` the long-form docs). agentskills.io format (validate with `uvx --from skills-ref agentskills validate skills/kev-finetune`).
 Stdlib scripts: `extract_workload` (find Jev/TypeSafe call sites + labelled files, draft the spec), `convert_data` (CSV/JSONL -> records),
 `generate_data` (OpenAI-compatible endpoint), `plan_size` (paired McNemar sizing; `--from-result` post hoc), `split_data` (`--holdout` keeps real rows out of train).
@@ -158,7 +193,7 @@ runs / the endpoint / the volumes. Tests: `tests/test_skill_scripts.py`.
 - `kev/publish.py`   run -> Hub repo: adapter, head.pt, tokenizer, trial result/provenance/log, the card as README.md; `--tag`, `--revision`, `--private`
 - `modal_app.py`     every GPU entrypoint: trials, locked tests, probes, benches, anchors, smoke
 - `scripts/`         one-off builders and read-outs: `calibrate_checkpoint.py`, `build_night2_data.py`, `build_binding_diagnostic.py`,
-                     `freeze_{semif,scienthoon,calibration_audit}.py`, `calibration_audit.py`, `review_calibration_screen.py`,
+                     `freeze_{semif,scienthoon,calibration_audit}.py`, `{build,label,freeze}_documents_v*.py`, `calibration_audit.py`, `review_calibration_screen.py`,
                      `compare_{q35,night2}.py`, `temperature_groups.py`, `base_mmlu_probe.py`, `plot_*.py` + `chartstyle.py`, `publish_space.sh`
 - `tests/test_api.py` conformance against the docs' example requests + official SDK
 

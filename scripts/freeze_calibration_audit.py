@@ -14,7 +14,7 @@ from kev.composition import DEV_SHAPES, check_group, generate as compose
 from kev.contrastive import generate as contrastive
 from kev.data import ALL_REPOS, ALL_SOURCES, build, materialize
 from kev.model import fits, load_tokenizer
-from kev.suite import digest, load_split, read_jsonl, read_manifest, record_digest, semantic_hash, SPLITS, validate_training, write_json, write_jsonl
+from kev.suite import digest, load_split, read_jsonl, read_manifest, record_digest, semantic_hash, SPLITS, text_digest, validate_training, write_json, write_jsonl
 from kev.transfer_v9 import QWEN35, unknowable
 
 PUBLIC = ("mmlu", "emotion", "tweet_offensive", "qnli", "paws", "sciq")
@@ -36,7 +36,7 @@ def state_fingerprint(record):
 
     leaves = strings(state)
     text = max(leaves, key=len) if leaves else json.dumps(state, sort_keys=True)
-    return hashlib.sha256(" ".join(text.casefold().split()).encode()).hexdigest()
+    return text_digest(text)
 
 
 def reserve_existing(evals):

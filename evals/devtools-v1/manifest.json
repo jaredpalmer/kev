@@ -1,0 +1,775 @@
+{
+  "version": "devtools-v1",
+  "seed": "devtools-v1",
+  "partitions": [
+    "train",
+    "development",
+    "test"
+  ],
+  "locked": [
+    "test"
+  ],
+  "files": {
+    "train.jsonl": {
+      "sha256": "587682c145cbbc0c8c990e9d649da7b972853a9eaaef71e9b7b0fa18163b962c",
+      "records": 5320,
+      "questions": 6973,
+      "bytes": 8924680,
+      "in_git": true,
+      "by_source": {
+        "aegis": 1500,
+        "codereviewer": 1500,
+        "commitpackft": 1500,
+        "flakeflagger": 820
+      }
+    },
+    "development.jsonl": {
+      "sha256": "3df3aa83890c43db65ac73b5bb6e4fbb1466362fc1a25dbd383d4d2edd0a1fe6",
+      "records": 900,
+      "questions": 1074,
+      "bytes": 1731002,
+      "in_git": true,
+      "by_source": {
+        "aegis": 150,
+        "codereviewer": 150,
+        "commitpackft": 150,
+        "flakeflagger": 150,
+        "prompt_injection": 150,
+        "when2call": 150
+      }
+    },
+    "test.jsonl": {
+      "sha256": "2fb7c2a239fef923bcb62c0eee9d6884a608ce30e5e74a4e6b9082787679767f",
+      "records": 900,
+      "questions": 1073,
+      "bytes": 1686530,
+      "in_git": true,
+      "by_source": {
+        "aegis": 150,
+        "codereviewer": 150,
+        "commitpackft": 150,
+        "flakeflagger": 150,
+        "prompt_injection": 150,
+        "when2call": 150
+      }
+    }
+  },
+  "trainable_sources": [
+    "codereviewer",
+    "commitpackft",
+    "aegis",
+    "flakeflagger"
+  ],
+  "eval_only_sources": [
+    "when2call",
+    "prompt_injection"
+  ],
+  "holdout_sources": [],
+  "sources": {
+    "codereviewer": {
+      "trainable": true,
+      "licence": "CC-BY-4.0",
+      "licence_url": "https://zenodo.org/records/6900648",
+      "attribution": "Li et al., Automating Code Review Activities by Large-Scale Pre-Training (ESEC/FSE 2022), Microsoft CodeReviewer",
+      "label_provenance": "human: y = 1 when a human reviewer left a comment on the hunk in the original GitHub pull request, 0 otherwise (dataset label, unchanged)",
+      "licence_check": "diffs come from GitHub projects: kept only projects whose current GitHub licence (GitHub API spdx_id, scripts/devtools_v1_licences.json) is permissive; GPL/AGPL/LGPL/MPL/OSL/MS-PL, NOASSERTION and no-licence projects dropped. The licence is the repository's at lookup time, not at collection time.",
+      "pins": {
+        "zenodo": {
+          "record": 6900648,
+          "doi": "10.5281/zenodo.6900648",
+          "file": "Diff_Quality_Estimation.zip",
+          "md5": "aad78e57d7d591172922da96e38e47dd",
+          "sha256": "86d054de47741cb358c8a17ab55b6191356fc63e44010c864dd790481f41fff5",
+          "members": [
+            "cls-valid.jsonl",
+            "cls-test.jsonl"
+          ]
+        },
+        "licences": "scripts/devtools_v1_licences.json#codereviewer"
+      }
+    },
+    "commitpackft": {
+      "trainable": true,
+      "licence": "MIT (dataset); per-row repository licence",
+      "licence_url": "https://huggingface.co/datasets/bigcode/commitpackft",
+      "attribution": "Muennighoff et al., OctoPack: Instruction Tuning Code Large Language Models (2023), BigCode",
+      "label_provenance": "heuristic: the commit type is the class of the first verb of the author's commit subject (commit_type); message match is by construction (the commit's own subject vs another commit's subject)",
+      "licence_check": "rows kept only when the per-row `license` (from the GitHub repository) is one of mit, apache-2.0, bsd-2-clause, bsd-3-clause, isc, cc0-1.0, unlicense",
+      "pins": {
+        "hf": "bigcode/commitpackft@fc56fe33c030c6daa414c2b112c932b8eed085e6",
+        "files": {
+          "data/python/data.jsonl": "d167da37e1058371c48e057cd8815d03700c867dd8bcf58e61420d4dcd288d73",
+          "data/javascript/data.jsonl": "968688a1163c2dbbced0d0f9cf1dd52bc0b626c2ad9b02ff23f5700b2e277f25",
+          "data/typescript/data.jsonl": "43d32596844c62aa23b0e5a8811648f6f20fa07d9ab80499d66507136b844a76",
+          "data/java/data.jsonl": "c51a331320f4220d6053e3389485916c738fcaccfd583298b7738af834fa19b9",
+          "data/go/data.jsonl": "05a65e973fcc6894a234fb382987cc25e26f053d60b032ea83540a5b36a528b8",
+          "data/rust/data.jsonl": "5611f3701026acf3c43ba64da50f4f65a078e84fba56e2bf313e8f2996b0cc68",
+          "data/c/data.jsonl": "a67d9aeac62e693fb782030ad7c4aa9e0d9f38a02bd2e06a438604a92628ca71",
+          "data/c++/data.jsonl": "ee59eb0dca07dadb74bde829134e0d3c42176e198773f125a14554a5547df4f2",
+          "data/c#/data.jsonl": "a58a0a03a9965fae11e20c53cf5661ecca6ae5b3ca241f2989db4c2c1be5c04a",
+          "data/ruby/data.jsonl": "6b1970e1c286f98445e519b92360eac5618f29f422c56ac949623d42dccd04b1",
+          "data/php/data.jsonl": "fda88bbb6483a504dcbaec36abd363eb6ae99531431fecc924d95ecdad91c691",
+          "data/shell/data.jsonl": "08eef5271d29368db2af8b0ca127c8d249d056ae7f6bce9c0692ade5dcad66ca"
+        }
+      }
+    },
+    "aegis": {
+      "trainable": true,
+      "licence": "CC-BY-4.0",
+      "licence_url": "https://huggingface.co/datasets/nvidia/Aegis-AI-Content-Safety-Dataset-2.0",
+      "attribution": "Ghosh et al., AEGIS2.0: A Diverse AI Safety Dataset and Risks Taxonomy for Alignment of LLM Guardrails (NAACL 2025), NVIDIA",
+      "label_provenance": "human: prompt_label (prompt_label_source is `human` on every row); category from the human violated_categories of prompt-only rows. Responses (Mistral-7B text, partly LLM-jury labels) are not used",
+      "licence_check": "card licence CC-BY-4.0, not gated. Prompts come from Anthropic HH-RLHF (MIT), DAN / jailbreak_llms (MIT) and AART (PaLM-generated): AART matches dropped. Note the card's out-of-scope paragraph: 'The data are intended for research purposes, especially research that can make models less harmful' next to the CC-BY-4.0 licence and the stated direct use 'to build LLM content safety moderation guardrails'",
+      "pins": {
+        "hf": "nvidia/Aegis-AI-Content-Safety-Dataset-2.0@d86bb8bedff51d25ac834ab7838f1cc61acb7a2c",
+        "files": {
+          "train.json": "154fba82c71d9fa73abd2ca5588a198e693ddc816c83444df180a22f613e02f6",
+          "validation.json": "a97200e226ad4f6ba6a639982f817f675909bc74513859df3e8fc9a92951dfcd",
+          "test.json": "b0a6d602260524866053cb34105194f074f2c2906e3691b68d43b9e6e9318f35"
+        },
+        "aart_filter": {
+          "hf": "walledai/AART@dd98454c52d34e860f5927625a3989edd5617d78",
+          "files": {
+            "data/train-00000-of-00001.parquet": "d22e3a35637a129bbffa6055a9ae83df1327f373ea22ef6f3cfa1c2d17eba0f1"
+          }
+        }
+      }
+    },
+    "when2call": {
+      "trainable": false,
+      "licence": "CC-BY-4.0",
+      "licence_url": "https://huggingface.co/datasets/nvidia/When2Call",
+      "attribution": "Ross et al., When2Call: When (not) to Call Tools (NAACL 2025), NVIDIA",
+      "label_provenance": "by construction (NVIDIA's pipeline over BFCL v2 Live): tool_call = the target tool is available, cannot_answer = the target tool was removed, request_for_info = a required parameter was removed from the question (question rewritten by Mixtral-8x22B, an open model). `direct` is never correct in the test MCQ",
+      "licence_check": "eval-only: only the test MCQ is used; it is derived from BFCL v2 Live (Apache-2.0), a community benchmark that must stay uncontaminated. The train splits derive from Salesforce/xlam-function-calling-60k, whose card carries a research-only statement, and are not used",
+      "pins": {
+        "hf": "nvidia/When2Call@0582f7749df63a96fdc3070932e83e72396ace53",
+        "files": {
+          "test/when2call_test_mcq.jsonl": "8c3694e583eeeb8dbc297e6cd90da70efc68efa4b6adb7227523e828c6b7b14c"
+        }
+      }
+    },
+    "flakeflagger": {
+      "trainable": true,
+      "licence": "CC-BY-4.0 (Zenodo data); BSD-3-Clause (GitHub repo with the test bodies); test code under each project's licence",
+      "licence_url": "https://zenodo.org/records/4450723",
+      "attribution": "Alshammari et al., FlakeFlagger: Predicting Flakiness Without Rerunning Tests (ICSE 2021)",
+      "label_provenance": "heuristic (execution): IsFlaky from test_results.csv, i.e. the test both passed and failed across 10,000 reruns of its suite at the pinned commit",
+      "licence_check": "each project's LICENSE at the commit in Project_Info.csv was read (scripts/devtools_v1_licences.json); wildfly (LGPL-2.1) and logback (EPL-1.0 / LGPL-2.1) dropped; togglz dropped (not in Project_Info.csv, no pinned commit)",
+      "pins": {
+        "zenodo": {
+          "record": 4450723,
+          "doi": "10.5281/zenodo.4450723",
+          "files": {
+            "test_results.csv": "86210ed8ac0171a3d64cf5ab83d503cc97e82845e0299b9f55599a8414218f13",
+            "Project_Info.csv": "f0064b25ed64995842465b67c6fec86b5ddf72d30e1a7dc5b64abd8b0208e9fd"
+          }
+        },
+        "github": "AlshammariA/FlakeFlagger@2fcbafc4713abbcc452bee07aa9681c7c8ccb707",
+        "tarball_sha256": "67da177462a3026655a9ed8ef4e7c87a86d538c599ed484080db3b355f6d76b1",
+        "licences": "scripts/devtools_v1_licences.json#flakeflagger"
+      }
+    },
+    "prompt_injection": {
+      "trainable": false,
+      "licence": "Apache-2.0 (deepset/prompt-injections); MIT (Lakera/gandalf_ignore_instructions)",
+      "licence_url": "https://huggingface.co/datasets/deepset/prompt-injections ; https://huggingface.co/datasets/Lakera/gandalf_ignore_instructions",
+      "attribution": "deepset; Lakera (Gandalf)",
+      "label_provenance": "deepset: dataset label (labeller not stated on the card). Gandalf: every row is an attack prompt submitted to the Gandalf password game, selected by OpenAI text-embedding-ada-002 similarity >= 0.825 to 'Ignore all previous instructions' (positives only). Negatives are deepset benign prompts only",
+      "licence_check": "eval-only: small (662 + 1,000 rows), unstated labeller, closed-embedding selection of the attacks",
+      "pins": {
+        "deepset": {
+          "hf": "deepset/prompt-injections@4f61ecb038e9c3fb77e21034b22511b523772cdd",
+          "files": {
+            "data/train-00000-of-00001-9564e8b05b4757ab.parquet": "2e10bc7ab30f542c97e4e83e2a5683000b5057d25ec10908784c631d44124c04",
+            "data/test-00000-of-00001-701d16158af87368.parquet": "39ac797cabc157eeed58435a08593b2952bb6cb16fc394a2d383f447cc7b246e"
+          }
+        },
+        "gandalf": {
+          "hf": "Lakera/gandalf_ignore_instructions@04737b65e90a6794ec227012e4a255a7def6344b",
+          "files": {
+            "data/train-00000-of-00001-ded53be747ff55cd.parquet": "5b6acf3e5a5998d21f8e1222bb45bbdec25a14408747b1cd63bebef4a75fa439",
+            "data/validation-00000-of-00001-94481a2a09ff2fff.parquet": "f51ab3e3407a368845b0f57932cc745c09280429416d7507bd178a16326a79f6",
+            "data/test-00000-of-00001-bc92128b9288a6d1.parquet": "56b646d133335ebc535266bd55dbe1b5bee7caa4b95bf49d040684b9b5dd9972"
+          }
+        }
+      }
+    }
+  },
+  "counts": {
+    "test": {
+      "aegis": 150,
+      "codereviewer": 150,
+      "commitpackft": 150,
+      "flakeflagger": 150,
+      "prompt_injection": 150,
+      "when2call": 150
+    },
+    "development": {
+      "aegis": 150,
+      "codereviewer": 150,
+      "commitpackft": 150,
+      "flakeflagger": 150,
+      "prompt_injection": 150,
+      "when2call": 150
+    },
+    "train": {
+      "aegis": 1500,
+      "codereviewer": 1500,
+      "commitpackft": 1500,
+      "flakeflagger": 820
+    }
+  },
+  "groups": {
+    "test": {
+      "aegis": 150,
+      "codereviewer": 16,
+      "commitpackft": 141,
+      "flakeflagger": 4,
+      "prompt_injection": 150,
+      "when2call": 135
+    },
+    "development": {
+      "aegis": 150,
+      "codereviewer": 10,
+      "commitpackft": 137,
+      "flakeflagger": 3,
+      "prompt_injection": 150,
+      "when2call": 132
+    },
+    "train": {
+      "aegis": 1500,
+      "codereviewer": 108,
+      "commitpackft": 1374,
+      "flakeflagger": 13
+    }
+  },
+  "label_balance": {
+    "test": {
+      "aegis": {
+        "aegis_category": {
+          "criminal_planning": 5,
+          "hate": 7,
+          "pii": 4,
+          "self_harm": 5,
+          "sexual": 4
+        },
+        "aegis_unsafe": {
+          "false": 75,
+          "true": 75
+        }
+      },
+      "codereviewer": {
+        "codereviewer_needs_comment": {
+          "false": 75,
+          "true": 75
+        }
+      },
+      "commitpackft": {
+        "commitpackft_message": {
+          "false": 74,
+          "true": 74
+        },
+        "commitpackft_type": {
+          "change": 22,
+          "docs": 22,
+          "feature": 22,
+          "fix": 21,
+          "remove": 21,
+          "revert": 21,
+          "test": 21
+        }
+      },
+      "flakeflagger": {
+        "flakeflagger_flaky": {
+          "false": 75,
+          "true": 75
+        }
+      },
+      "prompt_injection": {
+        "prompt_injection": {
+          "false": 75,
+          "true": 75
+        }
+      },
+      "when2call": {
+        "when2call_action": {
+          "cannot_answer": 50,
+          "request_for_info": 50,
+          "tool_call": 50
+        }
+      }
+    },
+    "development": {
+      "aegis": {
+        "aegis_category": {
+          "criminal_planning": 10,
+          "harassment": 2,
+          "hate": 2,
+          "pii": 5,
+          "profanity": 2,
+          "self_harm": 2,
+          "violence": 2
+        },
+        "aegis_unsafe": {
+          "false": 75,
+          "true": 75
+        }
+      },
+      "codereviewer": {
+        "codereviewer_needs_comment": {
+          "false": 75,
+          "true": 75
+        }
+      },
+      "commitpackft": {
+        "commitpackft_message": {
+          "false": 75,
+          "true": 74
+        },
+        "commitpackft_type": {
+          "change": 22,
+          "docs": 22,
+          "feature": 22,
+          "fix": 21,
+          "remove": 21,
+          "revert": 21,
+          "test": 21
+        }
+      },
+      "flakeflagger": {
+        "flakeflagger_flaky": {
+          "false": 75,
+          "true": 75
+        }
+      },
+      "prompt_injection": {
+        "prompt_injection": {
+          "false": 75,
+          "true": 75
+        }
+      },
+      "when2call": {
+        "when2call_action": {
+          "cannot_answer": 50,
+          "request_for_info": 50,
+          "tool_call": 50
+        }
+      }
+    },
+    "train": {
+      "aegis": {
+        "aegis_category": {
+          "criminal_planning": 35,
+          "harassment": 15,
+          "hate": 14,
+          "pii": 24,
+          "profanity": 14,
+          "self_harm": 15,
+          "sexual": 18,
+          "sexual_minor": 1,
+          "substances": 6,
+          "violence": 5,
+          "weapons": 6
+        },
+        "aegis_unsafe": {
+          "false": 750,
+          "true": 750
+        }
+      },
+      "codereviewer": {
+        "codereviewer_needs_comment": {
+          "false": 750,
+          "true": 750
+        }
+      },
+      "commitpackft": {
+        "commitpackft_message": {
+          "false": 750,
+          "true": 750
+        },
+        "commitpackft_type": {
+          "change": 215,
+          "docs": 215,
+          "feature": 214,
+          "fix": 214,
+          "remove": 214,
+          "revert": 214,
+          "test": 214
+        }
+      },
+      "flakeflagger": {
+        "flakeflagger_flaky": {
+          "false": 410,
+          "true": 410
+        }
+      }
+    }
+  },
+  "state_tokens": {
+    "test": {
+      "aegis": {
+        "min": 2,
+        "median": 17,
+        "p95": 362,
+        "max": 989,
+        "over_384": 8
+      },
+      "codereviewer": {
+        "min": 84,
+        "median": 232,
+        "p95": 497,
+        "max": 629,
+        "over_384": 22
+      },
+      "commitpackft": {
+        "min": 52,
+        "median": 150,
+        "p95": 561,
+        "max": 835,
+        "over_384": 20
+      },
+      "flakeflagger": {
+        "min": 39,
+        "median": 103,
+        "p95": 398,
+        "max": 1122,
+        "over_384": 10
+      },
+      "prompt_injection": {
+        "min": 4,
+        "median": 14,
+        "p95": 53,
+        "max": 128,
+        "over_384": 0
+      },
+      "when2call": {
+        "min": 12,
+        "median": 623,
+        "p95": 1701,
+        "max": 2521,
+        "over_384": 102
+      }
+    },
+    "development": {
+      "aegis": {
+        "min": 4,
+        "median": 16,
+        "p95": 402,
+        "max": 2181,
+        "over_384": 9
+      },
+      "codereviewer": {
+        "min": 77,
+        "median": 248,
+        "p95": 507,
+        "max": 674,
+        "over_384": 19
+      },
+      "commitpackft": {
+        "min": 48,
+        "median": 157,
+        "p95": 586,
+        "max": 939,
+        "over_384": 14
+      },
+      "flakeflagger": {
+        "min": 32,
+        "median": 213,
+        "p95": 730,
+        "max": 2313,
+        "over_384": 30
+      },
+      "prompt_injection": {
+        "min": 3,
+        "median": 13,
+        "p95": 62,
+        "max": 162,
+        "over_384": 0
+      },
+      "when2call": {
+        "min": 13,
+        "median": 467,
+        "p95": 1586,
+        "max": 2266,
+        "over_384": 85
+      }
+    },
+    "train": {
+      "aegis": {
+        "min": 2,
+        "median": 18,
+        "p95": 451,
+        "max": 3285,
+        "over_384": 93
+      },
+      "codereviewer": {
+        "min": 31,
+        "median": 234,
+        "p95": 503,
+        "max": 986,
+        "over_384": 200
+      },
+      "commitpackft": {
+        "min": 36,
+        "median": 155,
+        "p95": 542,
+        "max": 947,
+        "over_384": 190
+      },
+      "flakeflagger": {
+        "min": 25,
+        "median": 147,
+        "p95": 667,
+        "max": 2888,
+        "over_384": 125
+      }
+    }
+  },
+  "tokenizer": {
+    "model": "Qwen/Qwen3.5-4B-Base",
+    "revision": "1001bb4d826a52d1f399e183466143f4da7b741b"
+  },
+  "base_revisions": {
+    "Qwen/Qwen3.5-4B-Base": "1001bb4d826a52d1f399e183466143f4da7b741b"
+  },
+  "context": {
+    "max_state": 7552,
+    "max_branch": 8192,
+    "max_packed": 9216,
+    "truncate": false,
+    "default_training_context": {
+      "max_state": 384,
+      "max_branch": 1024,
+      "max_packed": 2048,
+      "truncate": false
+    },
+    "note": "every record fits kev.model.training_context(MAX_TRAIN_STATE) under the tokenizer above; records whose state exceeds the default 384 tokens (state_tokens.*.over_<MAX_STATE>) need kev.train --max_state"
+  },
+  "selection": "development/test 150 records per source, train up to 1500 per trainable source; groups (repository, project, BFCL item, prompt) dealt to splits in a seeded hash order and never span splits; normalised-text state dedupe across all sources and splits (test, then development, then train); noul labels exactly balanced in pairs (within project for codereviewer / flakeflagger); choices drawn round-robin over labels; aegis keeps its native train/validation/test split; balance is a sampling choice, not the natural rate (flaky tests are 3.6% of FlakeFlagger)",
+  "label_protocol": "no LLM labels: human (codereviewer, aegis), heuristic (commitpackft verb class, flakeflagger reruns), by construction (commitpackft message match, when2call), source label (prompt_injection)",
+  "build_report": {
+    "codereviewer": {
+      "rows": 62504,
+      "licence_dropped": 18917,
+      "patch_size_dropped": 4,
+      "candidates": 43583,
+      "duplicate_state_within_source": 8466
+    },
+    "commitpackft": {
+      "rows": 291782,
+      "verb_unmapped": 48585,
+      "licence_dropped": 23855,
+      "diff_size_dropped": 279,
+      "candidates": 219063,
+      "by_type": {
+        "change": 57242,
+        "docs": 2657,
+        "feature": 82243,
+        "fix": 39254,
+        "remove": 17640,
+        "revert": 3757,
+        "test": 16270
+      },
+      "duplicate_state_within_source": 4854
+    },
+    "aegis": {
+      "rows": 28216,
+      "redacted_dropped": 992,
+      "aart_dropped": 3224,
+      "label_conflict_dropped": 212,
+      "candidates": 22381,
+      "with_category": 2021,
+      "duplicate_state_within_source": 0
+    },
+    "when2call": {
+      "rows": 3652,
+      "candidates": 3652,
+      "by_label": {
+        "cannot_answer": 1295,
+        "request_for_info": 1062,
+        "tool_call": 1295
+      },
+      "duplicate_state_within_source": 23
+    },
+    "flakeflagger": {
+      "files": 21802,
+      "label_mismatch_dropped": 1,
+      "licence_dropped": 1884,
+      "candidates": 19917,
+      "flaky": 762,
+      "tarball_sha256": "67da177462a3026655a9ed8ef4e7c87a86d538c599ed484080db3b355f6d76b1",
+      "by_project": {
+        "Alluxio-alluxio": [
+          116,
+          71
+        ],
+        "activiti-activiti": [
+          32,
+          2012
+        ],
+        "apache-ambari": [
+          52,
+          272
+        ],
+        "apache-commons-exec": [
+          0,
+          54
+        ],
+        "apache-hbase": [
+          145,
+          286
+        ],
+        "apache-httpcore": [
+          22,
+          690
+        ],
+        "apache-incubator-dubbo": [
+          19,
+          2157
+        ],
+        "doanduyhai-Achilles": [
+          4,
+          1313
+        ],
+        "elasticjob-elastic-job-lite": [
+          3,
+          555
+        ],
+        "hector-client-hector": [
+          33,
+          109
+        ],
+        "jknack-handlebars": [
+          1,
+          420
+        ],
+        "joel-costigliola-assertj-core": [
+          1,
+          6260
+        ],
+        "kevinsawicki-http-request": [
+          18,
+          145
+        ],
+        "ninjaframework-ninja": [
+          1,
+          306
+        ],
+        "orbit-orbit": [
+          7,
+          79
+        ],
+        "spring-projects-spring-boot": [
+          160,
+          1955
+        ],
+        "square-okhttp": [
+          100,
+          710
+        ],
+        "tootallnate-java-websocket": [
+          23,
+          122
+        ],
+        "undertow-io-undertow": [
+          7,
+          176
+        ],
+        "wro4j-wro4j": [
+          16,
+          1120
+        ],
+        "zxing-zxing": [
+          2,
+          343
+        ]
+      },
+      "duplicate_state_within_source": 3108
+    },
+    "prompt_injection": {
+      "duplicate_dropped": 1,
+      "rows": 1662,
+      "candidates": 1661,
+      "by_origin_label": {
+        "deepset/False": 399,
+        "deepset/True": 263,
+        "gandalf/True": 999
+      },
+      "duplicate_state_within_source": 0
+    },
+    "rejected": {
+      "aegis/line_separator_rejected": 1
+    },
+    "pools": {
+      "codereviewer": {
+        "test": 3563,
+        "development": 3539,
+        "train": 28015
+      },
+      "commitpackft": {
+        "test": 21421,
+        "development": 21424,
+        "train": 171364
+      },
+      "aegis": {
+        "test": 1714,
+        "development": 1028,
+        "train": 19639
+      },
+      "when2call": {
+        "test": 1814,
+        "development": 1815,
+        "train": 0
+      },
+      "flakeflagger": {
+        "test": 1954,
+        "development": 620,
+        "train": 14235
+      },
+      "prompt_injection": {
+        "test": 831,
+        "development": 830,
+        "train": 0
+      }
+    },
+    "groups": {
+      "codereviewer": {
+        "test": 17,
+        "development": 10,
+        "train": 113
+      },
+      "commitpackft": {
+        "test": 8063,
+        "development": 7988,
+        "train": 64340
+      },
+      "aegis": {
+        "test": 1714,
+        "development": 1028,
+        "train": 19639
+      },
+      "when2call": {
+        "test": 641,
+        "development": 654,
+        "train": 0
+      },
+      "flakeflagger": {
+        "test": 4,
+        "development": 3,
+        "train": 14
+      },
+      "prompt_injection": {
+        "test": 831,
+        "development": 830,
+        "train": 0
+      }
+    }
+  },
+  "licences_file": {
+    "path": "scripts/devtools_v1_licences.json",
+    "sha256": "75b45f29fe572f8cac0bcc97901b0a516797b9c4e32a281d867130b103abe3d9"
+  },
+  "large_partitions": "partitions with in_git false are gitignored; upload them to the Hub mirror (kev.suite.SUITES_DATASET) and bump SUITES_REVISION before load_split can fetch them elsewhere",
+  "code_sha256": "ac336c1be8bb903f26760255743f30fe203cc535e48480029fe0680404c90b0d"
+}
