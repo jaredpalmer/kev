@@ -110,6 +110,14 @@ Reported, never gating:
 
 **Reading.** At 9B, 6,000 replayed records remove the external cost that 2,000 left (round 7: pooled −0.8 / −0.4; here +0.5 / +0.3); the short-state cost shrinks from −2.3 / −1.7 to −0.8 / −0.9 but the 656-question panel cannot bound it above −2 pp (half-width ~1.7 pp). A smaller step alone (b) protects short states and moves the damage to the externals. At 0.8B neither remedy works. Five tries, no pass; the documents gain is stable across every arm (+6.5 to +6.8 at 9B, about 3 pp above Jev). The registration-appropriate next step is a fresh-seed replication of recipe (a) judged on a short-state panel large enough to resolve a 1 pp cost (round 11), not a re-reading of these arms.
 
+## Round 12 - skills delta at 9B and 0.8B (registered 2026-09-24T05:02Z, before any training or read)
+
+**Why.** Round 10's 4B skills arm passed rules 1-3 (hard-v1 development 0.503 → 0.786, devtools-v1 0.605 → 0.739, every guard flat, hard-set ECE 0.137 → 0.095); its confirmation is running. This round applies the same data at 9B with round 9's lesson (replay 6,000 removes the 9B external cost) and at 0.8B.
+
+**Arms** (study `r12-skills`, `experiments/round12/skills.json`; one epoch, `data evals/round10/skills/train.jsonl`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, H200, timeout 12,600 s): 9B from `jaredpalmer/kev-9b`, `replay 6000, lr 2e-5`, seeds 1 and 2; 0.8B from `jaredpalmer/kev-0.8b`, `replay 6000, lr 4e-5`, seed 1. Reads `runs/r12-<arm>-{hard,devtools,docs,r3test,semif,scienthoon,wanli2,typesafe,v9}`.
+
+**Rule:** round 10's rules 1-4 against each arm's released parent, with round 11's pooled short-state panel (transfer-v4 development + transfer-r3 test) for guard 2's short-state bounds, and the documents guard read against the parent's own documents-v1 development rows (`runs/docs1-P9`, `runs/docs1-P08`). Per size, the passing arm with the largest primary estimate is the candidate; confirmation as round 10 (hard-v1 + devtools-v1 test pooled lower bound > 0; locked transfer-v4).
+
 ## Round 11 - replication of round 9's recipe on a larger short-state panel (registered 2026-09-24T04:19Z, before any training or read)
 
 **Why.** Round 9's 9B arms (a) and (c) failed only the short-state lower bound, on a 656-question panel whose interval half-width (~1.7 pp) cannot bound a ~1 pp cost above −2 pp. Re-reading those arms on a bigger panel would select on the reads that motivated it, so this round trains **fresh seeds** of the single recipe chosen now and judges them with a short-state guard on a pooled panel: `transfer-v4` development (the trial's own rows) plus `evals/round3/transfer-r3` test (1,260 records; read before only by the round-4 release-confirmation arms, never by any arm of rounds 7-11, used here as a guard, not for selection).

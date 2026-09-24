@@ -2,6 +2,7 @@
 any round-10 read.
 
     uv run python scripts/round10_readout.py --out runs/r10-readout
+    uv run python scripts/round10_readout.py --round 12 --out runs/r12-readout      # round 12: 9B / 0.8B, pooled short-state panel
 
 Arms runs/r10-skills/{00,01,02}-trial-* (4B on skills / hard / devtools) and runs/r10-skills-27b/00-trial-0, read as
 runs/r10-<arm>-{hard,devtools,docs,semif,scienthoon,wanli2,typesafe,v9}; short = the trial's transfer/rows.json. Parents:
@@ -22,8 +23,15 @@ PARENTS = {"4b": ("runs/r8-small/00-trial-0", {"hard": "runs/hv1-P4r8", "devtool
                                              **{s: f"runs/r8-4b-s2-{s}" for s in EXTERNALS}}),
            "27b": ("runs/release/kev-27b-v2", {"hard": "runs/hv1-27b", "devtools": "runs/dt1-27b", "docs": "runs/r6-27bv2-s2-docs", "v9": "runs/r6-27bv2-s2-v9",
                                                **{s: f"runs/r6-27bv2-s2-{s}" for s in EXTERNALS}})}
-ARMS = {"4b-skills": ("runs/r10-skills/00-trial-0", "4b"), "4b-hard": ("runs/r10-skills/01-trial-1", "4b"), "4b-devtools": ("runs/r10-skills/02-trial-2", "4b"),
-        "27b-skills": ("runs/r10-skills-27b/00-trial-0", "27b")}
+PARENTS.update({
+    "9b": ("runs/night2-9b-du/00-trial-0", {"hard": "runs/hv1-P9", "devtools": "runs/dt1-P9", "docs": "runs/docs1-P9", "v9": "runs/n2-9b-du-v9", "r3test": "runs/rc-parent-r3test",
+                                            "semif": "runs/r5r-P9-semif", "scienthoon": "runs/r5r-P9-scienthoon", "wanli2": "runs/r6-P9-wanli2", "typesafe": "runs/r5r-P9-typesafe"}),
+    "08b": ("runs/night2-08b-du2/00-trial-0", {"hard": "runs/hv1-P08", "devtools": "runs/dt1-P08", "docs": "runs/docs1-P08", "v9": "runs/r5r-P08-v9", "r3test": "runs/r11-P08-r3test",
+                                               "semif": "runs/r5r-P08-semif", "scienthoon": "runs/r5r-P08-scienthoon", "wanli2": "runs/r6-P08-wanli2", "typesafe": "runs/r5r-P08-typesafe"})})
+ROUNDS = {10: {"4b-skills": ("runs/r10-skills/00-trial-0", "4b"), "4b-hard": ("runs/r10-skills/01-trial-1", "4b"), "4b-devtools": ("runs/r10-skills/02-trial-2", "4b"),
+               "27b-skills": ("runs/r10-skills-27b/00-trial-0", "27b")},
+          12: {"9b-s1": ("runs/r12-skills/00-trial-0", "9b"), "9b-s2": ("runs/r12-skills/01-trial-1", "9b"), "08b-s1": ("runs/r12-skills/02-trial-2", "08b")}}
+POOLED_SHORT = {12}   # rounds whose short-state guard pools transfer-v4 dev with transfer-r3 test (round 11)
 
 
 # devtools-v1 development has one record id used by two different records (a builder bug found at the first read;
@@ -31,22 +39,24 @@ ARMS = {"4b-skills": ("runs/r10-skills/00-trial-0", "4b"), "4b-hard": ("runs/r10
 DUPLICATE_IDS = {"codereviewer/cls-test/13657", "codereviewer/cls-test/19245"}   # development, test
 
 
-def arm_rows(trial, reads, t):
+def arm_rows(trial, reads, t, pooled_short=False):
     rows = {"short": knowable(serve(trial, Path(trial) / "transfer/rows.json", t)[0]), **{s: knowable(serve(trial, f"{reads[s]}/rows.json", t)[0]) for s in SUITES}}
+    if pooled_short: rows["short"] += knowable(serve(trial, f"{reads['r3test']}/rows.json", t)[0])
     rows["devtools"] = [r for r in rows["devtools"] if r["id"] not in DUPLICATE_IDS]
     return rows
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("--out", required=True); a = ap.parse_args()
-    report = {"arms": {}, "excluded_duplicate_ids": sorted(DUPLICATE_IDS)}
-    for arm, (trial, size) in ARMS.items():
-        reads = {s: f"runs/r10-{arm}-{s}" for s in (*SUITES, "v9")}
+    ap = argparse.ArgumentParser(); ap.add_argument("--out", required=True); ap.add_argument("--round", type=int, default=10, choices=list(ROUNDS)); a = ap.parse_args()
+    report = {"round": a.round, "arms": {}, "excluded_duplicate_ids": sorted(DUPLICATE_IDS)}
+    pooled_short = a.round in POOLED_SHORT
+    for arm, (trial, size) in ROUNDS[a.round].items():
+        reads = {s: f"runs/r{a.round}-{arm}-{s}" for s in (*SUITES, "v9", *(["r3test"] if pooled_short else []))}
         if not (Path(trial) / "transfer/rows.json").exists() or not all(Path(f"{d}/rows.json").exists() for d in reads.values()):
             report["arms"][arm] = "not read yet"; continue
         ptrial, preads = PARENTS[size]
         pt, t = (served(read_json(Path(x) / "development/rows.json"), [])[0] for x in (ptrial, trial))
-        P, C = arm_rows(ptrial, preads, pt), arm_rows(trial, reads, t)
+        P, C = arm_rows(ptrial, preads, pt, pooled_short), arm_rows(trial, reads, t, pooled_short)
         pooled = lambda R: R["hard"] + R["devtools"]
         rep = {"trial": trial, "parent": ptrial, "temperature": t, "parent_temperature": pt,
                "primary": boot(pooled(C), pooled(P), "acc"), **{f"{s}_acc": (metrics(C[s])["acc"], metrics(P[s])["acc"]) for s in ("hard", "devtools", "docs")},
@@ -66,10 +76,10 @@ def main():
                            "3_hard_ece_at_most_parent_plus_0.01": rep["hard_ece"]["candidate"] <= rep["hard_ece"]["parent"] + 0.01}
         rep["passed"] = all(rep["criteria"].values())
         report["arms"][arm] = rep
-    for size in ("4b", "27b"):
+    for size in sorted({size for _, size in ROUNDS[a.round].values()}):
         passing = [(k, v) for k, v in report["arms"].items() if k.startswith(size + "-") and isinstance(v, dict) and v["passed"]]
         report[f"candidate_{size}"] = max(passing, key=lambda kv: kv[1]["primary"]["delta"])[0] if passing else None
-    Path(a.out).mkdir(parents=True, exist_ok=True); write_json(Path(a.out) / "round10.json", report)
+    Path(a.out).mkdir(parents=True, exist_ok=True); write_json(Path(a.out) / f"round{a.round}.json", report)
     f = lambda b: f"{100 * b['delta']:+.1f} [{100 * b['ci95'][0]:+.1f}, {100 * b['ci95'][1]:+.1f}]"
     for arm, r in report["arms"].items():
         if not isinstance(r, dict): print(f"{arm:12} {r}"); continue
