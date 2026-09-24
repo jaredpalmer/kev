@@ -2,6 +2,17 @@
 
 This file is the living plan: where Kev stands, what runs next and the criteria decided before the runs, and open questions. Completed plans stay as records under **History** (the Qwen3.5 port, done 2026-09-20, is [there](#qwen35-port-2026-09-20)). The active round is **Round 4** below (current-architecture levers, registered 2026-09-22); the proposal after it is [`PLAN_27b.md`](PLAN_27b.md) (Qwen3.8-27B, question-side LoRA, long documents), gated on round 4's items 4.8 and 4.12. Everything older is kept below under **History**, dated.
 
+## Where we stand (2026-09-24, morning)
+
+- **Released:** Kev-4B round-8 documents delta (`jaredpalmer/kev-4b`, public). Kev-27B B1 v2 (`jaredpalmer/kev-27b`, **private**: passed every registered gate plus the bf16 serving check; JevBench public 0.866, level with Jev's published 0.866; awaiting Jared's call to make it public).
+- **Confirmed candidates, not published** (private copies for evaluation; draft docs on branch `release/family-0924`):
+  - **Kev-4B round 10** (skills delta on top of round 8): hard-v1 test 0.540 → 0.803, devtools-v1 test 0.623 → 0.756, locked transfer-v4 0.835 → 0.838, Brier 0.233 → 0.224; JevBench public hard 0.450 → 0.541 (+9.0 pp [+2.7, +15.3]), hard ECE 0.263 → 0.112. Private: `jaredpalmer/kev-4b-candidates`.
+  - **Kev-0.8B round 15** (documents + skills in one delta): documents-v1 test 0.608 → 0.851, hard-v1 test 0.396 → 0.665, devtools-v1 test 0.472 → 0.637, locked 0.684 → 0.697; JevBench public 0.597 → 0.636 (hard within noise). Private: `jaredpalmer/kev-0.8b-candidates`.
+- **No candidate yet:** 9B (every documents or skills delta learns the task and costs WANLI-v2 / scienthoon; round 16 tests replay 10,000), 27B skills (round 10 failed only scienthoon; round 17 tests replay 10,000).
+- **New suites (on main):** `documents-v1/v2` (real CFPB complaints), `hard-v1` (programmatic skill families; its per-family profile matches JevBench's hard tier with no shared items), `devtools-v1` (six licence-checked developer-tooling sources).
+- **Decisions for Jared:** publish Kev-4B r10 and Kev-0.8B r15 (and flip Kev-27B public); upload the documents-v1 and hard-v1 train partitions to the public `kev-suites` mirror (reproducible from builders, but the mirror is how `load_split` finds them).
+- **Spend this night:** Modal metered $1,085 → ~$1,330 plus running bounds; AI Gateway < $1.
+
 ## Where we stand (2026-09-22)
 
 - **Family:** Kev-0.8B / 4B / 9B on Qwen3.5 bases, one recipe (`decision-v7`, LoRA r=16, lr 1e-4 / 5e-5 / 5e-5) plus the 2026-09-21 dates + unknowable delta. Locked test, out of domain: 0.684 / 0.837 / **0.852**; Jev 0.857 on the development items. Pre-delta weights at Hub tag `v7-base`; Qwen3 checkpoints published as the previous generation.
