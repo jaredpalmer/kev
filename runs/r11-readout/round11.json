@@ -1,8 +1,208 @@
 {
   "jev_docs_acc": 0.8684782608695653,
   "arms": {
-    "9b-s4": "not read yet",
-    "9b-s5": "not read yet",
+    "9b-s4": {
+      "trial": "runs/r11-docs/00-trial-0",
+      "parent": "runs/night2-9b-du/00-trial-0",
+      "temperature": 2.244924096618745,
+      "docs": {
+        "delta": 0.07282608695652182,
+        "ci95": [
+          0.050772626931567366,
+          0.094763169124271
+        ]
+      },
+      "docs_acc": 0.9054347826086957,
+      "parent_docs_acc": 0.8326086956521739,
+      "docs_vs_jev": {
+        "delta": 0.036956521739130443,
+        "ci95": [
+          0.017638636922000767,
+          0.057019166573940086
+        ]
+      },
+      "short": {
+        "acc": {
+          "delta": -0.0033222591362126463,
+          "ci95": [
+            -0.011074197120708784,
+            0.003875968992248069
+          ]
+        },
+        "brier": {
+          "delta": 0.0019437544390926154,
+          "ci95": [
+            -0.001543127446043524,
+            0.005953280790832076
+          ]
+        },
+        "confident_error_rate": {
+          "delta": -0.0038759689922480585,
+          "ci95": [
+            -0.0071982281284606875,
+            -0.0011074197120708729
+          ]
+        }
+      },
+      "externals": {
+        "semif": {
+          "delta": 0.01388888888888895,
+          "ci95": [
+            0.0,
+            0.03472222222222221
+          ],
+          "n": 144,
+          "gating": false
+        },
+        "scienthoon": {
+          "delta": 0.0,
+          "ci95": [
+            -0.009163802978235935,
+            0.009163802978235935
+          ],
+          "n": 873,
+          "gating": true
+        },
+        "wanli2": {
+          "delta": -0.014970059880239472,
+          "ci95": [
+            -0.02894211576846306,
+            -0.0009980039920159944
+          ],
+          "n": 1002,
+          "gating": true
+        },
+        "typesafe": {
+          "delta": 0.011235955056179803,
+          "ci95": [
+            -0.027027027027027084,
+            0.04999999999999993
+          ],
+          "n": 89,
+          "gating": false
+        }
+      },
+      "pooled_external": {
+        "delta": -0.005692599620493288,
+        "ci95": [
+          -0.013238927246254303,
+          0.0019002601085592455
+        ]
+      },
+      "unknowable_share": 0.0,
+      "criteria": {
+        "1_docs_lower_above_0": true,
+        "2_short_acc_lower_at_least_minus_2pp": true,
+        "2_short_brier_upper_at_most_0.01": true,
+        "2_short_confident_errors_upper_at_most_1pp": true,
+        "3_wanli2_lower_at_least_minus_2pp": false,
+        "3_scienthoon_lower_at_least_minus_2pp": true,
+        "3_pooled_lower_at_least_minus_1.5pp": true,
+        "3_unknowable_at_most_0.05": true
+      },
+      "passed": false
+    },
+    "9b-s5": {
+      "trial": "runs/r11-docs/01-trial-1",
+      "parent": "runs/night2-9b-du/00-trial-0",
+      "temperature": 2.406050072164233,
+      "docs": {
+        "delta": 0.06739130434782614,
+        "ci95": [
+          0.0449053040535562,
+          0.09020065982099319
+        ]
+      },
+      "docs_acc": 0.9,
+      "parent_docs_acc": 0.8326086956521739,
+      "docs_vs_jev": {
+        "delta": 0.03152173913043477,
+        "ci95": [
+          0.013005780864087059,
+          0.04973512926607391
+        ]
+      },
+      "short": {
+        "acc": {
+          "delta": -0.009413067552602516,
+          "ci95": [
+            -0.018826135105204814,
+            -0.0005537098560354226
+          ]
+        },
+        "brier": {
+          "delta": 0.005205241288033874,
+          "ci95": [
+            -0.0004278247839539735,
+            0.010864795926170139
+          ]
+        },
+        "confident_error_rate": {
+          "delta": -0.004983388704318935,
+          "ci95": [
+            -0.01052048726467331,
+            -0.0005537098560354364
+          ]
+        }
+      },
+      "externals": {
+        "semif": {
+          "delta": 0.01388888888888895,
+          "ci95": [
+            -0.01388888888888884,
+            0.04166666666666663
+          ],
+          "n": 144,
+          "gating": false
+        },
+        "scienthoon": {
+          "delta": 0.00572737686139746,
+          "ci95": [
+            -0.0068728522336769515,
+            0.01718213058419249
+          ],
+          "n": 873,
+          "gating": true
+        },
+        "wanli2": {
+          "delta": -0.02894211576846306,
+          "ci95": [
+            -0.043912175648702645,
+            -0.013972055888223586
+          ],
+          "n": 1002,
+          "gating": true
+        },
+        "typesafe": {
+          "delta": 0.022471910112359494,
+          "ci95": [
+            0.0,
+            0.05748797113071366
+          ],
+          "n": 89,
+          "gating": false
+        }
+      },
+      "pooled_external": {
+        "delta": -0.009487666034155517,
+        "ci95": [
+          -0.018138424821002475,
+          0.0
+        ]
+      },
+      "unknowable_share": 0.0,
+      "criteria": {
+        "1_docs_lower_above_0": true,
+        "2_short_acc_lower_at_least_minus_2pp": true,
+        "2_short_brier_upper_at_most_0.01": false,
+        "2_short_confident_errors_upper_at_most_1pp": true,
+        "3_wanli2_lower_at_least_minus_2pp": false,
+        "3_scienthoon_lower_at_least_minus_2pp": true,
+        "3_pooled_lower_at_least_minus_1.5pp": false,
+        "3_unknowable_at_most_0.05": true
+      },
+      "passed": false
+    },
     "08b-s4": {
       "trial": "runs/r11-docs/02-trial-2",
       "parent": "runs/night2-08b-du2/00-trial-0",
