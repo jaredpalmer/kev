@@ -59,7 +59,8 @@ def write_json(path, value):
 
 
 def read_jsonl(path):
-    return [json.loads(line) for line in Path(path).read_text(encoding=ENCODING).splitlines() if line.strip()]
+    # split on "\n" only: str.splitlines() also breaks on U+2028, U+2029 and U+0085, which write_jsonl leaves unescaped
+    return [json.loads(line) for line in Path(path).read_text(encoding=ENCODING).split("\n") if line.strip()]
 
 
 def write_jsonl(path, records):
