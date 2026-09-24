@@ -16,12 +16,14 @@ the local git commit (KEV_GIT_COMMIT), the suite hash, and the hashes of the kev
 Volumes: kev-hf-cache (base weights, downloaded once), kev-runs (trial outputs). Secrets: none required; set
 KEV_HF_SECRET=<modal secret name> to attach a Secret carrying HF_TOKEN for gated bases.
 """
+import fcntl
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from typing import NamedTuple
 
@@ -296,14 +298,38 @@ def read_timeout(suite):
     return next((t for key, t in READ_TIMEOUTS if key in suite), DEFAULT_READ_TIMEOUT)
 
 
+class BenchJob(NamedTuple):
+    run: str      # Hub id[@revision] or a /runs path
+    suite: str    # suite directory or .jsonl under the checkout
+    name: str     # output: /runs/bench/<name>, pulled to runs/<name>
+    flags: str    # extra kev.benchmark switches, each starting with --
+
+
+def parse_jobs(jobs):
+    """run@suite@name[@flags] entries, comma-separated. Parsed from the right: flags (when present) start with '--', then
+    the name and the suite, and everything before them is the run, so a pinned Hub revision (repo@sha) stays in the run
+    (split from the left, it shifted every field and round 10's parent test reads failed before scoring anything)."""
+    out = []
+    for job in jobs.split(","):
+        parts = job.split("@")
+        flags = parts.pop() if parts[-1].startswith("--") else ""
+        if len(parts) not in (3, 4) or not all(parts):
+            raise ValueError(f"benchmark job {job!r} is not run@suite@name[@flags] (flags start with --)")
+        *run, suite, name = parts
+        out.append(BenchJob("@".join(run), suite, name, flags))
+    return out
+
+
 @app.local_entrypoint()
 def benchmarks(jobs: str, gpu: str = GPU, timeout: int = 0):
-    """Score checkpoints on suites or --data .jsonl files: comma-separated run@suite@name[@flags] entries, e.g.
+    """Score checkpoints on suites or --data .jsonl files: comma-separated run@suite@name[@flags] entries (parse_jobs), e.g.
     "jaredpalmer/kev-9b@evals/external/semif-v1@kev-9b-semif,/runs/X/00-trial-0/checkpoint@evals/v9/transfer-v9@x-v9@--date_facts".
     Results are pulled to runs/<name>. Each job gets its suite's timeout (READ_TIMEOUTS); --timeout N sets one for all
     of them (raise it for a 27B, whose fp32 reads run about three times longer than a 9B's)."""
-    entries = [(j.split("@") + [""])[:4] for j in jobs.split(",")]
-    calls = [run_bench.with_options(gpu=gpu, timeout=timeout or read_timeout(suite)).spawn(*e) for e, suite in zip(entries, (e[1] for e in entries))]
+    entries = parse_jobs(jobs)
+    missing = sorted({e.suite for e in entries if not (ROOT / e.suite).exists()})
+    if missing: raise SystemExit(f"no such suite or data file in this checkout: {missing}")
+    calls = [run_bench.with_options(gpu=gpu, timeout=timeout or read_timeout(e.suite)).spawn(*e) for e in entries]
     for (run, suite, name, _), call in zip(entries, calls):
         try: result = call.get()
         except Exception as e: print(f"{name}: FAILED {type(e).__name__}: {str(e)[:300]}"); continue
@@ -395,11 +421,25 @@ def launch(suite, plan_path, name, gpu, existing=(), transfer=None, budget=20.0,
         raise SystemExit(1)
 
 
+@contextmanager
+def pull_lock(study):
+    """One pull of a study at a time: two concurrent pulls (a watcher launching reads for two trials that finished together)
+    deleted and re-fetched each other's trial directories. A second pull waits for the first, then refreshes."""
+    (ROOT / "runs").mkdir(exist_ok=True)
+    with (ROOT / "runs" / f".pull-{study}.lock").open("a", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
 def pull_study(study):
     """Download a study directory from the runs volume into runs/<study> and rank it. A study pulled before all its trials
     finished is refreshed: finished trial directories (with result.json) are kept, unfinished ones are fetched again."""
+    with pull_lock(study):
+        return _pull_study(study)
+
+
+def _pull_study(study):
     target = ROOT / "runs" / study
-    target.parent.mkdir(exist_ok=True)
     if not target.exists():
         pull_volume(f"/{study}", target.parent)   # recreates runs/<study>/... locally, checkpoints included (gitignored)
     else:
