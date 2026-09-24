@@ -191,6 +191,14 @@ Skills on top of the round-11 0.8B documents candidate: seed 1 primary +20.6 [+1
 
 From the Kev-27B release candidate (B1 v2 seed 2), one epoch on skills with replay 4000, lr 2e-5: hard-v1 development 0.733 → **0.885** (+15.1 [+12.4, +18.0]; Jev 0.777), devtools-v1 0.702 → **0.787** (+8.5 [+6.2, +10.7]; Jev 0.713), primary +11.8 [+10.1, +13.6], documents −0.5 [−1.6, +0.5], short state +0.5 [−0.8, +1.7], pooled externals −0.4 [−1.3, +0.4], hard-set ECE 0.047 → **0.015**, in-trial held-out pairs 0.891 → 0.922. **Fails one guard: scienthoon −1.8 [−3.0, −0.7]** (lower bound under −2 pp). Scienthoon (support-ticket routing) is the external that skills/devtools deltas cost most often (4B devtools-only arm, both 9B seeds, here); the next 27B attempt should carry more replay (round 16's 9B arms test replay 10,000). The read client died on a local network drop while downloading results; the eight reads had finished on Modal and were pulled from the volume unchanged.
 
+## Round 17 - 27B skills with more replay (registered 2026-09-24T08:42Z, before any training or read)
+
+**Why.** Round 10's 27B skills arm passed everything except scienthoon (−1.8 [−3.0, −0.7]). More replay of the original training data is the remedy that removed the external cost at 9B in round 9.
+
+**Arms** (study `r17-27b`, `experiments/round17/skills.json`): from `/runs/release/kev-27b-v2/checkpoint`, one epoch on `evals/round10/skills/train.jsonl`, `max_state 7552`, `p_none_pair 0.25`, bf16 weights, checkpointing, seed 1, H200, timeout 28,800 s: (a) `replay 10000, lr 2e-5`, (b) `replay 10000, lr 1e-5`.
+
+**Rule:** round 10's rule against the Kev-27B candidate (its reads `runs/r6-27bv2-s2-*`, `runs/hv1-27b`, `runs/dt1-27b`; short state on transfer-v4 development as in round 10). Candidate: the passing arm with the larger primary; confirmation: hard-v1 + devtools-v1 test pooled lower bound > 0 and locked `transfer-v4` (≥ 0.896 − 1 pp, served Brier ≤ 0.160 + 0.005).
+
 ## Round 12 - skills delta at 9B and 0.8B (registered 2026-09-24T04:56Z, before any training or read)
 
 **Why.** Round 10's 4B skills arm passed rules 1-3 (hard-v1 development 0.503 → 0.786, devtools-v1 0.605 → 0.739, every guard flat, hard-set ECE 0.137 → 0.095); its confirmation is running. This round applies the same data at 9B with round 9's lesson (replay 6,000 removes the 9B external cost) and at 0.8B.
