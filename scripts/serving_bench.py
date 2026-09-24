@@ -78,7 +78,8 @@ def agreement(pairs):
 def isolation(m, tok, raw):
     """Each question alone vs in the full request ("packed") and vs after ISOLATION_PROBE ("sibling"), served as
     configured (bf16, graphs if loaded). raw = labelled records, before materialize."""
-    serve = lambda record: m.probs_and_prefix(m.encode(tok, materialize(record)))[0]
+    def serve(record):
+        return m.probs_and_prefix(m.encode(tok, materialize(record)))[0]
     out = {"packed": [], "sibling": []}
     for r in raw:
         full = serve(r)
