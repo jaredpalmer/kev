@@ -64,7 +64,7 @@ def validated_trial(value, manifest):
         if key in result and (isinstance(result[key], bool) or not isinstance(result[key], int) or not lo <= result[key] <= hi):
             raise ValueError(f"{key} is an int in [{lo}, {hi}] (optional; kev.train's default when absent)")
     if "init_from" in result and not re.fullmatch(r"(/runs/[\w./-]+|[\w-]+/[\w.-]+(@[\w.-]+)?)", str(result["init_from"])):
-        raise ValueError("init_from must be a checkpoint path on the runs volume or a Hub id (optionally @revision); the trainer records its adapter and head hashes in provenance")
+        raise ValueError("init_from must be a checkpoint path on the runs volume or a Hub id (optionally @revision); the trainer records its weights and head hashes in provenance")
     if result.get("base") not in manifest["base_revisions"]:
         # a base the frozen suite did not pin may still be used if the trial pins its own full commit sha (recorded in provenance)
         if not re.fullmatch(r"[0-9a-f]{40}", str(result.get("base_revision", ""))):

@@ -2,7 +2,7 @@
 backbone), `head.pt` and the tokenizer.
 
 Loader rule: `adapter_config.json` present -> a LoRA adapter on `meta.base` at `meta.base_revision`; no adapter and
-`config.json` + `*.safetensors` (save_pretrained of the backbone, `meta.weights == "full"`) -> the backbone is loaded from
+`config.json` + `model*.safetensors` (save_pretrained of the backbone, `meta.weights == "full"`) -> the backbone is loaded from
 the checkpoint directory itself, nothing is merged. The tokenizer always comes from the base (both layouts carry a copy).
 
 This is the one place that knows the layout of `head.pt` and how a checkpoint becomes a `DecisionModel`:
