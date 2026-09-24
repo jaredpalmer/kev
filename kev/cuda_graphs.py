@@ -273,8 +273,8 @@ class CudaGraphs:
     @torch.no_grad()
     def run(self, requests):
         """Admitted requests (Request) -> (their picked hidden states, float32 [sum of picks, d] in request, row, pick
-        order; per request its state's cache: the cached one, a new one if `keep`, else None). States of a similar length
-        share a state pass (identical states once); each request takes one bank entry, so at most GRAPH_STATES per group.
+        order; per request its state's cache: the cached one, a new one if `keep`, else None). States grouped by length
+        (length_groups) share a state pass (identical states once); each request takes one bank entry, so at most GRAPH_STATES per group.
         Every row pass writes its picks straight to their place in the output."""
         at = [0]
         for r in requests: at.append(at[-1] + sum(map(len, r.picks)))
@@ -340,7 +340,7 @@ class CudaGraphs:
     def rows(self, rows, out):
         """Row passes for question rows (_Row), each continuing its state in the bank; each row's picked hidden states land
         in out[row.at:]. The rows see the last Sr positions of the bank, Sr the longest state rounded up to a power of two
-        (it only lengthens attention). Rows of a similar length share a pass; as few passes as the buffers allow."""
+        (it only lengthens attention). Rows are grouped by length (length_groups), then split to fit the buffers."""
         for idx in length_groups([len(r.ids) for r in rows], GRAPH_ROWS):
             Lb, Sr = bucket(max(len(rows[i].ids) for i in idx)), pow2(max(16, max(rows[i].state_len for i in idx)))
             group = min(GRAPH_ROWS, GRAPH_TOKENS // (Sr + Lb))
