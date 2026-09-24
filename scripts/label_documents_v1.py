@@ -1,6 +1,7 @@
 """Label documents-v1 candidates with LLMs through the Vercel AI Gateway (PLAN_27b B2, revised protocol), blind to the
 native labels. One call per (model, document) answers all of that document's questions; answers are cached per model and
-split, so a rerun resumes. A shared spend ledger (labels/spend.json, written after every labelled result) enforces a
+split, so a rerun resumes; a call that failed (an `error` result: a non-retryable HTTP status or retries exhausted) is
+kept in the answers file for the record but is not cached, so the next run retries it. A shared spend ledger (labels/spend.json, written after every labelled result) enforces a
 hard cap across runs. The cap holds for sequential runs of this script (two concurrent runs each read the ledger once and
 overwrite each other's total); within a run, the calls already in flight when it trips (at most --workers - 1) still
 finish and are recorded, so the ledger can end slightly above the cap. A response without `usage.cost` is not free, it is
@@ -44,11 +45,23 @@ def parse(text, rec):
     try: obj = json.loads(m.group())
     except json.JSONDecodeError: return None
     out = {}
-    for qid, q in rec["questions"].items():
+    for qid, q in rec["questions"].items():   # well-formed JSON of the wrong shape is an unlabelled question, never an exception
         a = obj.get(qid)
-        label = a.get("label") if isinstance(a, dict) else a
-        out[qid] = {"label": label if label in q["criteria"] else None, "reason": (a.get("reason", "") if isinstance(a, dict) else "")[:300]}
+        label, reason = (a.get("label"), a.get("reason")) if isinstance(a, dict) else (a, None)
+        out[qid] = {"label": label if isinstance(label, str) and label in q["criteria"] else None, "reason": reason[:300] if isinstance(reason, str) else ""}
     return out
+
+
+def answered(path):
+    """Ids with a cached answer: every result except failed calls, which the next run retries."""
+    return {r["id"] for r in read_jsonl(path) if "error" not in r} if path.exists() else set()
+
+
+def save_ledger(path, ledger):
+    """Write the ledger atomically, so a crash mid-write cannot leave a truncated spend.json behind."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def call(model, rec, key, retries=6):
@@ -71,7 +84,7 @@ def call(model, rec, key, retries=6):
             return {"answers": None, "cost": 0.0, "error": f"{type(e).__name__}: {e}"}
 
 
-def label(model, todo, out, key, ledger, save, *, cap, max_uncosted, workers):
+def label(model, todo, out, key, ledger, ledger_path, *, cap, max_uncosted, workers):
     """Label `todo` with one model, appending each answer to `out` and saving the ledger after every result. The spend
     checks run on the worker that recorded the result, so a call that starts after the cap trips sees `stop` and is never
     made. Returns (counts, whether the run stopped early)."""
@@ -86,9 +99,10 @@ def label(model, todo, out, key, ledger, save, *, cap, max_uncosted, workers):
             ledger["total"] += cost; ledger["by_model"][model] = ledger["by_model"].get(model, 0.0) + cost
             if res["cost"] is None: tally["uncosted"] += 1; ledger["uncosted"] = ledger.get("uncosted", 0) + 1
             f.write(json.dumps({"id": rec["_meta"]["id"], "model": model, **res}) + "\n"); f.flush()
-            save()
-            tally["labelled"] += 1; tally["unparsed"] += res["answers"] is None
-            if tally["labelled"] % 100 == 0: print(f"  {tally['labelled']}/{len(todo)} (unparsed {tally['unparsed']}, uncosted {tally['uncosted']}) ${ledger['total']:.2f}", flush=True)
+            save_ledger(ledger_path, ledger)
+            if "error" in res: tally["failed"] += 1
+            else: tally["labelled"] += 1; tally["unparsed"] += res["answers"] is None
+            if (tally["labelled"] + tally["failed"]) % 100 == 0: print(f"  {tally['labelled']}/{len(todo)} (failed {tally['failed']}, unparsed {tally['unparsed']}, uncosted {tally['uncosted']}) ${ledger['total']:.2f}", flush=True)
             if ledger["total"] >= cap and not stop.is_set():
                 stop.set(); print(f"  spend cap ${cap:.2f} reached; stopping", flush=True)
             if ledger.get("uncosted", 0) > max_uncosted and not stop.is_set():
@@ -96,7 +110,7 @@ def label(model, todo, out, key, ledger, save, *, cap, max_uncosted, workers):
 
     with open(out, "a", encoding="utf-8") as f, ThreadPoolExecutor(workers) as pool:
         for fut in as_completed([pool.submit(label_one, r) for r in todo]): fut.result()
-    save()
+    save_ledger(ledger_path, ledger)
     return tally, stop.is_set()
 
 
@@ -117,16 +131,15 @@ def main():
     if a.limit: recs = recs[:a.limit]
     ledger_path = work / "labels" / "spend.json"; ledger_path.parent.mkdir(parents=True, exist_ok=True)
     ledger = read_json(ledger_path) if ledger_path.exists() else {"total": 0.0, "by_model": {}}
-    save = lambda: ledger_path.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
     if ledger.get("uncosted", 0) > a.max_uncosted:
         raise SystemExit(f"{ledger['uncosted']} earlier responses carried no usage.cost (limit {a.max_uncosted}); reconcile {ledger_path} with the gateway's billing first")
     for model in a.models.split(","):
         out = work / "labels" / a.split / (model.replace("/", "__") + ".jsonl"); out.parent.mkdir(parents=True, exist_ok=True)
-        done = {r["id"] for r in read_jsonl(out)} if out.exists() else set()
+        done = answered(out)
         todo = [r for r in recs if r["_meta"]["id"] not in done]
         print(f"{model} on {a.split}: {len(done)} cached, {len(todo)} to label; spend so far ${ledger['total']:.2f} of ${a.cap:.2f}", flush=True)
-        tally, stopped = label(model, todo, out, key, ledger, save, cap=a.cap, max_uncosted=a.max_uncosted, workers=a.workers)
-        print(f"  done: {tally['labelled']} labelled, {tally['unparsed']} unparsed, {tally['uncosted']} uncosted; ledger ${ledger['total']:.2f}", flush=True)
+        tally, stopped = label(model, todo, out, key, ledger, ledger_path, cap=a.cap, max_uncosted=a.max_uncosted, workers=a.workers)
+        print(f"  done: {tally['labelled']} labelled, {tally['failed']} failed (retried next run), {tally['unparsed']} unparsed, {tally['uncosted']} uncosted; ledger ${ledger['total']:.2f}", flush=True)
         if stopped: break
 
 

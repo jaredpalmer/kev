@@ -1,7 +1,7 @@
 """documents-v1: apply the B2 label rules to the candidates and the LLM answers (scripts/label_documents_v1.py), write the
 adjudication queue and, once adjudications exist, the frozen suite.
 
-    uv run python scripts/freeze_documents_v1.py --report                  # agreement tables, writes the adjudication queue
+    uv run python scripts/freeze_documents_v1.py                           # agreement tables, writes the adjudication queue
     uv run python scripts/freeze_documents_v1.py --combine                 # two independent adjudications -> adjudications.jsonl
     uv run python scripts/freeze_documents_v1.py --spot-check              # the 50-question human sample from the final test split
     uv run python scripts/freeze_documents_v1.py --freeze evals/documents-v1 --min-agreement 47   # needs adjudications + spot-check reviews
@@ -14,15 +14,16 @@ Unparsed judge answers count as disagreement.
 
 --freeze runs every gate (adjudications complete, the spot-check reviews cover exactly the sample drawn from the frozen
 test split, reviewer agreement >= --min-agreement) before it writes anything, and it never writes into --work: a failed
-freeze leaves nothing on disk. documents-v1 and documents-v2 registered 47/50 as the bar.
+freeze leaves nothing on disk (a failure after the first partition is written, such as a failed private upload, removes
+the suite directory again). documents-v1 and documents-v2 registered 47/50 as the bar.
 """
-import argparse, hashlib, json, random, sys
+import argparse, json, random, shutil, sys
 from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from kev.suite import PRIVATE_DATASET, SERVING_CONTEXT, read_json, read_jsonl, read_manifest, write_json, write_jsonl  # noqa: E402
+from kev.suite import PRIVATE_DATASET, SERVING_CONTEXT, digest, read_json, read_jsonl, read_manifest, write_json, write_jsonl  # noqa: E402
 
 WORK = Path("runs/documents-v1-work")
 TEACHERS = ("deepseek/deepseek-v3.2", "alibaba/qwen3-235b-a22b-thinking")
@@ -31,10 +32,12 @@ SPOT_CHECK_SIZE, SPOT_CHECK_SEED = 50, "documents-v1-spot-check"   # documents-v
 
 
 def answers(work, split, models):
+    """Each model's cached answers by record id; failed calls (an `error` result, retried by the labeller) are skipped,
+    which votes exactly as before: a failed call has no answers, so it never matched a label."""
     out = {}
     for m in models:
         path = work / "labels" / split / (m.replace("/", "__") + ".jsonl")
-        out[m] = {r["id"]: r for r in read_jsonl(path)} if path.exists() else {}
+        out[m] = {r["id"]: r for r in read_jsonl(path) if "error" not in r} if path.exists() else {}
     return out
 
 
@@ -136,7 +139,7 @@ def spot_check_gate(work, test, min_agreement):
     if agreed < min_agreement: raise SystemExit(f"spot check {agreed}/{len(sample)} is below the registered {min_agreement}/{len(sample)}; nothing frozen")
     return {"reviewer": "Jared Palmer", "tool": "tools/review", "sample": f"{SPOT_CHECK_SIZE} test questions, seed {SPOT_CHECK_SEED}", "agreement": f"{agreed}/{len(sample)}",
             "disagreements": [{"id": r["id"], "frozen": r["proposed_label"], "reviewer": r["label"], "verdict": r["verdict"]} for r in reviews if r["verdict"] != "accept"],
-            "reviews_sha256": hashlib.sha256((work / "spot_check_reviews.jsonl").read_bytes()).hexdigest()}
+            "reviews_sha256": digest(work / "spot_check_reviews.jsonl")}
 
 
 def evals_relative(out):
@@ -156,17 +159,30 @@ def upload_private(out, names):
 
 
 def freeze(work, out, splits, report, *, version, min_agreement, private):
-    """Every gate first, then the partitions, the optional private upload and the manifest."""
+    """Every gate first, then the partitions, the optional private upload and the manifest; any failure after the suite
+    directory exists removes it again."""
+    if "test" not in splits: raise SystemExit(f"no test candidates in {work / 'candidates'}; nothing frozen")
     if any(r.get("awaiting_adjudication") for r in report.values()): raise SystemExit("adjudications missing; nothing frozen")
     if out.exists(): raise FileExistsError(out)
     if private: evals_relative(out)
     human = spot_check_gate(work, splits["test"], min_agreement)
     build = read_json(work / "candidates" / "build.json")
     out.mkdir(parents=True)
+    try:
+        write_suite(out, splits, report, human, build, version=version, private=private)
+    except BaseException:
+        shutil.rmtree(out)
+        raise
+    print(f"frozen {out}")
+
+
+def write_suite(out, splits, report, human, build, *, version, private):
+    """The partitions, the optional private upload (the manifest pins its commit) and the manifest. A failure after the
+    upload leaves that commit in the mirror, unreferenced by any manifest."""
     files = {}
     for split, recs in splits.items():
         write_jsonl(out / f"{split}.jsonl", recs)
-        files[f"{split}.jsonl"] = {"sha256": hashlib.sha256((out / f"{split}.jsonl").read_bytes()).hexdigest(), "records": len(recs), "questions": sum(len(r["questions"]) for r in recs),
+        files[f"{split}.jsonl"] = {"sha256": digest(out / f"{split}.jsonl"), "records": len(recs), "questions": sum(len(r["questions"]) for r in recs),
                                    "by_length": dict(Counter(r["_meta"]["length_bucket"] for r in recs))}
     mirror = {"mirror": {"dataset": PRIVATE_DATASET, "revision": upload_private(out, list(files))}} if private else {}
     # A held-out-only suite (no train split, documents-v2) declares nothing trainable. documents-v2's manifest was frozen
@@ -179,11 +195,11 @@ def freeze(work, out, splits, report, *, version, min_agreement, private):
                                        "description": f"AI-adjudicated, human spot-checked ({human['agreement']} agreement)",
                                        "trainable_sources": trainable, "holdout_sources": [], "context": SERVING_CONTEXT,
                                        "base_revisions": read_manifest(ROOT / "evals/v7/decision-v7")["base_revisions"], "candidates_build": build})
-    print(f"frozen {out}")
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("--report", action="store_true"); ap.add_argument("--freeze", default=""); ap.add_argument("--combine", action="store_true")
+    ap = argparse.ArgumentParser(description="without a mode flag: print the label report and write the adjudication queue")
+    ap.add_argument("--freeze", default=""); ap.add_argument("--combine", action="store_true")
     ap.add_argument("--spot-check", action="store_true", help="write the 50-item human sample from the (final) test split")
     ap.add_argument("--min-agreement", type=int, help="required with --freeze: spot-check accepts needed out of 50 (documents-v1 and v2 registered 47)")
     ap.add_argument("--work", default=str(WORK)); ap.add_argument("--version", default="documents-v1")
@@ -201,6 +217,7 @@ def main():
     splits = {k: v for k, v in splits.items() if v is not None}; report = {k: v for k, v in report.items() if k in splits}
     print(json.dumps(report, indent=1))
     if a.spot_check:
+        if "test" not in splits: raise SystemExit(f"no test candidates in {work / 'candidates'}")
         if report["test"].get("awaiting_adjudication"): raise SystemExit("test adjudications missing")
         write_jsonl(work / "spot_check.jsonl", spot_check_sample(splits["test"]))
         return print(f"spot-check sample: {SPOT_CHECK_SIZE} of {sum(len(r['questions']) for r in splits['test'])} test questions -> {work / 'spot_check.jsonl'}")

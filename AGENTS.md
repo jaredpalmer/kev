@@ -50,7 +50,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   `evals/night2/` (delta training data, `scripts/build_night2_data.py`), `evals/diagnostics/` (binding-v1), and the real-document suites
   `evals/documents-v1` (CFPB complaint narratives, product + issue Choice questions; its 23 MB train partition, Kev-4B's round-8 delta data, is not in git and not yet in the kev-suites mirror)
   and `evals/documents-v2` (held-out test only, private mirror, manifest only): `scripts/build_documents_v{1,2}.py` -> `label_documents_v1.py`
-  (AI Gateway teachers/judges, spend ledger) -> `freeze_documents_v1.py` (`--report`, `--combine`, `--spot-check`, `--freeze ... --min-agreement 47`);
+  (AI Gateway teachers/judges, spend ledger) -> `freeze_documents_v1.py` (no flag: report + adjudication queue; `--combine`, `--spot-check`, `--freeze ... --min-agreement 47`);
   label provenance in `runs/documents-v1-work/`.
   Partitions over ~10 MB are not in git; they are mirrored at the Hub dataset `jaredpalmer/kev-suites` (revision pinned
   in `kev/suite.py: SUITES_REVISION`) and `load_split` fetches + verifies them on first use. After freezing a new suite:

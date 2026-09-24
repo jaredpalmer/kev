@@ -1,8 +1,10 @@
 """The documents-v1 / documents-v2 suite tooling (scripts/{build,label,freeze}_documents_v*.py): answer parsing, the
 two-adjudicator agreement rule, the freeze gates and documents-v2's exclusion of every documents-v1 candidate. No network,
 no API, no frozen data: every input is synthetic."""
+import io
 import json
 import sys
+import urllib.error
 
 import pytest
 
@@ -14,8 +16,8 @@ from scripts import label_documents_v1 as lab
 from scripts.label_documents_v1 import parse
 
 REC = {"state": "My card was charged twice.", "questions": {
-    "product": {"criteria": {"card": "A credit card", "mortgage": "A mortgage"}, "label": "card"},
-    "issue": {"criteria": {"fees_or_interest": "Fees or interest", "closing_the_account": "Closing your account"}, "label": "fees_or_interest"}}}
+    "product": {"instructions": "Which product?", "criteria": {"card": "A credit card", "mortgage": "A mortgage"}, "label": "card"},
+    "issue": {"instructions": "Which issue?", "criteria": {"fees_or_interest": "Fees or interest", "closing_the_account": "Closing your account"}, "label": "fees_or_interest"}}}
 
 
 def test_parse_reads_the_json_object_inside_prose_and_rejects_labels_outside_the_criteria():
@@ -26,6 +28,14 @@ def test_parse_reads_the_json_object_inside_prose_and_rejects_labels_outside_the
     invented = parse('{"product": {"label": "student_loan", "reason": "r"}}', REC)
     assert invented == {"product": {"label": None, "reason": "r"}, "issue": {"label": None, "reason": ""}}   # unknown key, missing question
     assert parse("I cannot decide.", REC) is None and parse("{not json}", REC) is None and parse(None, REC) is None
+
+
+def test_parse_treats_valid_json_of_the_wrong_shape_as_unlabelled_instead_of_raising():
+    # unhashable, numeric and null labels and a non-string reason: each would have raised TypeError and aborted the run
+    shapes = ['{"product": {"label": ["card"], "reason": 3}, "issue": {"label": {"k": 1}}}', '{"product": 7, "issue": null}',
+              '{"product": {"label": null, "reason": ["why"]}, "issue": ["fees_or_interest"]}']
+    for text in shapes:
+        assert parse(text, REC) == {"product": {"label": None, "reason": ""}, "issue": {"label": None, "reason": ""}}, text
 
 
 def verdict(item, v, label=None, reason="r"):
@@ -85,6 +95,33 @@ def work_dir(root, n_test=60, reviewer_rejects=0):
 def freeze(work, out, min_agreement):
     test, _, report = fz.eval_split(work, "test", {})
     fz.freeze(work, out, {"test": test}, {"test": report}, version="documents-t", min_agreement=min_agreement, private=False)
+
+
+def test_questions_awaiting_adjudication_block_the_freeze(tmp_path):
+    work, out = tmp_path / "work", tmp_path / "evals" / "documents-t"
+    work_dir(work)
+    write_jsonl(work / "labels" / "test" / (fz.JUDGES[0].replace("/", "__") + ".jsonl"), [{"id": "cfpb/0", "answers": {"product": {"label": "mortgage"}}}])
+    with pytest.raises(SystemExit, match="adjudications missing"):   # judge 0 disagreed on cfpb/0 and missed the rest
+        freeze(work, out, 47)
+    assert not out.parent.exists()
+
+
+def test_a_suite_without_test_candidates_is_a_clear_error(tmp_path):
+    with pytest.raises(SystemExit, match="no test candidates"):
+        fz.freeze(tmp_path, tmp_path / "evals" / "documents-t", {}, {}, version="documents-t", min_agreement=47, private=False)
+
+
+def test_a_failed_private_upload_removes_the_partial_suite(tmp_path, monkeypatch):
+    work, out = tmp_path / "work", tmp_path / "evals" / "documents-t"
+    work_dir(work)
+    def upload(out, names):
+        assert (out / "test.jsonl").exists()   # the partitions were written; then the upload fails
+        raise ConnectionError("hub unavailable")
+    monkeypatch.setattr(fz, "upload_private", upload)
+    test, _, report = fz.eval_split(work, "test", {})
+    with pytest.raises(ConnectionError):
+        fz.freeze(work, out, {"test": test}, {"test": report}, version="documents-t", min_agreement=47, private=True)
+    assert not out.exists()
 
 
 def test_a_failed_spot_check_freezes_nothing(tmp_path):
@@ -190,6 +227,7 @@ def test_the_spend_ledger_is_on_disk_after_every_labelled_result(tmp_path, monke
     ledger = json.loads((tmp_path / "labels" / "spend.json").read_text(encoding="utf-8"))
     assert ledger["total"] == 0.75 and len(read_jsonl(tmp_path / "labels" / "test" / "m__one.jsonl")) == 3
     assert len(seen) == 4   # the crash stopped the queue: the fifth document was never sent
+    assert sorted(p.name for p in (tmp_path / "labels").iterdir()) == ["spend.json", "test"]   # written atomically: no stray .tmp
 
 
 def test_responses_without_a_cost_are_unknown_spend_and_stop_the_run(tmp_path, monkeypatch, capsys):
@@ -200,3 +238,35 @@ def test_responses_without_a_cost_are_unknown_spend_and_stop_the_run(tmp_path, m
     assert "3 uncosted" in capsys.readouterr().out
     with pytest.raises(SystemExit, match="carried no usage.cost"):   # and a rerun refuses to start
         run_labeller(monkeypatch, tmp_path, lambda model, rec, key: {"answers": None, "cost": 0.1, "raw": ""}, "--max-uncosted", "2")
+
+
+class Response(io.BytesIO):   # what urllib.request.urlopen returns: a readable context manager
+    pass
+
+
+def test_a_failed_call_is_not_cached_and_the_next_run_retries_it(tmp_path, monkeypatch):
+    """The transport fails with a non-retryable status on the first run and answers on the second; the second run sends
+    the document again and the answer it records is the one the freeze reads."""
+    label_work(tmp_path, 1)
+    sent = []
+    def urlopen(req, timeout):
+        sent.append(json.loads(req.data)["model"])
+        if len(sent) == 1:
+            raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", {}, io.BytesIO(b"model overloaded"))
+        body = {"choices": [{"message": {"content": '{"product": {"label": "card", "reason": "a card"}, "issue": {"label": "fees_or_interest", "reason": "fee"}}'}}],
+                "usage": {"cost": 0.01}}
+        return Response(json.dumps(body).encode())
+    monkeypatch.setattr(lab.urllib.request, "urlopen", urlopen)
+    argv = ["label", "--split", "test", "--models", "m/one", "--workers", "1", "--work", str(tmp_path)]
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "test")
+    monkeypatch.setattr(sys, "argv", argv)
+    lab.main()
+    path = tmp_path / "labels" / "test" / "m__one.jsonl"
+    assert read_jsonl(path)[0]["error"].startswith("HTTP 400") and lab.answered(path) == set()
+    lab.main()   # the rerun retries the failed document
+    rows = read_jsonl(path)
+    assert sent == ["m/one", "m/one"] and len(rows) == 2 and lab.answered(path) == {"cfpb/0"}
+    assert rows[1]["answers"]["product"]["label"] == "card" and rows[1]["cost"] == 0.01
+    assert fz.answers(tmp_path, "test", ["m/one"])["m/one"]["cfpb/0"] == rows[1]   # the freeze reads the answer, not the failure
+    lab.main()   # a third run has nothing left to send
+    assert len(sent) == 2

@@ -15,7 +15,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kev.suite import write_json, write_jsonl  # noqa: E402
+from kev.suite import digest, write_json, write_jsonl  # noqa: E402
 
 REPO, REVISION = "davidheineman/consumer-finance-complaints-large", "44cfa170a402e254407470275ce05d7dcaccde30"
 PRODUCTS = {   # canonical key: (description shown as the option, raw CFPB product names over the years)
@@ -125,7 +125,7 @@ def main():
         rng.shuffle(recs); write_jsonl(out / f"{split}.jsonl", recs)
     write_json(out / "build.json", {"repo": REPO, "revision": REVISION, "seed": a.seed, "stats": dict(stats), "issue_coverage": {k: {str(i): n for i, n in c.most_common()} for k, c in issues.items()},
                                     "per_split": {s: len(v) for s, v in parts.items()}, "questions": {s: sum(len(r["questions"]) for r in v) for s, v in parts.items()},
-                                    "cells": {f"{s}/{k}/{b}": n for (s, k, b), n in sorted(counts.items())}, "buckets": BUCKETS, "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()})
+                                    "cells": {f"{s}/{k}/{b}": n for (s, k, b), n in sorted(counts.items())}, "buckets": BUCKETS, "code_sha256": digest(__file__)})
     print({s: len(v) for s, v in parts.items()}, dict(stats))
 
 

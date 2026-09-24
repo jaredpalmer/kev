@@ -5,14 +5,15 @@ by text hash and complaint id. Its partitions go only to the private mirror (kev
 
     uv run python scripts/build_documents_v2.py --out runs/documents-v2-work/candidates
 """
-import argparse, hashlib, random, sys
+import argparse, random, sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import build_documents_v1  # noqa: E402
 from build_documents_v1 import BUCKETS, REPO, REVISION, SPLITS, prepare, record, rows  # noqa: E402
-from kev.suite import read_jsonl, write_json, write_jsonl  # noqa: E402
+from kev.suite import digest, read_jsonl, write_json, write_jsonl  # noqa: E402
 
 PER_CELL = SPLITS["test"]   # documents per (product, bucket) cell, as documents-v1 test
 RIGHTS = "consumer narratives published by the CFPB with consent; the CFPB considers them public domain for FOIA purposes"
@@ -46,7 +47,7 @@ def main():
     out.mkdir(parents=True); write_jsonl(out / "test.jsonl", recs)
     write_json(out / "build.json", {"repo": REPO, "revision": REVISION, "seed": a.seed, "per_cell": PER_CELL, "excluded_v1_candidates": len(v1), "stats": dict(stats),
                                     "per_split": {"test": len(recs)}, "questions": {"test": sum(len(r["questions"]) for r in recs)}, "buckets": BUCKETS,
-                                    "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()})
+                                    "code_sha256": {Path(f).name: digest(f) for f in (__file__, build_documents_v1.__file__)}})   # v2 builds its records with v1's code
     print(len(recs), "records,", sum(len(r["questions"]) for r in recs), "questions", dict(stats))
 
 
