@@ -11,7 +11,8 @@ import pytest
 from kev.data import materialize
 from scripts.build_hard_v1 import TEMPLATE_SPLITS, build, family_counts, normalised
 from scripts.hard_v1_common import business_days_after
-from scripts.hard_v1_families import FAMILIES, amb_decide, labels, solve_judge, solve_temporal
+from scripts.hard_v1_families import FAMILIES, amb_decide, labels
+from scripts.hard_v1_numeric import solve_judge, solve_temporal
 from scripts.hard_v1_policy import solve as solve_policy
 
 SIZES = {"train": 70, "development": 28, "test": 28}

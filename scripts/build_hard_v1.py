@@ -30,18 +30,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from kev.api import render  # noqa: E402
 from kev.data import materialize  # noqa: E402
-from kev.suite import SERVING_CONTEXT, digest, write_json, write_jsonl  # noqa: E402
+from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, GIT_LIMIT, SERVING_CONTEXT, digest, write_json, write_jsonl  # noqa: E402
 from scripts.hard_v1_common import Ctx  # noqa: E402
-from scripts.hard_v1_families import FAMILIES, labels  # noqa: E402
+from scripts.hard_v1_families import ABSTAIN_KEYS, FAMILIES, labels  # noqa: E402
 
 SEED = "hard-v1-20260923"
-TOKENIZER = ("Qwen/Qwen3.5-4B-Base", "1001bb4d826a52d1f399e183466143f4da7b741b")
 TEMPLATE_SPLITS = {"train": (0, 1, 2, 3), "development": (4,), "test": (5,)}
 SIZES = {"train": 6000, "development": 700, "test": 700}
 LONG_POLICY_TOKENS = (800, 5000)
-GIT_LIMIT = 10 * 1024 * 1024
 CODE = ("scripts/build_hard_v1.py", "scripts/hard_v1_common.py", "scripts/hard_v1_policy.py", "scripts/hard_v1_families.py",
-        "kev/api.py", "kev/data.py", "kev/model.py")
+        "scripts/hard_v1_numeric.py", "kev/api.py", "kev/data.py", "kev/model.py")
 
 
 def family_counts(total):
@@ -79,13 +77,36 @@ class Checker:
         return self.fits(rec, self.tok, **self.train_ctx) and self.fits(rec, self.tok, **self.serve_ctx)
 
 
-def build_split(split, n_total, seen, checker=None, report=None):
-    """One partition: every family's share, generated from its own RNG with this split's templates."""
+def item_records(family, t, item, seen, checker):
+    """(records, None) for one generated item (an ambiguous twin pair is two records), every label computed from the stored
+    facts; or (None, reason) when the item is rejected: a state already used, a long_policy state outside
+    LONG_POLICY_TOKENS, or a record that does not fit the contexts (only checked with a checker)."""
+    recs = []
+    for it in item if isinstance(item, list) else [item]:
+        facts = json.loads(json.dumps(it["facts"]))   # the stored facts alone must determine every label
+        qs = {qid: dict(q) for qid, q in it["questions"].items()}
+        for qid, lab in labels(family, facts, qs).items(): qs[qid]["label"] = lab
+        key = normalised(it["state"])
+        if key in seen or any(key == r["_meta"]["text_sha256"] for r in recs): return None, "duplicate_state"
+        rec = {"state": it["state"], "questions": qs, "_meta": {"template": f"{family}/t{t}", "family": family, **it["meta"], "facts": facts, "text_sha256": key}}
+        materialize(rec)   # request validation: a failure here is a generator bug, so let it raise
+        if checker:
+            n = checker.state_tokens(rec["state"])
+            rec["_meta"]["state_tokens"] = n
+            if family == "long_policy" and not LONG_POLICY_TOKENS[0] <= n <= LONG_POLICY_TOKENS[1]: return None, "length_rejected"
+            if not checker.admit(rec): return None, "context_rejected"
+        recs.append(rec)
+    return recs, None
+
+
+def build_split(split, n_total, seen, checker=None, report=None, seed=SEED):
+    """One partition: every family's share, generated from its own RNG (seeded `{seed}:{family}:{split}`) with this split's
+    templates. `seen` holds the normalised states already used and gains this partition's."""
     records = []
     report = report if report is not None else {}
     for family, count in family_counts(n_total).items():
         gen = FAMILIES[family][0]
-        ctx = Ctx(f"{SEED}:{family}:{split}")
+        ctx = Ctx(f"{seed}:{family}:{split}")
         templates = TEMPLATE_SPLITS[split]
         made, attempts, stats = [], 0, Counter()
         while len(made) < count:
@@ -97,24 +118,9 @@ def build_split(split, n_total, seen, checker=None, report=None):
             except ValueError:   # a draw with too few distinct options or a tie the solver refuses; draw again
                 item = None
             if item is None: stats["draw_rejected"] += 1; continue
-            group = item if isinstance(item, list) else [item]
-            if len(made) + len(group) > count: stats["overflow"] += 1; continue
-            recs, ok = [], True
-            for it in group:
-                facts = json.loads(json.dumps(it["facts"]))   # the stored facts alone must determine every label
-                qs = {qid: dict(q) for qid, q in it["questions"].items()}
-                for qid, lab in labels(family, facts, qs).items(): qs[qid]["label"] = lab
-                key = normalised(it["state"])
-                if key in seen or any(key == r["_meta"]["text_sha256"] for r in recs): ok = False; stats["duplicate_state"] += 1; break
-                rec = {"state": it["state"], "questions": qs, "_meta": {"template": f"{family}/t{t}", "family": family, **it["meta"], "facts": facts, "text_sha256": key}}
-                materialize(rec)   # request validation: a failure here is a generator bug, so let it raise
-                if checker:
-                    n = checker.state_tokens(rec["state"])
-                    rec["_meta"]["state_tokens"] = n
-                    if family == "long_policy" and not LONG_POLICY_TOKENS[0] <= n <= LONG_POLICY_TOKENS[1]: ok = False; stats["length_rejected"] += 1; break
-                    if not checker.admit(rec): ok = False; stats["context_rejected"] += 1; break
-                recs.append(rec)
-            if not ok: continue
+            if len(made) + (len(item) if isinstance(item, list) else 1) > count: stats["overflow"] += 1; continue
+            recs, rejected = item_records(family, t, item, seen, checker)
+            if rejected: stats[rejected] += 1; continue
             gid = f"hard-v1/{family}/{split}/g{len(made):05d}"
             for rec in recs:
                 rid = f"hard-v1/{family}/{split}/{len(made):05d}"
@@ -124,7 +130,7 @@ def build_split(split, n_total, seen, checker=None, report=None):
         stats["attempts"] = attempts
         report[family] = dict(stats)
         records.extend(made)
-    random.Random(f"{SEED}:{split}:order").shuffle(records)
+    random.Random(f"{seed}:{split}:order").shuffle(records)
     return records
 
 
@@ -155,9 +161,7 @@ def summary(records):
             s["types"][q["type"]] += 1
             if q["type"] == "choice":
                 keys = list(q["criteria"]); s["positions"][f"{keys.index(q['label'])}/{len(keys)}"] += 1
-                if q["label"] in ("insufficient_information", "cannot_determine", "undetermined", "not_enough_information", "cannot_be_determined", "none_qualifies",
-                                  "none_affected", "no_controller"):
-                    s["labels"]["abstain_or_none"] += 1
+                if q["label"] in ABSTAIN_KEYS: s["labels"]["abstain_or_none"] += 1
             elif q["type"] == "noul":
                 s["noul"] += 1; s["noul_true"] += bool(q["label"])
             else:

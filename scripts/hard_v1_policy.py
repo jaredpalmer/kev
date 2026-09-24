@@ -15,7 +15,6 @@ from datetime import date, timedelta
 
 from scripts.hard_v1_common import choice_q, day, dollars, money, person, roman, value_q
 
-FAMILY = "long_policy"
 SRC = "hard_long_policy"
 
 # ---------------------------------------------------------------------------------------------------------------- domains
@@ -516,7 +515,7 @@ DOMAIN_FILLER = {
                               "Software support does not include fixing problems caused by third-party apps or unofficial operating systems."]),
     ],
 }
-OUTCOME_KEYS = ("pay_less_fee", "pay_sublimit", "pay_limit", "deny_exclusion", "deny_late", "deny_waiting", "not_covered")
+# the settlement outcome each draw aims for, from a balanced bag (Ctx.pick); deny_exclusion is listed twice, so it is aimed for twice as often
 TARGETS = ("pay_less_fee", "pay_sublimit", "pay_limit", "deny_exclusion", "deny_exclusion", "deny_late", "deny_waiting", "not_covered")
 
 # ---------------------------------------------------------------------------------------------------------------- templates
@@ -544,7 +543,7 @@ TEMPLATES = [
 ]
 
 
-def voice_map(template, dom, issuer):
+def voice_map(template, dom):
     if template["voice"] == "first":
         return {"we": "we", "We": "We", "our": "our", "Our": "Our", "us": "us", "you": "you", "You": "You", "your": "your", "Your": "Your"}
     ins, hol = f"the {dom['insurer']}", f"the {dom['holder']}"
@@ -620,10 +619,6 @@ def solve(f):
 
 
 # ---------------------------------------------------------------------------------------------------------------- generator
-def _sentence(text, slots):
-    return fill(text, slots)
-
-
 def generate(ctx, t):
     """One long_policy record for template t, or None when a draw is inconsistent (the caller draws again)."""
     rng, tpl = ctx.rng, TEMPLATES[t]
@@ -631,7 +626,7 @@ def generate(ctx, t):
     dom = DOMAINS[dom_key]
     target = ctx.pick("lp_target", TARGETS)
     issuer = rng.choice(dom["issuers"])
-    V = voice_map(tpl, dom, issuer)
+    V = voice_map(tpl, dom)
     # policy parameters
     cats = {}
     for key, c in dom["categories"].items():
@@ -893,7 +888,7 @@ def generate(ctx, t):
                  f"assessed loss {amount_line}. Facts: " + " ".join(story + detail))
     else:
         claim = "\n".join([f"Customer ({first_name}): Hi, I need to make a claim on policy {polno} under {cspec['title']} for {a_item}.",
-                           f"Agent: Sure. When did the policy start and what covers does your schedule show?",
+                           "Agent: Sure. When did the policy start and what covers does your schedule show?",
                            f"Customer ({first_name}): It started on {day(start, ds)}. The schedule lists {', '.join(covers)}, and extensions: {sched_ext}.",
                            f"Agent: When did the {dom['event']} happen, and what happened?",
                            f"Customer ({first_name}): On {day(incident, ds)}. " + " ".join(story),

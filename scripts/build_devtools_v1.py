@@ -1,7 +1,8 @@
 """devtools-v1: developer-tooling decisions from licence-clean public data with human or heuristic labels (no LLM labels).
 
-    uv run python scripts/build_devtools_v1.py --out evals/devtools-v1                 # build (downloads into --raw)
-    uv run python scripts/build_devtools_v1.py --resolve-licences                      # refresh scripts/devtools_v1_licences.json (gh api)
+    uv run python scripts/build_devtools_v1.py --out /tmp/x/devtools-v1 --legacy-v1-ids   # reproduce devtools-v1 byte for byte
+    uv run python scripts/build_devtools_v1.py --out evals/devtools-v2                    # a new version (downloads into --raw)
+    uv run python scripts/build_devtools_v1.py --resolve-licences                         # refresh scripts/devtools_v1_licences.json (gh api)
 
 Sources (details, licences and label provenance are written into the manifest; SOURCES below is the canonical table):
   codereviewer   Microsoft CodeReviewer diff quality estimation (Zenodo 6900648, CC-BY-4.0). State = diff hunk plus up to
@@ -33,25 +34,36 @@ splits (test first, then development, then train). Noul labels are balanced exac
 source has projects); choices are drawn round-robin over labels. Every record is checked with kev.model.fits against the
 Qwen3.5 tokenizer at the lifted training context (kev.model.training_context(MAX_TRAIN_STATE)). Deterministic: the same
 inputs give byte-identical partitions and manifest.
+
+Record ids: devtools-v1 named CodeReviewer records by the dataset's `id` field, which is not a row id (each file has 31,252
+rows and about 15,300 distinct ids, one id shared by up to 71 rows across projects). 68 devtools-v1 ids therefore name two
+or three different records: one pair inside development (codereviewer/cls-test/13657), one inside test
+(codereviewer/cls-test/19245), 53 ids inside train, and 13 ids name a train record and a different development (4) or test
+(9) record. Paired comparisons on devtools-v1 drop the two in-partition ids; train/eval overlap is checked by text_sha256,
+never by id. That is `--legacy-v1-ids`, kept only to rebuild the frozen suite. Without it CodeReviewer ids use the row's
+line number in its file (codereviewer_id), every id is checked unique (check_invariants) and the manifest version is the
+--out directory name. The ids also order candidates (deduplication keeps the first by id), so a new version selects
+different records; a version that must keep devtools-v1's evaluation groups out of its training partition has to check
+that by group_id.
 """
 import argparse, csv, difflib, hashlib, io, json, random, re, subprocess, sys, tarfile, zipfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kev.suite import digest, read_json, read_jsonl, write_json, write_jsonl  # noqa: E402
+from kev.data import materialize  # noqa: E402
+from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, GIT_LIMIT, digest, read_json, read_jsonl, write_json, write_jsonl  # noqa: E402
 
-VERSION = "devtools-v1"
+VERSION = "devtools-v1"     # the frozen suite; --legacy-v1-ids rebuilds it
 SEED = "devtools-v1"
-TOKENIZER = ("Qwen/Qwen3.5-4B-Base", "1001bb4d826a52d1f399e183466143f4da7b741b")
 LICENCES = Path(__file__).with_name("devtools_v1_licences.json")
 EVAL_SIZE, TRAIN_CAP = 150, 1500
-GIT_LIMIT = 10 * 1024 * 1024          # partitions above this stay out of git (mirrored on the Hub like other large partitions)
 PERMISSIVE = ("mit", "apache-2.0", "bsd-2-clause", "bsd-3-clause", "isc", "cc0-1.0", "unlicense")
 CONTEXT_LINES, CONTEXT_CHARS = 10, 1200
 MAX_PATCH_CHARS, MAX_DIFF_CHARS, MAX_DIFF_LINES, MAX_LINE_CHARS = 6000, 8000, 240, 400
 SPLITS = ("test", "development", "train")
-# characters json.dumps(ensure_ascii=False) leaves raw but str.splitlines() (kev.suite.read_jsonl) breaks lines on
+# characters json.dumps(ensure_ascii=False) leaves raw but str.splitlines() breaks lines on; records containing them are
+# skipped. kev.suite.read_jsonl splits on "\n" only since #101, but other JSONL readers do not, and devtools-v1 was selected this way
 SPLITLINES = re.compile("[\u0085\u2028\u2029]")
 
 ZENODO_CR = {"record": 6900648, "doi": "10.5281/zenodo.6900648", "file": "Diff_Quality_Estimation.zip", "md5": "aad78e57d7d591172922da96e38e47dd",
@@ -308,27 +320,43 @@ def codereviewer_state(patch, oldf):
     return state
 
 
-def codereviewer(raw, licences, report):
-    zpath = fetch(f"https://zenodo.org/api/records/{ZENODO_CR['record']}/files/{ZENODO_CR['file']}/content", raw / ZENODO_CR["file"], sha256=ZENODO_CR["sha256"])
+def codereviewer_id(member, row, line, legacy):
+    """`codereviewer/<file>/<n>`: n is the dataset's `id` field under devtools-v1's legacy ids (it repeats within a file),
+    otherwise `L<line>`, the row's 1-based line number in its file."""
+    return f"codereviewer/{member.split('.')[0]}/{row['id'] if legacy else f'L{line}'}"
+
+
+def codereviewer_candidates(rows, licences, report, legacy_ids):
+    """Candidates from (member, line, row) triples of the CodeReviewer quality-estimation files."""
     allowed = {p for p, v in licences["codereviewer"].items() if v and (v.get("spdx") or "").lower() in PERMISSIVE}
     out, c = [], Counter()
+    for member, line, r in rows:
+        c["rows"] += 1
+        if r["proj"] not in allowed: c["licence_dropped"] += 1; continue
+        patch = r["patch"]
+        if not patch.strip() or len(patch) > MAX_PATCH_CHARS: c["patch_size_dropped"] += 1; continue
+        state = codereviewer_state(patch, r["oldf"])
+        out.append({"state": state, "questions": {"needs_comment": q_noul("Does this change need a reviewer comment?", r["y"] == 1, "codereviewer_needs_comment")},
+                    "_label": r["y"] == 1, "_stratum": r["proj"],
+                    "_meta": {"id": codereviewer_id(member, r, line, legacy_ids), "source": "codereviewer", "group_id": f"codereviewer/{r['proj']}",
+                              "project": licences["codereviewer"][r["proj"]]["repo"], "repo_licence": licences["codereviewer"][r["proj"]]["spdx"],
+                              "dataset_lang": r["lang"], "text_sha256": text_key(patch),
+                              "provenance": {"via": f"zenodo:{ZENODO_CR['record']}/{ZENODO_CR['file']}:{member}", "row_id": r["id"]}}})
+    report["codereviewer"] = dict(c, candidates=len(out))
+    return out
+
+
+def codereviewer_rows(zpath):
     with zipfile.ZipFile(zpath) as z:
         for member in ZENODO_CR["members"]:
             with z.open(f"Diff_Quality_Estimation/{member}") as f:
-                for line in io.TextIOWrapper(f, encoding="utf-8"):
-                    r = json.loads(line); c["rows"] += 1
-                    if r["proj"] not in allowed: c["licence_dropped"] += 1; continue
-                    patch = r["patch"]
-                    if not patch.strip() or len(patch) > MAX_PATCH_CHARS: c["patch_size_dropped"] += 1; continue
-                    state = codereviewer_state(patch, r["oldf"])
-                    out.append({"state": state, "questions": {"needs_comment": q_noul("Does this change need a reviewer comment?", r["y"] == 1, "codereviewer_needs_comment")},
-                                "_label": r["y"] == 1, "_stratum": r["proj"],
-                                "_meta": {"id": f"codereviewer/{member.split('.')[0]}/{r['id']}", "source": "codereviewer", "group_id": f"codereviewer/{r['proj']}",
-                                          "project": licences["codereviewer"][r["proj"]]["repo"], "repo_licence": licences["codereviewer"][r["proj"]]["spdx"],
-                                          "dataset_lang": r["lang"], "text_sha256": text_key(patch),
-                                          "provenance": {"via": f"zenodo:{ZENODO_CR['record']}/{ZENODO_CR['file']}:{member}", "row_id": r["id"]}}})
-    report["codereviewer"] = dict(c, candidates=len(out))
-    return out
+                for line, text in enumerate(io.TextIOWrapper(f, encoding="utf-8"), 1):
+                    yield member, line, json.loads(text)
+
+
+def codereviewer(raw, licences, report, legacy_ids):
+    zpath = fetch(f"https://zenodo.org/api/records/{ZENODO_CR['record']}/files/{ZENODO_CR['file']}/content", raw / ZENODO_CR["file"], sha256=ZENODO_CR["sha256"])
+    return codereviewer_candidates(codereviewer_rows(zpath), licences, report, legacy_ids)
 
 
 def unified_diff(old_file, new_file, old, new):
@@ -336,7 +364,7 @@ def unified_diff(old_file, new_file, old, new):
     return "\n".join(lines)
 
 
-def commitpackft(raw, report):
+def commitpackft(report):
     comps, rows, c = Components(), [], Counter()
     for lang in COMMITPACK_LANGS:
         path = hub_file(*COMMITPACK, f"data/{lang}/data.jsonl")
@@ -373,14 +401,12 @@ AEGIS_CATEGORIES = {
 AEGIS_KEY = {v: k for k, v in AEGIS_CATEGORIES.items()}
 
 
-def aegis(raw, report):
+def aegis(report):
     aart = {norm(r["prompt"]) for r in parquet_rows(hub_file(*AART))}
     native = {"train.json": "train", "validation.json": "development", "test.json": "test"}
     prompts, c = {}, Counter()
     for fname, split in native.items():
-        text = hub_file(*AEGIS, fname).read_text(encoding="utf-8")
-        rows = json.loads(text) if text.lstrip().startswith("[") else [json.loads(l) for l in text.split("\n") if l.strip()]
-        for r in rows:
+        for r in read_json(hub_file(*AEGIS, fname)):
             c["rows"] += 1
             p = (r["prompt"] or "").strip()
             if not p or p == "REDACTED" or r.get("reconstruction_id_if_redacted"): c["redacted_dropped"] += 1; continue
@@ -412,8 +438,8 @@ W2C_ACTIONS = {"tool_call": "Call one of the available tools", "request_for_info
                "cannot_answer": "Say it cannot help with the tools available", "direct": "Answer directly without calling a tool"}
 
 
-def when2call(raw, report):
-    rows = [json.loads(l) for l in hub_file(*WHEN2CALL).read_text(encoding="utf-8").split("\n") if l.strip()]
+def when2call(report):
+    rows = read_jsonl(hub_file(*WHEN2CALL))
     out = []
     for r in rows:
         state = {"available_tools": list(r["tools"]) if r["tools"] else "none", "user_message": r["question"]}
@@ -462,7 +488,7 @@ def flakeflagger(raw, licences, report):
     return out
 
 
-def prompt_injection(raw, report):
+def prompt_injection(report):
     rows = []
     for f in DEEPSET[2]:
         rows += [("deepset", f, i, r["text"], r["label"] == 1) for i, r in enumerate(parquet_rows(hub_file(DEEPSET[0], DEEPSET[1], f)))]
@@ -510,7 +536,7 @@ def ordered(items, rng):
     return items
 
 
-def select(source, split, pool, n, admit, rng):
+def select(source, pool, n, admit, rng):
     if source in ("codereviewer", "flakeflagger", "aegis"):
         strata = defaultdict(lambda: ([], []))
         for x in ordered(pool, rng): strata[x.get("_stratum", "all")][0 if x["_label"] else 1].append(x)
@@ -537,13 +563,12 @@ def add_message_question(chosen, rng):
         if not match: x["_meta"]["shown_message"] = shown
 
 
-def build(raw, licences, tok):
-    from kev.data import materialize
+def build(raw, licences, tok, legacy_ids):
     from kev.model import MAX_TRAIN_STATE, fits, training_context
     ctx = training_context(MAX_TRAIN_STATE)
     report = {}
-    cands = {"codereviewer": codereviewer(raw, licences, report), "commitpackft": commitpackft(raw, report), "aegis": aegis(raw, report),
-             "when2call": when2call(raw, report), "flakeflagger": flakeflagger(raw, licences, report), "prompt_injection": prompt_injection(raw, report)}
+    cands = {"codereviewer": codereviewer(raw, licences, report, legacy_ids), "commitpackft": commitpackft(report), "aegis": aegis(report),
+             "when2call": when2call(report), "flakeflagger": flakeflagger(raw, licences, report), "prompt_injection": prompt_injection(report)}
     for source, c in cands.items():     # one candidate per normalised state within a source (first by id)
         kept, keys = [], set()
         for x in sorted(c, key=lambda x: x["_meta"]["id"]):
@@ -574,7 +599,7 @@ def build(raw, licences, tok):
             if split == "train" and not SOURCES[source]["trainable"]: continue
             n = TRAIN_CAP if split == "train" else EVAL_SIZE
             rng = random.Random(f"{SEED}:{source}:{split}")
-            chosen = select(source, split, pools[source][split], n, admitter(source), rng)
+            chosen = select(source, pools[source][split], n, admitter(source), rng)
             if len(chosen) < (n if split != "train" else 1): raise SystemExit(f"{source}/{split}: only {len(chosen)} records")
             seen.update(x["_meta"]["text_sha256"] for x in chosen)
             parts[split] += chosen
@@ -592,7 +617,6 @@ def build(raw, licences, tok):
 
 
 def summarise(parts, tok):
-    from kev.data import materialize
     from kev.model import MAX_STATE, user_tokens
     counts, balance, lengths, groups = {}, {}, {}, {}
     for split, recs in parts.items():
@@ -613,9 +637,10 @@ def summarise(parts, tok):
     return counts, balance, lengths, groups
 
 
-def check_invariants(parts):
-    """Groups never span splits; no normalised state appears twice; noul labels balanced within 10% per source and split."""
-    where, keys = {}, set()
+def check_invariants(parts, unique_ids=True):
+    """Groups never span splits; no normalised state appears twice; no id names two records (except under devtools-v1's
+    legacy ids, unique_ids=False); noul labels balanced within 10% per source and split."""
+    where, keys, ids = {}, set(), set()
     for split, recs in parts.items():
         for r in recs:
             g = r["_meta"]["group_id"]
@@ -623,55 +648,11 @@ def check_invariants(parts):
             k = r["_meta"]["text_sha256"]
             if k in keys: raise AssertionError(f"duplicate state {k}")
             keys.add(k)
+            if unique_ids and r["_meta"]["id"] in ids: raise AssertionError(f"duplicate id {r['_meta']['id']}")
+            ids.add(r["_meta"]["id"])
         for src in {q["src"] for r in recs for q in r["questions"].values() if q["type"] == "noul"}:
             labels = [q["label"] for r in recs for q in r["questions"].values() if q["src"] == src]
             if not is_balanced(labels): raise AssertionError(f"{split}/{src} unbalanced: {sum(labels)}/{len(labels)}")
-
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--out", help="suite directory to create, e.g. evals/devtools-v1")
-    ap.add_argument("--raw", default="/tmp/devtools-raw", help="download directory for the Zenodo / GitHub files (never in git)")
-    ap.add_argument("--resolve-licences", action="store_true", help="refresh the CodeReviewer project licences with `gh api` into scripts/devtools_v1_licences.json")
-    a = ap.parse_args()
-    raw = Path(a.raw)
-    if a.resolve_licences: return resolve_licences(raw)
-    if not a.out: ap.error("--out is required")
-    out = Path(a.out)
-    if out.exists(): raise FileExistsError(out)
-    from kev.model import MAX_TRAIN_STATE, load_tokenizer, training_context
-    from kev.suite import CONTEXT
-    tok = load_tokenizer(*TOKENIZER)
-    licences = read_json(LICENCES)
-    parts, report = build(raw, licences, tok)
-    check_invariants(parts)
-    counts, balance, lengths, groups = summarise(parts, tok)
-    out.mkdir(parents=True)
-    files = {}
-    for split in ("train", "development", "test"):
-        path = out / f"{split}.jsonl"
-        write_jsonl(path, parts[split])
-        if read_jsonl(path) != parts[split]: raise AssertionError(f"{path} does not round-trip through kev.suite.read_jsonl")
-        files[path.name] = {"sha256": digest(path), "records": len(parts[split]), "questions": sum(len(r["questions"]) for r in parts[split]),
-                            "bytes": path.stat().st_size, "in_git": path.stat().st_size <= GIT_LIMIT, "by_source": counts[split]}
-    trainable = [s for s in SOURCES if SOURCES[s]["trainable"]]
-    write_json(out / "manifest.json", {
-        "version": VERSION, "seed": SEED, "partitions": ["train", "development", "test"], "locked": ["test"], "files": files,
-        "trainable_sources": trainable, "eval_only_sources": [s for s in SOURCES if s not in trainable], "holdout_sources": [],
-        "sources": {s: {**SOURCES[s], "pins": pins(s, report)} for s in SOURCES},
-        "counts": counts, "groups": groups, "label_balance": balance, "state_tokens": lengths,
-        "tokenizer": {"model": TOKENIZER[0], "revision": TOKENIZER[1]}, "base_revisions": {TOKENIZER[0]: TOKENIZER[1]},
-        "context": {**training_context(MAX_TRAIN_STATE), "truncate": False, "default_training_context": CONTEXT,
-                    "note": "every record fits kev.model.training_context(MAX_TRAIN_STATE) under the tokenizer above; records whose state exceeds the default 384 tokens (state_tokens.*.over_<MAX_STATE>) need kev.train --max_state"},
-        "selection": f"development/test {EVAL_SIZE} records per source, train up to {TRAIN_CAP} per trainable source; groups (repository, project, BFCL item, prompt) dealt to splits in a seeded hash order and never span splits; "
-                     "normalised-text state dedupe across all sources and splits (test, then development, then train); noul labels exactly balanced in pairs (within project for codereviewer / flakeflagger); "
-                     "choices drawn round-robin over labels; aegis keeps its native train/validation/test split; balance is a sampling choice, not the natural rate (flaky tests are 3.6% of FlakeFlagger)",
-        "label_protocol": "no LLM labels: human (codereviewer, aegis), heuristic (commitpackft verb class, flakeflagger reruns), by construction (commitpackft message match, when2call), source label (prompt_injection)",
-        "build_report": report, "licences_file": {"path": str(LICENCES.relative_to(Path(__file__).resolve().parents[1])), "sha256": digest(LICENCES)},
-        "large_partitions": "partitions with in_git false are gitignored; upload them to the Hub mirror (kev.suite.SUITES_DATASET) and bump SUITES_REVISION before load_split can fetch them elsewhere",
-        "code_sha256": digest(Path(__file__)),
-    })
-    print(json.dumps({"counts": counts, "files": {k: {kk: v[kk] for kk in ("records", "bytes", "in_git")} for k, v in files.items()}}, indent=1))
 
 
 def pins(source, report):
@@ -709,6 +690,55 @@ def resolve_licences(raw):
                 break
         out[p] = hit
     write_json(LICENCES, {**current, "codereviewer": out})
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", help="suite directory to create, e.g. evals/devtools-v1")
+    ap.add_argument("--raw", default="/tmp/devtools-raw", help="download directory for the Zenodo / GitHub files (never in git)")
+    ap.add_argument("--resolve-licences", action="store_true", help="refresh the CodeReviewer project licences with `gh api` into scripts/devtools_v1_licences.json")
+    ap.add_argument("--legacy-v1-ids", action="store_true", help="rebuild the frozen devtools-v1 byte for byte, with its repeating CodeReviewer ids")
+    a = ap.parse_args()
+    raw = Path(a.raw)
+    if a.resolve_licences: return resolve_licences(raw)
+    if not a.out: ap.error("--out is required")
+    out = Path(a.out)
+    if out.exists(): raise FileExistsError(out)
+    version = VERSION if a.legacy_v1_ids else out.name
+    if version == VERSION and not a.legacy_v1_ids: ap.error(f"{VERSION} is frozen: pass --legacy-v1-ids to rebuild it, or name a new version with --out")
+    from kev.model import MAX_TRAIN_STATE, load_tokenizer, training_context
+    from kev.suite import CONTEXT
+    tok = load_tokenizer(*TOKENIZER)
+    licences = read_json(LICENCES)
+    parts, report = build(raw, licences, tok, legacy_ids=a.legacy_v1_ids)
+    check_invariants(parts, unique_ids=not a.legacy_v1_ids)
+    counts, balance, lengths, groups = summarise(parts, tok)
+    out.mkdir(parents=True)
+    files = {}
+    for split in ("train", "development", "test"):
+        path = out / f"{split}.jsonl"
+        write_jsonl(path, parts[split])
+        if read_jsonl(path) != parts[split]: raise AssertionError(f"{path} does not round-trip through kev.suite.read_jsonl")
+        files[path.name] = {"sha256": digest(path), "records": len(parts[split]), "questions": sum(len(r["questions"]) for r in parts[split]),
+                            "bytes": path.stat().st_size, "in_git": path.stat().st_size <= GIT_LIMIT, "by_source": counts[split]}
+    trainable = [s for s in SOURCES if SOURCES[s]["trainable"]]
+    write_json(out / "manifest.json", {
+        "version": version, "seed": SEED, "partitions": ["train", "development", "test"], "locked": ["test"], "files": files,
+        "trainable_sources": trainable, "eval_only_sources": [s for s in SOURCES if s not in trainable], "holdout_sources": [],
+        "sources": {s: {**SOURCES[s], "pins": pins(s, report)} for s in SOURCES},
+        "counts": counts, "groups": groups, "label_balance": balance, "state_tokens": lengths,
+        "tokenizer": {"model": TOKENIZER[0], "revision": TOKENIZER[1]}, "base_revisions": {TOKENIZER[0]: TOKENIZER[1]},
+        "context": {**training_context(MAX_TRAIN_STATE), "truncate": False, "default_training_context": CONTEXT,
+                    "note": "every record fits kev.model.training_context(MAX_TRAIN_STATE) under the tokenizer above; records whose state exceeds the default 384 tokens (state_tokens.*.over_<MAX_STATE>) need kev.train --max_state"},
+        "selection": f"development/test {EVAL_SIZE} records per source, train up to {TRAIN_CAP} per trainable source; groups (repository, project, BFCL item, prompt) dealt to splits in a seeded hash order and never span splits; "
+                     "normalised-text state dedupe across all sources and splits (test, then development, then train); noul labels exactly balanced in pairs (within project for codereviewer / flakeflagger); "
+                     "choices drawn round-robin over labels; aegis keeps its native train/validation/test split; balance is a sampling choice, not the natural rate (flaky tests are 3.6% of FlakeFlagger)",
+        "label_protocol": "no LLM labels: human (codereviewer, aegis), heuristic (commitpackft verb class, flakeflagger reruns), by construction (commitpackft message match, when2call), source label (prompt_injection)",
+        "build_report": report, "licences_file": {"path": str(LICENCES.relative_to(Path(__file__).resolve().parents[1])), "sha256": digest(LICENCES)},
+        "large_partitions": "partitions with in_git false are gitignored; upload them to the Hub mirror (kev.suite.SUITES_DATASET) and bump SUITES_REVISION before load_split can fetch them elsewhere",
+        "code_sha256": digest(Path(__file__)),
+    })
+    print(json.dumps({"counts": counts, "files": {k: {kk: v[kk] for kk in ("records", "bytes", "in_git")} for k, v in files.items()}}, indent=1))
 
 
 if __name__ == "__main__":

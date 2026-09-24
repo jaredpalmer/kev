@@ -29,6 +29,10 @@ ADMISSION_BRANCH_HEADROOM = 64
 SUITES_DATASET = "jaredpalmer/kev-suites"
 PRIVATE_DATASET = "jaredpalmer/kev-private-evals"
 SUITES_REVISION = "a88f56db5341397299137cb68775c2ea6e3f68cb"
+# partitions larger than this stay out of git (gitignored; the manifest's sha256 still pins them)
+GIT_LIMIT = 10 * 1024 * 1024
+# the pinned tokenizer suites built for the Qwen3.5 family are admitted and length-counted under (hard-v1, devtools-v1, long states)
+ADMISSION_TOKENIZER = ("Qwen/Qwen3.5-4B-Base", "1001bb4d826a52d1f399e183466143f4da7b741b")
 # programmatic policy sources (kev.study_v3 / kev.contrastive); the trainer's mix ablations treat them as one group
 SYNTHETIC_SOURCES = ("legacy_policy", "compositional", "contrastive")
 

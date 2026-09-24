@@ -2,12 +2,18 @@
 No weights, no network. Run: uv run python -m pytest tests/test_devtools_v1.py -q
 """
 import random
+from collections import Counter
+from pathlib import Path
 
 import pytest
 
 from kev.data import materialize
-from scripts.build_devtools_v1 import (COMMIT_TYPES, Components, assign_match, balanced_pairs, check_invariants, codereviewer_state,
-                                       commit_type, deal_groups, is_balanced, message_negatives, q_choice, q_noul, round_robin, text_key)
+from kev.suite import read_jsonl
+from scripts.build_devtools_v1 import (COMMIT_TYPES, Components, assign_match, balanced_pairs, check_invariants, codereviewer_candidates,
+                                       codereviewer_state, commit_type, deal_groups, is_balanced, message_negatives, q_choice, q_noul,
+                                       round_robin, text_key)
+
+SUITE = Path(__file__).resolve().parents[1] / "evals" / "devtools-v1"
 
 
 @pytest.mark.parametrize("subject,expected", [
@@ -144,7 +150,7 @@ def test_codereviewer_state_takes_lines_before_hunk():
 
 
 def record(split_group, key, label, src="x_yes"):
-    return {"state": key, "questions": {"q": q_noul("Is it?", label, src)}, "_meta": {"group_id": split_group, "text_sha256": text_key(key)}}
+    return {"state": key, "questions": {"q": q_noul("Is it?", label, src)}, "_meta": {"id": f"x/{key}", "group_id": split_group, "text_sha256": text_key(key)}}
 
 
 def test_check_invariants_catches_group_leak_duplicates_and_imbalance():
@@ -166,3 +172,29 @@ def test_questions_materialize():
     assert [q["label"] for q in out["questions"]] == [list(COMMIT_TYPES).index("fix"), 0]
     with pytest.raises(AssertionError):
         q_choice("?", COMMIT_TYPES, "chore", "x")
+
+
+def codereviewer_rows():
+    """Four rows as the dataset has them: its `id` field (7) is shared by rows of different projects and files."""
+    where = [("cls-test.jsonl", 1, "a-x"), ("cls-test.jsonl", 2, "b-y"), ("cls-valid.jsonl", 1, "a-x"), ("cls-valid.jsonl", 2, "b-y")]
+    return [(member, line, {"id": 7, "proj": proj, "patch": f"@@ -1 +1 @@\n-v{i}\n+w{i}", "oldf": "", "y": i % 2, "lang": "go"})
+            for i, (member, line, proj) in enumerate(where)]
+
+
+def test_a_new_build_gives_codereviewer_records_unique_ids():
+    licences = {"codereviewer": {"a-x": {"repo": "a/x", "spdx": "MIT"}, "b-y": {"repo": "b/y", "spdx": "Apache-2.0"}}}
+    fresh = codereviewer_candidates(codereviewer_rows(), licences, {}, legacy_ids=False)
+    assert [x["_meta"]["id"] for x in fresh] == ["codereviewer/cls-test/L1", "codereviewer/cls-test/L2", "codereviewer/cls-valid/L1", "codereviewer/cls-valid/L2"]
+    check_invariants({"train": fresh})
+    legacy = codereviewer_candidates(codereviewer_rows(), licences, {}, legacy_ids=True)   # devtools-v1's ids
+    assert Counter(x["_meta"]["id"] for x in legacy) == {"codereviewer/cls-test/7": 2, "codereviewer/cls-valid/7": 2}
+    with pytest.raises(AssertionError, match="duplicate id"):
+        check_invariants({"train": legacy})
+    check_invariants({"train": legacy}, unique_ids=False)
+
+
+def test_devtools_v1_shares_exactly_the_documented_ids_inside_its_evaluation_partitions():
+    """The frozen defect paired comparisons must drop (AGENTS.md, scripts/build_devtools_v1.py): one id per partition."""
+    for split, expected in (("development", {"codereviewer/cls-test/13657"}), ("test", {"codereviewer/cls-test/19245"})):
+        ids = Counter(r["_meta"]["id"] for r in read_jsonl(SUITE / f"{split}.jsonl"))
+        assert {i for i, n in ids.items() if n > 1} == expected
