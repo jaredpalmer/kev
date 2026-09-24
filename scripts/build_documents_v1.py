@@ -15,7 +15,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kev.suite import write_json, write_jsonl  # noqa: E402
+from kev.suite import digest, write_json, write_jsonl  # noqa: E402
 
 REPO, REVISION = "davidheineman/consumer-finance-complaints-large", "44cfa170a402e254407470275ce05d7dcaccde30"
 PRODUCTS = {   # canonical key: (description shown as the option, raw CFPB product names over the years)
@@ -55,7 +55,38 @@ ISSUES = {     # canonical issue options per product: merged across CFPB's namin
 ISSUE_OF = {(product, raw): key for product, table in ISSUES.items() for key, raws in table.items() for raw in raws}
 BUCKETS = (("short", 200, 1200), ("medium", 1200, 4000), ("long", 4000, 28000))
 SPLITS = {"test": 22, "development": 22, "train": 222}      # documents per (product, bucket) cell
+RIGHTS = "US government work (public domain)"
 text_key = lambda t: hashlib.sha256(" ".join(t.casefold().split()).encode()).hexdigest()
+
+
+def prepare(row):
+    """A source row with the fields a candidate is built from: the narrative "text", the canonical product "key", the
+    length "bucket" and "text_sha256" (whitespace- and case-insensitive). None when the row has no narrative or an unknown
+    product; "bucket" and "text_sha256" are None when the narrative is outside every length bucket."""
+    text, key = (row["complaint_what_happened"] or "").strip(), RAW.get(row["product"])
+    if not text or key is None: return None
+    bucket = next((b for b, lo, hi in BUCKETS if lo <= len(text) < hi), None)
+    return {**row, "text": text, "key": key, "bucket": bucket, "text_sha256": text_key(text) if bucket else None}
+
+
+def questions(key, issue):
+    """The Choice questions of one document: its product (always) and, when its raw issue maps to a canonical one, the
+    issue among that product's canonical issues. The labels are the consumer's own selections."""
+    qs = {"product": {"type": "choice", "instructions": "Which kind of financial product is this complaint about?",
+                      "criteria": {k: d for k, (d, _) in PRODUCTS.items()}, "label": key, "src": "cfpb_product"}}
+    if issue:
+        qs["issue"] = {"type": "choice", "instructions": "What is the main problem the consumer describes?",
+                       "criteria": {k: raws[0] for k, raws in ISSUES[key].items()}, "label": issue, "src": f"cfpb_issue_{key}"}
+    return qs
+
+
+def record(row, rights):
+    """One candidate record from a source row that carries the derived "text", "key", "bucket" and "text_sha256"."""
+    return {"state": row["text"], "questions": questions(row["key"], ISSUE_OF.get((row["key"], row["issue"]))),
+            "_meta": {"id": f"cfpb/{row['complaint_id']}", "source": "cfpb", "group_id": f"cfpb/{row['text_sha256'][:20]}", "variant": "clean",
+                      "length_bucket": row["bucket"], "chars": len(row["text"]), "company": row["company"], "date_received": row["date_received"],
+                      "product_raw": row["product"], "issue_raw": row["issue"], "sub_issue_raw": row["sub_issue"], "text_sha256": row["text_sha256"],
+                      "provenance": {"source": "CFPB consumer complaint database", "via": f"hf:{REPO}@{REVISION}", "rights": rights}}}
 
 
 def rows():
@@ -74,32 +105,19 @@ def main():
     out = Path(a.out)
     if out.exists(): raise FileExistsError(out)
     cells, seen, issues, stats = defaultdict(list), set(), defaultdict(Counter), Counter()
-    for r in rows():
-        text, key = (r["complaint_what_happened"] or "").strip(), RAW.get(r["product"])
+    for r in map(prepare, rows()):
         stats["rows"] += 1
-        if not text or key is None: continue
-        bucket = next((b for b, lo, hi in BUCKETS if lo <= len(text) < hi), None)
-        if bucket is None: stats["length_out_of_range"] += 1; continue
-        h = text_key(text)
-        if h in seen: stats["duplicate_text"] += 1; continue
-        seen.add(h); issues[key][ISSUE_OF.get((key, r["issue"]))] += 1
-        cells[key, bucket].append({**r, "text": text, "key": key, "bucket": bucket, "text_sha256": h})
+        if r is None: continue
+        if r["bucket"] is None: stats["length_out_of_range"] += 1; continue
+        if r["text_sha256"] in seen: stats["duplicate_text"] += 1; continue
+        seen.add(r["text_sha256"]); issues[r["key"]][ISSUE_OF.get((r["key"], r["issue"]))] += 1
+        cells[r["key"], r["bucket"]].append(r)
     rng, parts, counts = random.Random(a.seed), defaultdict(list), Counter()
     for (key, bucket), pool in sorted(cells.items()):
         rng.shuffle(pool); start = 0
         for split, n in SPLITS.items():
             for r in pool[start:start + n]:
-                qs = {"product": {"type": "choice", "instructions": "Which kind of financial product is this complaint about?",
-                                  "criteria": {k: d for k, (d, _) in PRODUCTS.items()}, "label": key, "src": "cfpb_product"}}
-                issue = ISSUE_OF.get((key, r["issue"]))
-                if issue:
-                    qs["issue"] = {"type": "choice", "instructions": "What is the main problem the consumer describes?",
-                                   "criteria": {k: raws[0] for k, raws in ISSUES[key].items()}, "label": issue, "src": f"cfpb_issue_{key}"}
-                parts[split].append({"state": r["text"], "questions": qs,
-                                     "_meta": {"id": f"cfpb/{r['complaint_id']}", "source": "cfpb", "group_id": f"cfpb/{r['text_sha256'][:20]}", "variant": "clean",
-                                               "length_bucket": bucket, "chars": len(r["text"]), "company": r["company"], "date_received": r["date_received"],
-                                               "product_raw": r["product"], "issue_raw": r["issue"], "sub_issue_raw": r["sub_issue"], "text_sha256": r["text_sha256"],
-                                               "provenance": {"source": "CFPB consumer complaint database", "via": f"hf:{REPO}@{REVISION}", "rights": "US government work (public domain)"}}})
+                parts[split].append(record(r, RIGHTS))
                 counts[split, key, bucket] += 1
             start += n
     out.mkdir(parents=True)
@@ -107,7 +125,7 @@ def main():
         rng.shuffle(recs); write_jsonl(out / f"{split}.jsonl", recs)
     write_json(out / "build.json", {"repo": REPO, "revision": REVISION, "seed": a.seed, "stats": dict(stats), "issue_coverage": {k: {str(i): n for i, n in c.most_common()} for k, c in issues.items()},
                                     "per_split": {s: len(v) for s, v in parts.items()}, "questions": {s: sum(len(r["questions"]) for r in v) for s, v in parts.items()},
-                                    "cells": {f"{s}/{k}/{b}": n for (s, k, b), n in sorted(counts.items())}, "buckets": BUCKETS, "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()})
+                                    "cells": {f"{s}/{k}/{b}": n for (s, k, b), n in sorted(counts.items())}, "buckets": BUCKETS, "code_sha256": digest(__file__)})
     print({s: len(v) for s, v in parts.items()}, dict(stats))
 
 

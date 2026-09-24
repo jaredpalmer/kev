@@ -1008,3 +1008,10 @@ def test_served_fits_on_raw_rows_and_cluster_resamples_keep_groups_together():
         drawn = [rows[i]["group"] for i in idx]
         assert all(drawn.count(g) % 2 == 0 for g in set(drawn))                        # both questions of a record move together
         assert sum(rows[i]["source"] == "s" for i in idx) == 20                        # stratified: each source keeps its size
+
+
+def test_jsonl_round_trips_unicode_line_separators(tmp_path):
+    from kev.suite import read_jsonl, write_jsonl
+    recs = [{"state": "line one\u2028line two"}, {"state": "next\x85record\u2029end"}, {"state": "plain"}]
+    write_jsonl(tmp_path / "x.jsonl", recs)
+    assert read_jsonl(tmp_path / "x.jsonl") == recs
