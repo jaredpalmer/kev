@@ -12,7 +12,7 @@ the harness below for anything that touches the model, the loader, the trainer, 
 ## 1. Fast suites (also CI)
 
 ```bash
-uv run --extra serve python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py -q
+uv run --extra serve python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py tests/test_documents_tools.py tests/test_hard_v1.py tests/test_devtools_v1.py -q
 ```
 
 `test_conventions.py` fails when a rule that has a canonical home is re-derived elsewhere (head.pt access, KEV_* env

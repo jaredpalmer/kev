@@ -581,6 +581,92 @@ def test_modal_worker_preserves_object_dependency_environment():
     assert "KEV_HF_SECRET" not in worker_environment("kev-research", "H100")
 
 
+def test_repeat_pull_refetches_trial_dirs_copied_mid_run(monkeypatch, tmp_path, capsys):
+    """A trial dir without result.json was copied while the trial ran: the next pull deletes and re-fetches it,
+    keeps finished dirs untouched, adds new ones, and names what is still running."""
+    import modal_app
+    study = tmp_path / "runs" / "s"
+    (study / "00-trial-0").mkdir(parents=True); (study / "00-trial-0/result.json").write_text("{}", encoding="utf-8")
+    (study / "00-trial-0/keep").write_text("local", encoding="utf-8")
+    (study / "01-trial-1/checkpoint").mkdir(parents=True); (study / "01-trial-1/checkpoint/half.bin").write_text("partial", encoding="utf-8")
+    (study / "results.jsonl").write_text("stale", encoding="utf-8")
+    volume = {"00-trial-0": True, "01-trial-1": True, "02-trial-2": True, "03-trial-3": False}   # name -> finished on the volume
+    fetched, aggregated = [], []
+
+    def pull_volume(remote, local_parent):
+        name = remote.rsplit("/", 1)[1]
+        fetched.append(name)
+        (local_parent / name).mkdir()
+        if volume[name]: (local_parent / name / "result.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(modal_app, "ROOT", tmp_path)
+    monkeypatch.setattr(modal_app, "pull_volume", pull_volume)
+    monkeypatch.setattr(modal_app, "volume_names", lambda path: (set(volume), set()))
+    monkeypatch.setattr(modal_app.subprocess, "run", lambda cmd, **kw: aggregated.append(cmd))
+    assert modal_app.pull_study("s") == study
+    assert fetched == ["01-trial-1", "02-trial-2", "03-trial-3"]
+    assert (study / "00-trial-0/keep").exists() and (study / "01-trial-1/result.json").exists()
+    assert not (study / "01-trial-1/checkpoint").exists() and not (study / "results.jsonl").exists()
+    assert "no result.json): ['03-trial-3']" in capsys.readouterr().out
+    assert aggregated and "--aggregate" in aggregated[0]
+
+
+def test_locked_test_passes_timeout_and_memory_through(monkeypatch, tmp_path):
+    import modal_app
+    calls = {}
+
+    class Fn:
+        def with_options(self, **kw): calls.update(kw); return self
+        def remote(self, *args): return {"suites": {"decision": {"clean": {"acc": 0.9, "brier": 0.1}}}}
+
+    monkeypatch.setattr(modal_app, "ROOT", tmp_path)
+    monkeypatch.setattr(modal_app.modal.Function, "from_name", lambda app, name: Fn())
+    monkeypatch.setattr(modal_app, "local_git_commit", lambda: "0" * 40)
+    monkeypatch.setattr(modal_app, "pull_volume", lambda remote, local_parent: None)
+    locked_test = modal_app.locked_test.info.raw_f
+    locked_test("s/00-trial-0", "cand")
+    assert calls == {"gpu": modal_app.GPU, "timeout": 3600, "memory": (32768, 49152)}   # run_locked_test's own defaults
+    locked_test("s/00-trial-0", "cand", gpu="H200", timeout=14400, memory_mb=131072)
+    assert calls == {"gpu": "H200", "timeout": 14400, "memory": (32768, 131072)}
+
+
+class FakeServed:
+    """encode/probs_batch (the served path) over materialized records. Alone, a question prefers its last option;
+    `leak(others)` (the other questions' instructions in the same request) is added to option 0's logit, i.e. broken
+    isolation."""
+    def __init__(self, leak=lambda others: 0.0):
+        self.leak = leak
+
+    def encode(self, tok, rec):
+        return rec
+
+    def probs_batch(self, recs, prefixes, keep):
+        out = []
+        for rec in recs:
+            probs = []
+            for i, q in enumerate(rec["questions"]):
+                logits = torch.arange(len(q["options"]), dtype=torch.float)
+                logits[0] += self.leak([o["instr"] for j, o in enumerate(rec["questions"]) if j != i])
+                probs.append(torch.softmax(logits, 0))
+            out.append(probs)
+        return out, [None] * len(recs)
+
+
+def test_served_isolation_compares_alone_with_packed_and_sibling():
+    from scripts.serving_bench import isolation
+    noul = {"type": "noul", "instructions": "Is it late?", "label": True, "src": "fixture"}
+    raw = [{"state": "s", "questions": {"a": choice_request()["questions"]["reason"], "b": noul}}, {"state": "t", "questions": {"b": noul}}]
+    exact = isolation(FakeServed(), None, raw)
+    assert exact == {k: {"questions": 3, "max_dp": 0.0, "mean_dp": 0.0, "argmax_flips": 0} for k in ("packed", "sibling")}
+    # reads its siblings: the two-question record moves when packed, every question moves next to the probe
+    crowded = isolation(FakeServed(lambda others: 5.0 * len(others)), None, raw)
+    assert crowded["packed"]["argmax_flips"] == 2 and crowded["sibling"]["argmax_flips"] == 3
+    assert crowded["packed"]["max_dp"] > 0.5 and 0 < crowded["packed"]["mean_dp"] < crowded["packed"]["max_dp"]
+    # reads only the probe's text: packed stays exact, so the sibling read is scored at the question's index after the probe
+    secret = isolation(FakeServed(lambda others: 5.0 * any("CRANE" in o for o in others)), None, raw)
+    assert secret["packed"] == exact["packed"] and secret["sibling"]["argmax_flips"] == 3
+
+
 def test_screen_requires_beating_continuation_control_not_just_parent():
     from scripts.review_calibration_screen import screen_checks
     def result(cov):
@@ -1008,3 +1094,10 @@ def test_served_fits_on_raw_rows_and_cluster_resamples_keep_groups_together():
         drawn = [rows[i]["group"] for i in idx]
         assert all(drawn.count(g) % 2 == 0 for g in set(drawn))                        # both questions of a record move together
         assert sum(rows[i]["source"] == "s" for i in idx) == 20                        # stratified: each source keeps its size
+
+
+def test_jsonl_round_trips_unicode_line_separators(tmp_path):
+    from kev.suite import read_jsonl, write_jsonl
+    recs = [{"state": "line one\u2028line two"}, {"state": "next\x85record\u2029end"}, {"state": "plain"}]
+    write_jsonl(tmp_path / "x.jsonl", recs)
+    assert read_jsonl(tmp_path / "x.jsonl") == recs
