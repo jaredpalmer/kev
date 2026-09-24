@@ -31,10 +31,10 @@ KEV_REF = "b78d88d8a3692b600d85f1285fe396a206a7d685"   # github.com/jaredpalmer/
 # GPU preference lists (Modal takes the first with capacity), from runs/serving-*/ and runs/fused-*/report.json in the repo.
 # An L4 is enough for the 0.8B but runs out of compute on the 4B; the L40S is the cheapest GPU that answers the 4B in tens
 # of milliseconds, the H100 the fastest for the 4B and 9B. The A100 is slower than the L40S here and costs more. Kev-27B
-# (55 GB of weights, ~66 GB resident with the batching buffers) is compute-bound under load: a B200 serves it fastest at
-# about the H200's cost per request; an H100 runs out of memory on long documents, an RTX PRO 6000 is slower and costs more per request.
+# (55 GB of weights, ~66 GB resident with the batching buffers) is compute-bound under load: a B200 serves it fastest, at
+# about the same cost per request as an H200 or H100; an RTX PRO 6000 is slower and costs more per request.
 GPU_FOR = {"jaredpalmer/kev-0.8b": ["L4", "L40S"], "jaredpalmer/kev-4b": ["L40S", "H100"], "jaredpalmer/kev-9b": ["H100", "H200", "L40S"],
-           "jaredpalmer/kev-27b": ["B200", "H200", "B300"]}
+           "jaredpalmer/kev-27b": ["B200", "H200", "H100"]}
 
 # Deploy-time settings travel in the image env, so the container evaluates this file with the same values.
 SETTINGS = {"KEV_MODEL": "jaredpalmer/kev-4b", "KEV_APP_NAME": "kev", "KEV_MIN_CONTAINERS": "0", "KEV_GPU": "", "KEV_REGION": "", "KEV_FLASH": "0"}

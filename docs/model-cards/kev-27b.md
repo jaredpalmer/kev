@@ -54,7 +54,7 @@ Kev-27B is a **decision model**: one document (the *state*) and a set of typed q
 **Read this first.**
 - **The base is post-trained, not a base model.** Every other Kev starts from a `-Base` checkpoint. `Qwen/Qwen3.8-27B` is Qwen's instruction-tuned release; what it was post-trained on (including any distillation from other models) is Qwen's and is not known to us. Comparisons with Jev or with the smaller Kevs are therefore not controlled comparisons of the method.
 - **One registered gate was overridden.** Before training, the untrained base had to reach MMLU-Pro ≥ 0.65 on `transfer-v9`; it scored 0.635 and the project owner overrode the gate (recorded in `PLAN_27b.md`, A2). The trained model's own MMLU-Pro is 0.665.
-- **It needs a data-centre GPU.** bf16 weights are 55 GB resident (about 66 GB with the serving buffers); one B200 or H200. An H100 80 GB loads it but ran out of memory under load with long documents. There is no Mac path.
+- **It needs a data-centre GPU.** bf16 weights are 55 GB resident (about 66 GB with the serving buffers); one B200, H200 or H100 80 GB. There is no Mac path.
 
 - Hub: `jaredpalmer/kev-27b` (trial `r6-27b-v2/01-trial-1`; registration and every read in `PLAN_27b.md`, "B1 v2", on the `research/overnight-r6` branch). Numbers below: `runs/release/kev-27b-v2.json`.
 
@@ -83,7 +83,7 @@ How it was selected: two seeds were trained under a rule registered before any t
 
 ## Serving (bf16)
 
-Served with the adapter folded into the bf16 weights (one rounding of W + delta), fused Qwen3.5 kernels, CUDA graphs and batching across concurrent requests (`kev.serve` on CUDA). Measured with `scripts/serving_bench.py` on 200 decision-v7 development records (280 questions): `runs/fused-27b-h200`, `runs/fused-27b-h200-iso`, `runs/fused-27b-b200`, and `runs/fused-27b-b300` / `runs/fused-27b-rtx6000` for the other GPUs tried. The release measurement, with the adapter unmerged and no batching, is `runs/serving-27b-h200`.
+Served with the adapter folded into the bf16 weights (one rounding of W + delta), fused Qwen3.5 kernels, CUDA graphs and batching across concurrent requests (`kev.serve` on CUDA). Measured with `scripts/serving_bench.py` on 200 decision-v7 development records (280 questions): `runs/fused-27b-h200`, `runs/fused-27b-h200-iso`, `runs/fused-27b-b200`, and `runs/fused-27b-h100` / `runs/fused-27b-b300` / `runs/fused-27b-rtx6000` for the other GPUs tried. The release measurement, with the adapter unmerged and no batching, is `runs/serving-27b-h200`.
 
 | | Kev-27B | Kev-9B (H100, reference) |
 |---|---|---|
@@ -95,7 +95,7 @@ Served with the adapter folded into the bf16 weights (one rounding of W + delta)
 | requests/s, decision-v7 development records at 1 / 8 / 32 / 64 concurrent clients | H200 21.6 / 31.7 / 36.4 / 39.7; B200 27.7 / 43.9 / 51.2 / 57.3 | – |
 | GPU memory resident (weights + batching buffers) / load time | 65.5 GB / 19.2 s (H200, cached weights) | – |
 
-Under load the model is compute-bound: a B200 serves 57.3 requests/s at 64 concurrent clients for about the H200's cost per request, with lower latency. An H100 80 GB holds the model but ran out of memory under load with 2,200-token documents; an RTX PRO 6000 serves it slower and at a higher cost per request (`runs/fused-27b-rtx6000`). Blackwell GPUs (B200, B300, RTX PRO 6000) each changed one answer in 280 against the evaluation path, within the release tolerance below.
+Under load the model is compute-bound: a B200 serves 57.3 requests/s at 64 concurrent clients for about the H200's cost per request, with lower latency. An H100 80 GB serves 35.9 requests/s at 64 clients, also at about the same cost per request (`runs/fused-27b-h100`); an RTX PRO 6000 serves it slower and at a higher cost per request (`runs/fused-27b-rtx6000`). On the H100, B200, B300 and RTX PRO 6000 one answer in 280 changed against the evaluation path, within the release tolerance below.
 
 Isolation (a question's answer must not depend on which other questions are asked with it) is exact in fp32 arithmetic for every Kev; in bf16 it holds to the precision band above. The release tolerance was registered before this measurement: max \|Δp\| ≤ 0.03 and at most one flip in 280 questions for both comparisons.
 
@@ -118,7 +118,7 @@ Isolation (a question's answer must not depend on which other questions are aske
 uv run --extra serve python -m kev.serve --run jaredpalmer/kev-27b --port 8008      # CUDA, bf16 + CUDA graphs by default; ~55 GB
 ```
 
-Or deploy your own endpoint with the `kev-deploy` skill (`KEV_MODEL=jaredpalmer/kev-27b modal deploy kev_serve.py`; B200, falling back to H200). Any TypeSafe-compatible client works: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8008", model="kev-latest")`.
+Or deploy your own endpoint with the `kev-deploy` skill (`KEV_MODEL=jaredpalmer/kev-27b modal deploy kev_serve.py`; B200, falling back to H200 and H100). Any TypeSafe-compatible client works: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8008", model="kev-latest")`.
 
 ## License
 
