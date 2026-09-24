@@ -69,6 +69,35 @@ def latency(server, reps):
     return out
 
 
+def throughput(server, suite, levels=(1, 8, 32, 64)):
+    """Concurrent clients calling Server.probs (in-process, no HTTP): p50 / p99 per request and requests/s, on 256
+    decision-v7 development records (short states, 1-6 questions: API-like traffic) and on 64 requests of 5 questions over
+    a 2,200-token state. Every level runs twice: a first pass over all levels meets their batch shapes (they run eagerly
+    and get their CUDA graphs captured, reported as `first`), then the server settles and the second pass is the steady
+    state."""
+    import random
+    from concurrent.futures import ThreadPoolExecutor
+    from kev.api import to_record
+    samples = {"6 questions, new short state": [to_record(request("6 questions, short state", 1000 + i))[0] for i in range(256)],
+               "decision-v7 development": random.Random(0).choices([materialize(r) for r in load_split(suite, "development")], k=256),
+               "5 questions, 2,200-token state": [to_record(request("5 questions, 2,200-token state", 1000 + i))[0] for i in range(64)]}
+    def run(recs, c):
+        def one(rec):
+            t = time.perf_counter(); server.probs(rec); return time.perf_counter() - t
+        with ThreadPoolExecutor(c) as pool:
+            start = time.perf_counter(); lat = sorted(pool.map(one, recs)); wall = time.perf_counter() - start
+        return {"p50_ms": round(1000 * statistics.median(lat), 1), "p99_ms": round(1000 * lat[int(0.99 * (len(lat) - 1))], 1), "requests_per_s": round(len(lat) / wall, 1)}
+
+    out = {}
+    for name, recs in samples.items():
+        first = {c: run(recs, c) for c in levels}   # meets every level's batch shapes first, so the timed runs replay graphs
+        server.wait_idle()
+        for c in levels:
+            out[f"{name} @ {c} clients"] = {**run(recs, c), "first": first[c]}
+            print(name, c, out[f"{name} @ {c} clients"], flush=True)
+    return out
+
+
 def agreement(pairs):
     """[(p, q), ...] probability vectors of the same question -> max and mean of max |p - q|, and argmax flips."""
     dp = [float((p - q).abs().max()) for p, q in pairs]
@@ -76,10 +105,10 @@ def agreement(pairs):
 
 
 def isolation(m, tok, raw):
-    """Each question alone vs in the full request ("packed") and vs after ISOLATION_PROBE ("sibling"), served as
-    configured (bf16, graphs if loaded). raw = labelled records, before materialize."""
+    """Each question alone vs in the full request ("packed") and vs after ISOLATION_PROBE ("sibling"), through the served
+    path (probs_batch: bf16, fused kernels and graphs if loaded). raw = labelled records, before materialize."""
     def serve(record):
-        return m.probs_and_prefix(m.encode(tok, materialize(record)))[0]
+        return m.probs_batch([m.encode(tok, materialize(record))], [None], [False])[0][0]
     out = {"packed": [], "sibling": []}
     for r in raw:
         full = serve(r)
@@ -109,27 +138,31 @@ def main():
         torch.backends.cuda.enable_flash_sdp(True); torch.backends.cuda.enable_mem_efficient_sdp(True)   # serving keeps them
         del ref; gc.collect(); empty_cache("cuda")
     t = time.time()
-    tok, m = ck.load("cuda", LoadOptions(dtype=torch.bfloat16, cuda_graphs=True))
+    tok, m = ck.load("cuda", LoadOptions(dtype=torch.bfloat16, cuda_graphs=True, fused=True))
     report["load_seconds"] = round(time.time() - t, 1)
     report["resident_gb"] = round(torch.cuda.memory_allocated() / 1e9, 1)   # weights + graph buffers
     graphs = m.graphs
     server = Server(ck, tok, m, "cuda", release_date="-")
     report["latency_graphs"] = latency(server, a.reps)   # first, so first_ms includes the captures
     served = {"eager": [], "graphs_miss": [], "graphs_hit": []}
-    for r in recs:
-        enc = m.encode(tok, r)
-        m.graphs = None; served["eager"].append(m.probs_with_prefix(enc, m.prefix(enc)))
-        m.graphs = graphs; m.probs_and_prefix(enc); graphs.capture_pending()   # so both reads below replay graphs
-        p, prefix = m.probs_and_prefix(enc); served["graphs_miss"].append(p); served["graphs_hit"].append(m.probs_with_prefix(enc, prefix))
+    with server.lock:   # the model directly: keep the server's model thread (and its idle captures) out
+        for r in recs:
+            enc = m.encode(tok, r)
+            m.graphs = None; served["eager"].append(m.probs_with_prefix(enc, m.prefix(enc)))
+            m.graphs = graphs; m.probs_batch([enc], [None], [False]); graphs.capture_pending()   # so both reads below replay graphs
+            (miss,), (prefix,) = m.probs_batch([enc], [None], [True])                         # the served path, a new state
+            (hit,), _ = m.probs_batch([enc], [prefix], [False])                               # and a cached one
+            served["graphs_miss"].append(miss); served["graphs_hit"].append(hit)
     report["questions"] = sum(len(p) for p in served["eager"])
     pairs = {f"{k}_vs_eager_bf16": (v, served["eager"]) for k, v in served.items() if k != "eager"}
     if targets: pairs.update({f"{k}_vs_fp32": (v, targets) for k, v in served.items()})
     for name, (got, ref) in pairs.items():
         report[name] = agreement([(p, q) for ps, qs in zip(got, ref) for p, q in zip(ps, qs)])
     if a.isolation:
-        report["isolation_served"] = isolation(m, tok, raw)
-    report["graphs_captured"] = graphs.captures
-    m.graphs = None; server.prefix_cache.clear()
+        with server.lock: report["isolation_served"] = isolation(m, tok, raw)
+    report["throughput"] = throughput(server, a.suite)
+    report["graphs"] = graphs.stats()
+    with server.lock: m.graphs = None; server.prefix_cache.clear()
     report["latency_eager"] = latency(server, a.reps)
     print(json.dumps(report, indent=1))
     Path(a.out).mkdir(parents=True, exist_ok=True)

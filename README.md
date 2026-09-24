@@ -248,9 +248,40 @@ On CUDA, install `flash-linear-attention` for the Qwen3.5 models (the Modal imag
 | Kev-9B | L40S (1.95) | 60 / 32 ms | 80 / 53 ms | 91 / 46 ms | 270 / 54 ms | 136 / 76 ms |
 | Kev-9B | A100 80 GB (2.50) | 42 / 24 ms | 73 / 56 ms | 95 / 54 ms | 267 / 60 ms | 207 / 110 ms |
 
-Without graphs, a forward pass took about 60 ms on an H100 whatever its length. A pass launches about 2,000 kernels, and Python could not issue them faster than the GPU ran them. A new state costs two passes (the state, then the question rows on its cache) and a repeated one costs one. That is why the last column depends more on the host CPU than on the model or the GPU. [`kev/cuda_graphs.py`](kev/cuda_graphs.py) pads each pass to a shape bucket (at most 1/8 larger), captures it once as a CUDA graph, and replays it with one call. The padding is masked exactly, so the answers match the eager pass up to bf16 rounding. On 200 clean decision-v7 development records (280 questions), the graphed answers differ from the fp32 evaluation path by at most 0.016 to 0.028 across these eight setups; eager bf16 differs by 0.012 to 0.039. Either way at most one of the 280 highest-probability answers changes.
+Without graphs, a forward pass took about 60 ms on an H100 whatever its length. A pass launches about 2,000 kernels, and Python could not issue them faster than the GPU ran them. A new state costs two passes (the state, then the question rows on its cache) and a repeated one costs one. That is why the last column depends more on the host CPU than on the model or the GPU. [`kev/cuda_graphs.py`](kev/cuda_graphs.py) pads each pass to a shape bucket (under a quarter larger), captures it once as a CUDA graph, and replays it with one call. The padding is masked exactly, so the answers match the eager pass up to bf16 rounding. On 200 clean decision-v7 development records (280 questions), the graphed answers differ from the fp32 evaluation path by at most 0.016 to 0.028 across these eight setups; eager bf16 differs by 0.012 to 0.039. Either way at most one of the 280 highest-probability answers changes.
 
-A new bucket's first request runs eagerly, about as fast as before. Its graphs are then captured on a background thread, one at a time, about 0.4 s each on an H100. States over 1,024 tokens run the state pass eagerly because it is compute-bound there. `KEV_CUDA_GRAPHS=0` turns graphs off, and `/v1/models` reports how many are captured. `scripts/serving_bench.py` (`uv run modal run modal_app.py::serving --run jaredpalmer/kev-4b --gpu L40S --name <name>`) reproduces a row, and the reports behind this table are in `runs/serving-*/report.json`.
+A new bucket's first request runs eagerly, about as fast as before. The server captures its graphs between requests, one at a time, about 0.4 s each on an H100. States over 1,024 tokens run the state pass eagerly because it is compute-bound there. `KEV_CUDA_GRAPHS=0` turns graphs off and `KEV_FUSED=0` the fused kernels below; `/v1/models` reports how many graphs are captured.
+
+Two more steps take a container from one request at a time to batches, and from transformers' reference layers to fused kernels.
+
+- **Batching.** One model thread runs every pass. When it frees up, it takes every request that is waiting: one state pass computes all their new states into a fixed-layout state bank, and row passes compute all their questions, each row first gathering its state from the bank inside the graph. Items of similar length share a pass, so one long document does not pad the rest. A request's answers do not depend on what shares its batch.
+- **Fused kernels.** [`kev/fused_qwen35.py`](kev/fused_qwen35.py) rewrites the Qwen3.5 layers for serving with flash-linear-attention's Triton kernels: one projection GEMM per mixer, the causal convolution continuing the cached state, the gate, beta and q/k L2 norm inside the delta-rule kernel, and fused norms, SwiGLU and attention output gate. Passes that continue a cached state do not write their final states back. On a batch of 16 six-question requests on an H100 this cut the GPU time from 199 to 128 ms.
+
+Model time per request with both (median of 20, new / repeated state; `runs/fused-*/report.json`):
+
+| Model | GPU | 2 questions | 6 questions | 5 questions, 370-token state | 5 questions, 2,200-token state |
+|---|---|---|---|---|---|
+| Kev-4B | H100 | 12.9 / 7.7 ms | 18.0 / 13.0 ms | 22.2 / 14.1 ms | 90.3 / 22.7 ms |
+| Kev-4B | L40S | 30.7 / 16.6 ms | 42.3 / 27.9 ms | 51.1 / 29.8 ms | 149.1 / 43.3 ms |
+| Kev-9B | H100 | 17.4 / 10.1 ms | 24.1 / 17.0 ms | 29.6 / 18.0 ms | 100.3 / 26.6 ms |
+
+Requests per second with concurrent clients, in-process, steady state (every level runs once to meet its batch shapes, then again for the numbers):
+
+| Model | GPU | Traffic | 1 client | 8 clients | 32 clients | 64 clients |
+|---|---|---|---|---|---|---|
+| Kev-4B | H100 | 6 questions, a new short state each | 49.6 | 84.1 | 95.3 | 93.6 |
+| Kev-4B | H100 | decision-v7 development records | 64.1 | 97.7 | 115.5 | 120.7 |
+| Kev-4B | H100 | 5 questions on a 2,200-token state | 12.5 | 13.1 | 12.3 | 11.4 |
+| Kev-4B | L40S | 6 questions, a new short state each | 22.2 | 32.0 | 43.6 | 43.9 |
+| Kev-4B | L40S | decision-v7 development records | 29.6 | 44.7 | 52.7 | 58.9 |
+| Kev-4B | L40S | 5 questions on a 2,200-token state | 6.2 | 6.5 | 6.7 | 6.9 |
+| Kev-9B | H100 | 6 questions, a new short state each | 37.5 | 58.0 | 63.4 | 63.5 |
+| Kev-9B | H100 | decision-v7 development records | 48.4 | 58.2 | 76.9 | 82.0 |
+| Kev-9B | H100 | 5 questions on a 2,200-token state | 9.3 | 9.7 | 10.0 | 10.0 |
+
+Against the fp32 evaluation path on the same 280 questions, the served probabilities differ by at most 0.012 to 0.027 with no answer changing. Over HTTP, Modal's web endpoint path (`@modal.asgi_app`) caps a container at about 40-50 requests/s and adds ~65 ms per round trip in the same region; its experimental direct HTTP server (`modal.experimental.http_server`) served 99 requests/s at 64 clients with a 37 ms round trip for one.
+
+`scripts/serving_bench.py` (`uv run modal run modal_app.py::serving --run jaredpalmer/kev-4b --gpu L40S --name <name>`) reproduces a row of any of these tables; the reports behind them are in `runs/serving-*/report.json` and `runs/fused-*/report.json`.
 
 Pick the GPU by the model. An L4 is enough for Kev-0.8B. It runs out of compute on Kev-4B, where 6 questions take about the same time with graphs as without, so an L40S is the cheapest GPU that answers Kev-4B in tens of milliseconds. An H100 is fastest for both larger models. The A100 costs more than the L40S and is slower here. Loading merges the fp32 adapter into the bf16 weights with fp32 math, which gives the same bits as merging an fp32 copy and casting. Kev-9B therefore needs about 17 GB of GPU memory to load instead of 36 GB, and fits an L40S.
 

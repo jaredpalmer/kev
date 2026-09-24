@@ -112,11 +112,19 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   the playground proxies :8009)
   - TypeSafe-compatible: `POST /v1/systemone`, `GET /v1/models` (model cards for `kev-latest` and `jev-latest`, plus device, dtype, temperature and prefix-cache stats), an `x-typesafe-request-id` header on every response, and bearer auth when `KEV_API_KEY` is set (unset = open server).
   - SDK: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8009", model="kev-latest")`
-  - CUDA: bf16 + CUDA graphs by default (`kev/cuda_graphs.py`, `LoadOptions.cuda_graphs`, `KEV_CUDA_GRAPHS=0` to decline). A server pass
-    was kernel-launch bound (~60 ms on an H100 at any length); graphs replay bucketed passes (state left-padded, rows right-padded, masked
-    exactly; equal to eager up to bf16 reassociation), a new bucket runs eagerly and is captured on a background thread under the model lock.
-    Measure with `uv run modal run modal_app.py::serving --run <hub id> --gpu <GPU> --name <name>` (`scripts/serving_bench.py`: latency with
-    and without graphs, parity vs fp32, `--flags=--isolation` for question isolation in bf16; reports in `runs/serving-*`). `tests/test_model.py::test_cuda_graphs_match_eager` needs CUDA (run it on Modal).
+  - CUDA: bf16, fused kernels and CUDA graphs by default (`LoadOptions.fused` / `LoadOptions.cuda_graphs`, `KEV_FUSED=0` / `KEV_CUDA_GRAPHS=0` to decline). A server pass was
+    kernel-launch bound (~60 ms on an H100 at any length). `kev/fused_qwen35.py` rewrites the merged Qwen3.5 layers with fla Triton kernels
+    (it needs fla 0.5.2 exactly, pinned in the images, and refuses others: it patches fla's NB-keyed kernel launches; a pass continuing a
+    cached DeltaNet state does not write it back). `kev/cuda_graphs.py` replays bucketed passes (state left-padded, rows right-padded, masked exactly; equal to eager up to bf16
+    reassociation) and owns admission (`admits`), batches (`run`), capture policy (`capture_due`: idle, or a bucket that keeps recurring) and
+    `stats()`; a failed capture leaves its bucket eager. `kev.serve.Server` runs every pass on one model thread that batches whatever is
+    queued (`DecisionModel.probs_batch`, `CudaGraphs.run` over typed `Request`s; `probs_one` is the per-request rule every backend shares;
+    `PrefixCache` keeps only the states that survive a batch); `/v1/systemone` is async, `Server.lock`
+    excludes the model thread, `wait_idle()` waits for answers and captures, every response carries `server-timing`.
+    Measure with `uv run modal run modal_app.py::serving --run <hub id> --gpu <GPU> --name <name>` (`scripts/serving_bench.py`: latency,
+    parity vs fp32, throughput at 1/8/32/64 in-process clients, `--flags=--isolation` for question isolation on the served path; reports in `runs/serving-*` (graphs only) and `runs/fused-*`).
+    `tests/test_model.py::test_cuda_graphs_match_eager` needs CUDA (run it on Modal). Over HTTP, Modal's `asgi_app` path caps a container at
+    ~40-50 req/s; `modal.experimental.http_server` served ~99 req/s at 64 clients (Kev-4B, H100).
     Loading merges the fp32 adapter straight into bf16 weights (same bits as the old fp32 merge + cast), so Kev-9B needs ~17 GB, not 36 GB.
 - Extra endpoints for the demo: `POST /v1/systemone/permute` (one Choice under n option orders), `POST /v1/systemone/separate`
   (each question alone; packed-vs-separate comparison). `/v1/systemone` also returns `latency_ms`.
@@ -147,7 +155,7 @@ Repo skills (`.agents/skills`, tracked in git):
 Installed from other repos by `npx skills add` and pinned in `skills-lock.json` (`deslop`, `unslop` from cursor/plugins,
 `grill-me` from mattpocock/skills); `.agents/skills/modal/` is gitignored and reinstalled with `uv run modal skills install`.
 
-Published from this repo: `skills/kev-deploy` (`npx skills add jaredpalmer/kev@kev-deploy`), one self-contained Modal file (`scripts/kev_serve.py`, pinned `KEV_REF`, GPU list per released model from `runs/serving-*`: 0.8B L4, 4B L40S, 9B H100; CUDA graphs captured at start; optional `KEV_REGION`; bearer key via a deploy-time Modal secret) that serves a released Kev checkpoint as a System One endpoint in one `modal deploy`; bump its `KEV_REF` after a serving change it should pick up. And `skills/kev-finetune` (`npx skills add jaredpalmer/kev@kev-finetune`): the user-facing fine-tuning skill (SKILL.md for agents,
+Published from this repo: `skills/kev-deploy` (`npx skills add jaredpalmer/kev@kev-deploy`), one self-contained Modal file (`scripts/kev_serve.py`, pinned `KEV_REF`, GPU list per released model from `runs/serving-*`: 0.8B L4, 4B L40S, 9B H100; CUDA graphs captured at start (`server.wait_idle()`); 64 concurrent inputs per container, autoscaling at 32; optional `KEV_REGION`; `KEV_FLASH=1` = Modal's experimental direct HTTP server, needs `KEV_REGION`, keeps one container up; fla pinned to 0.5.2; bearer key via a deploy-time Modal secret) that serves a released Kev checkpoint as a System One endpoint in one `modal deploy`; bump its `KEV_REF` after a serving change it should pick up. And `skills/kev-finetune` (`npx skills add jaredpalmer/kev@kev-finetune`): the user-facing fine-tuning skill (SKILL.md for agents,
 README.md is the human cookbook, `references/` the long-form docs). agentskills.io format (validate with `uvx --from skills-ref agentskills validate skills/kev-finetune`).
 Stdlib scripts: `extract_workload` (find Jev/TypeSafe call sites + labelled files, draft the spec), `convert_data` (CSV/JSONL -> records),
 `generate_data` (OpenAI-compatible endpoint), `plan_size` (paired McNemar sizing; `--from-result` post hoc), `split_data` (`--holdout` keeps real rows out of train).

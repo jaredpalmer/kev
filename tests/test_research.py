@@ -631,21 +631,25 @@ def test_locked_test_passes_timeout_and_memory_through(monkeypatch, tmp_path):
 
 
 class FakeServed:
-    """encode/probs_and_prefix over materialized records. Alone, a question prefers its last option; `leak(others)`
-    (the other questions' instructions in the same request) is added to option 0's logit, i.e. broken isolation."""
+    """encode/probs_batch (the served path) over materialized records. Alone, a question prefers its last option;
+    `leak(others)` (the other questions' instructions in the same request) is added to option 0's logit, i.e. broken
+    isolation."""
     def __init__(self, leak=lambda others: 0.0):
         self.leak = leak
 
     def encode(self, tok, rec):
         return rec
 
-    def probs_and_prefix(self, rec):
+    def probs_batch(self, recs, prefixes, keep):
         out = []
-        for i, q in enumerate(rec["questions"]):
-            logits = torch.arange(len(q["options"]), dtype=torch.float)
-            logits[0] += self.leak([o["instr"] for j, o in enumerate(rec["questions"]) if j != i])
-            out.append(torch.softmax(logits, 0))
-        return out, None
+        for rec in recs:
+            probs = []
+            for i, q in enumerate(rec["questions"]):
+                logits = torch.arange(len(q["options"]), dtype=torch.float)
+                logits[0] += self.leak([o["instr"] for j, o in enumerate(rec["questions"]) if j != i])
+                probs.append(torch.softmax(logits, 0))
+            out.append(probs)
+        return out, [None] * len(recs)
 
 
 def test_served_isolation_compares_alone_with_packed_and_sibling():

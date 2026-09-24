@@ -57,7 +57,7 @@ image = (
     .uv_sync(uv_project_dir=str(ROOT), groups=[], extras=["serve"])   # exact locked deps (serve: kev.serve for serving_bench); Linux torch wheels are the CUDA build
     # Gated DeltaNet kernels for the Qwen3.5 hybrid backbones (transformers falls back to slow reference code without them)
     # fla refuses its gated chunk backward on Hopper with Triton 3.4-3.7.0 (incorrect results, fla#640); torch 2.8 pins 3.4
-    .uv_pip_install("flash-linear-attention", "triton>=3.7.1")
+    .uv_pip_install("flash-linear-attention==0.5.2", "triton>=3.7.1")   # pinned: kev.fused_qwen35 patches fla kernel launches
     .env(worker_environment(APP_NAME, GPU, os.environ.get("KEV_HF_SECRET")))
     .add_local_python_source("kev")
     .add_local_file(ROOT / "uv.lock", "/root/uv.lock")

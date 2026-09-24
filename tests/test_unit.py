@@ -165,6 +165,7 @@ def test_checkpoint_meta_round_trip_and_defaults(tmp_path):
     assert LoadOptions.from_env({"KEV_DTYPE": "fp32"}).dtype is torch.float32   # explicit fp32 survives, so kev.serve's bf16 default can be declined
     assert LoadOptions.from_env({}).backend is None and LoadOptions.from_env({"KEV_BACKEND": "mlx"}).backend == "mlx"
     assert [LoadOptions.from_env(e).cuda_graphs for e in ({}, {"KEV_CUDA_GRAPHS": "0"}, {"KEV_CUDA_GRAPHS": "1"})] == [None, False, True]   # an explicit 0 declines kev.serve's default
+    assert [LoadOptions.from_env(e).fused for e in ({}, {"KEV_FUSED": "0"}, {"KEV_FUSED": "1"})] == [None, False, True]
     with pytest.raises(ValueError, match="KEV_BACKEND"):
         LoadOptions.from_env({"KEV_BACKEND": "metal"})
 
@@ -200,6 +201,35 @@ def test_rows_per_pass_is_a_token_budget():
     assert rows_per_pass([[0] * 30] * 5, prefix_len=270) == 16384 // 300     # a short state: every question of a normal request batches
     assert rows_per_pass([[0] * 20] * 64, prefix_len=4802) == 3            # a long state: a few cache copies per pass
     assert rows_per_pass([[0] * 8192], prefix_len=8192) == 1               # a maximal row still runs
+
+
+def test_prefix_cache_keeps_what_survives_the_batch():
+    """kev.serve.PrefixCache: a batch keeps only its last `size` distinct cacheable states (the rest it would evict
+    itself), hits are reinserted as most recent, short states and size 0 are never cached."""
+    from kev.serve import PrefixCache
+    enc = lambda state, n=3: {"ids": list(state) + [0] * 5, "seg": [0] * n + [1] * (len(state) + 5 - n)}
+    c = PrefixCache(size=2, min_tokens=3)
+    batch = [enc("abc"), enc("abd"), enc("abe"), enc("abd"), enc("ab", n=2)]
+    keys, cached, keep = c.plan(batch)
+    assert cached == [None] * 5 and keep == [False, True, True, True, False] and keys[4] is None
+    c.store(keys, cached, [None, "p2", "p3", "p2", None])
+    assert list(c.entries.values()) == ["p3", "p2"] and (c.hits, c.misses) == (0, 4)
+    keys, cached, keep = c.plan([enc("abe"), enc("abf")])
+    assert cached == ["p3", None] and keep == [True, True]
+    c.store(keys, cached, ["p3", "p4"])
+    assert list(c.entries.values()) == ["p3", "p4"] and c.hits == 1
+    assert PrefixCache(size=0, min_tokens=0).plan([enc("abc")])[2] == [False]
+
+
+def test_graph_buckets_and_length_groups():
+    """kev.cuda_graphs pads batched passes: counts to count_bucket (under half extra), token lengths to bucket (under a
+    quarter), and length_groups keeps one long item from padding a whole large batch while never splitting a small one."""
+    from kev.cuda_graphs import bucket, count_bucket, length_groups
+    assert [count_bucket(n) for n in (1, 3, 5, 7, 9, 13, 17, 25)] == [1, 3, 6, 8, 12, 16, 24, 32]
+    assert all(n <= count_bucket(n) < 1.5 * n for n in range(2, 200)) and all(n <= bucket(n) < max(1.25 * n, n + 16) for n in range(1, 5000))
+    assert length_groups([40, 20, 35, 30, 25, 45], 32) == [[1, 4, 3, 2, 0, 5]]            # a small pass stays whole
+    assert length_groups([30] * 20 + [900], 32) == [list(range(20)), [20]]               # the outlier gets its own pass
+    assert [len(g) for g in length_groups([100] * 40, 16)] == [16, 16, 8]                # capped per pass
 
 
 def test_rows_hidden_replicates_cache_without_changing_prefix(monkeypatch):

@@ -99,9 +99,13 @@ class LoadOptions:
                  installed and fp32 was not asked for (an explicit dtype=float32 means "the exact path"), else torch;
                  kev.serve uses auto. The MLX path always merges the adapter and ignores `attn` and `dtype` (the backbone
                  runs as stored, bf16).
-    cuda_graphs  replay the serving passes (state prefix, question rows on a cached state) of a hybrid backbone on CUDA as
-                 CUDA graphs (kev.cuda_graphs). None = off, the eager path every reported number uses; kev.serve turns it on
-                 for CUDA. Exact up to floating-point reassociation, not bit for bit (the passes are padded to buckets).
+    cuda_graphs  replay the serving passes of a hybrid backbone on CUDA (state prefix, question rows on a cached state) as
+                 CUDA graphs, batched across requests (kev.cuda_graphs, DecisionModel.probs_batch). None = off, the eager
+                 path every reported number uses; kev.serve turns it on for CUDA. Exact up to floating-point
+                 reassociation, not bit for bit (the passes are padded to buckets).
+    fused        rewrite a merged hybrid backbone on CUDA with fused Triton kernels (kev.fused_qwen35; needs
+                 flash-linear-attention fused_qwen35.FLA_VERSION and refuses any other). None = off; kev.serve turns it on
+                 for CUDA (KEV_FUSED=0 to decline). Equal to the reference layers up to bf16 rounding.
     """
     dtype: torch.dtype | None = None
     merge: bool = True
@@ -110,13 +114,14 @@ class LoadOptions:
     temperature: float | None = None
     backend: str | None = None
     cuda_graphs: bool | None = None
+    fused: bool | None = None
 
     BACKENDS = (None, "torch", "mlx", "auto")
 
     @classmethod
     def from_env(cls, env=os.environ):
         """KEV_DTYPE=bf16|fp16|fp32, KEV_MERGE=0, KEV_ATTN=sdpa|eager, KEV_LORA_SCALE, KEV_TEMPERATURE, KEV_BACKEND=torch|mlx|auto,
-        KEV_CUDA_GRAPHS=0|1.
+        KEV_CUDA_GRAPHS=0|1, KEV_FUSED=0|1.
         For command-line entry points only; library code passes an explicit LoadOptions. Explicit values that equal a
         library default are kept (fp32 as torch.float32, "torch" as a string) so a caller with its own default, like
         kev.serve, can tell "asked for it" from "did not say"."""
@@ -126,7 +131,8 @@ class LoadOptions:
                    merge=env.get("KEV_MERGE", "1") != "0", attn=env.get("KEV_ATTN") or None,
                    lora_scale=float(env.get("KEV_LORA_SCALE", "1")),
                    temperature=float(env["KEV_TEMPERATURE"]) if env.get("KEV_TEMPERATURE") else None, backend=backend,
-                   cuda_graphs={"0": False, "1": True}.get(env.get("KEV_CUDA_GRAPHS", "")))
+                   cuda_graphs={"0": False, "1": True}.get(env.get("KEV_CUDA_GRAPHS", "")),
+                   fused={"0": False, "1": True}.get(env.get("KEV_FUSED", "")))
 
 
 def mlx_available():
@@ -215,7 +221,11 @@ class Checkpoint:
         if merge: m.lm = m.lm.merge_and_unload()     # W += delta: fp32 math, one rounding (see LoadOptions.merge)
         if meta.lora_placement == "question": m.install_lora_gate()
         if dtype != torch.float32: m.lm = m.lm.to(dtype)
-        if opts.cuda_graphs and str(device).startswith("cuda") and m.hybrid and meta.lora_placement == "full":   # graphs replay without the question-side gate hooks
+        serving = str(device).startswith("cuda") and m.hybrid and meta.lora_placement == "full"   # fused kernels and graphs run without the question-side gate hooks
+        if opts.fused and serving and merge:   # fused projections need the adapter folded in
+            from .fused_qwen35 import fuse
+            fuse(m.lm)
+        if opts.cuda_graphs and serving:
             from .cuda_graphs import CudaGraphs
             m.graphs = CudaGraphs(m.lm, m.pad_id)
         return m

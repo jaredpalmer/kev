@@ -158,29 +158,35 @@ def test_hybrid_rows_isolation_and_prefix():
         assert (a - b).abs().max() < 1e-4 and (a - c).abs().max() < 1e-4 and (a - d).abs().max() < 1e-4 and (a - e).abs().max() < 1e-4 and (a - f).abs().max() < 1e-4
 
 def test_cuda_graphs_match_eager():
-    """kev.cuda_graphs (CUDA only): the bucketed passes, run eagerly on first sight and replayed once captured, give the
-    eager bf16 answers up to bf16 noise, for prefixes made either way; a prefix survives being read, more rows than one
-    graph holds are chunked, and a state or row too long to graph runs the plain eager pass. scripts/serving_bench.py
-    measures the same on 200 records against fp32."""
+    """kev.cuda_graphs + kev.fused_qwen35 (CUDA only): the served path (probs_batch) gives the eager bf16 answers up to
+    bf16 noise, first with its new buckets run eagerly and then replayed, for new states (two sharing one) and cached
+    ones (made either way), with more rows than one pass holds, a state past GRAPH_STATE (its own eager state pass, then
+    batched rows) and a row past GRAPH_ROW (the plain eager path). scripts/serving_bench.py measures the same on 200
+    records against fp32."""
     import torch
     if not torch.cuda.is_available(): pytest.skip("needs CUDA")
     from kev.checkpoint import Checkpoint, LoadOptions
     from kev import cuda_graphs
     from kev.model import SERVE_MAX_BRANCH, SERVE_MAX_STATE
-    tok, m = Checkpoint("jaredpalmer/kev-0.8b").load("cuda", LoadOptions(dtype=torch.bfloat16, cuda_graphs=True))
+    tok, m = Checkpoint("jaredpalmer/kev-0.8b").load("cuda", LoadOptions(dtype=torch.bfloat16, cuda_graphs=True, fused=True))
     q = {"instr": "Which team should handle this?", "options": ["returns", "shipping", "billing", "other"], "label": 0}
     recs = [{"state": "Order 4411 arrived late and the box was crushed. Two charges appear on the card." * k, "questions": [q] * n}
-            for k, n in ((1, 1), (1, 3), (4, cuda_graphs.GRAPH_ROWS + 3), (20, 2), (300, 2))]   # the last state is past GRAPH_STATE: eager state pass
-    recs.append({"state": "short", "questions": [{**q, "instr": "word " * (cuda_graphs.GRAPH_ROW + 10)}]})   # row too long: eager
+            for k, n in ((1, 1), (1, 3), (4, cuda_graphs.GRAPH_ROWS + 3), (20, 2), (300, 2))]
+    recs.append({"state": "short", "questions": [{**q, "instr": "word " * (cuda_graphs.GRAPH_ROW + 10)}]})
     graphs = m.graphs
     with torch.no_grad():
-        for rec in recs:
-            enc = m.encode(tok, rec, max_state=SERVE_MAX_STATE, max_branch=SERVE_MAX_BRANCH)
-            m.graphs = None; eager_prefix = m.prefix(enc); ref = m.probs_with_prefix(enc, eager_prefix)
-            m.graphs = graphs; first = m.probs_with_prefix(enc, m.prefix(enc))   # new buckets: the pass bodies run eagerly
-            graphs.capture_pending(); prefix = m.prefix(enc)                     # now replayed
-            for got in (first, m.probs_with_prefix(enc, prefix), m.probs_with_prefix(enc, prefix), m.probs_with_prefix(enc, eager_prefix)):
-                assert all((a - b).abs().max() < 0.05 for a, b in zip(ref, got))
+        encs = [m.encode(tok, rec, max_state=SERVE_MAX_STATE, max_branch=SERVE_MAX_BRANCH) for rec in recs + recs[:2]]
+        m.graphs = None; refs = [m.probs(e) for e in encs]; eager_prefix = m.prefix(encs[2])
+        m.graphs = graphs
+        new_prefixes = None
+        for _ in range(2):   # first run: new buckets run eagerly; second: replayed
+            got, new_prefixes = m.probs_batch(encs, [None] * len(encs), [True] * len(encs))
+            graphs.capture_pending()
+        cached = list(new_prefixes); cached[2] = eager_prefix                    # cached states, one of them made eagerly
+        hits, same = m.probs_batch(encs, cached, [True] * len(encs))
+        for ref, ps, hs, p, c in zip(refs, got, hits, new_prefixes, same):
+            assert p is not None and c is p or c is eager_prefix
+            assert all((a - b).abs().max() < 0.05 for a, b in zip(ref, ps)) and all((a - b).abs().max() < 0.05 for a, b in zip(ref, hs))
     assert graphs.captures > 0 and not graphs.pending
 
 def test_init_from_warm_start_and_compatibility_checks(tmp_path):

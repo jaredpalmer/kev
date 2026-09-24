@@ -32,14 +32,14 @@ Modal's official skill and documentation, which helps with anything beyond this 
 | `KEV_MODEL` | GPU (automatic; fallbacks in parentheses) | $/h while up | Model time, 6 questions (new / repeated state) | Cold start (cached weights) | When |
 | --- | --- | --- | --- | --- | --- |
 | `jaredpalmer/kev-0.8b` | L4 (L40S) | 0.80 | 37 / 28 ms | ~40 s | cheapest, prototyping |
-| `jaredpalmer/kev-4b` (default) | L40S (H100) | 1.95 | 50 / 34 ms (H100: 30 / 20 ms) | ~35 s | the default: best quality per dollar |
-| `jaredpalmer/kev-9b` | H100 (H200, L40S) | 3.95 | 37 / 24 ms (L40S: 80 / 53 ms) | ~55 s | best released accuracy |
+| `jaredpalmer/kev-4b` (default) | L40S (H100) | 1.95 | 42 / 28 ms (H100: 18 / 13 ms) | ~35 s | the default: best quality per dollar |
+| `jaredpalmer/kev-9b` | H100 (H200, L40S) | 3.95 | 24 / 17 ms | ~55 s | best released accuracy |
 
-Model time is the `latency_ms` the API returns (median of 20 requests, measured in the Kev repo: `runs/serving-*/report.json`).
-A new state is the normal call, since every ticket is a new state; a repeated state is served from a prefix cache. The very
-first cold start of an account also downloads the weights and compiles kernels (1-2 minutes); both are cached on the
-`kev-hf-cache` volume afterwards. Other GPUs work with `KEV_GPU` but are worse picks: an L4 runs out of compute on Kev-4B
-(6 questions: ~157 / 116 ms), and an A100 is slower than an L40S here and costs more.
+Model time is the `latency_ms` the API returns (median of 20 requests, measured in the Kev repo: `runs/fused-*/report.json`
+for Kev-4B and Kev-9B, `runs/serving-*/report.json` for Kev-0.8B). A new state is the normal call, since every ticket is a
+new state; a repeated state is served from a prefix cache. The very first cold start of an account also downloads the
+weights and compiles kernels (1-2 minutes); both are cached on the `kev-hf-cache` volume afterwards. Other GPUs work with
+`KEV_GPU` but are worse picks: an L4 runs out of compute on Kev-4B, and an A100 is slower than an L40S here and costs more.
 
 A warm container costs the GPU's hourly rate only while it is up; after five idle minutes it scales to zero.
 `KEV_MIN_CONTAINERS=1` keeps one warm (no cold starts, pays the hourly rate all the time). `@revision` pins a checkpoint
@@ -62,6 +62,21 @@ Settings are read at deploy time; redeploying with other values replaces the mod
 runs: without it Modal takes the first region with a free GPU, which can be another continent (an unpinned Kev-4B landed in
 Frankfurt and added ~150 ms to every round trip from the US). A pinned region costs 1.15-1.75x on Modal; pin it near the
 callers for latency-sensitive use.
+
+### Throughput
+
+A container answers concurrent requests in batches: its model thread takes everything waiting and runs it through shared
+passes. In-process, Kev-4B on an H100 serves about 95 six-question requests/s (120 on mixed short records); an L40S about
+45. Over HTTP the front door matters more than the GPU (Kev-4B, H100, a client in the same region, measured 2026-09-24):
+
+| Front door | One request, round trip | 8 / 32 concurrent clients | Scaling |
+| --- | --- | --- | --- |
+| web endpoint (default) | ~77 ms | 77 / 103 req/s | Modal adds containers past 32 concurrent requests each |
+| `KEV_FLASH=1` (experimental) | ~46 ms | 70 / 112 req/s per container | one container stays up; past ~32 concurrent per container requests queue at the proxy (p99 ~4 s at 64) |
+
+For steady high traffic, keep containers warm (`KEV_MIN_CONTAINERS=2` or more) so bursts do not wait for a cold start, and
+size it at about 32 concurrent requests per container. `KEV_FLASH=1` needs `KEV_REGION` (its proxy is regional) and its
+URL is printed as `https://<workspace>--<app>-kev.<region>.modal.direct`.
 
 ## 4. Verify
 

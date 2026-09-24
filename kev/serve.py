@@ -9,7 +9,8 @@ comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS size the state-prefix cach
 date preprocessing (api.with_date_facts). Backend and precision follow LoadOptions (KEV_BACKEND, KEV_DTYPE, ...): on Apple
 Silicon the hybrid Qwen3.5 checkpoints run on MLX by default, elsewhere on torch in bf16.
 """
-import argparse, hmac, os, random, threading, time, uuid
+import argparse, asyncio, atexit, hmac, os, queue, random, sys, threading, time, uuid
+from concurrent.futures import Future
 import torch
 from dataclasses import dataclass, field, replace
 from fastapi import FastAPI, HTTPException
@@ -25,74 +26,145 @@ PREFIX_CACHE_SIZE = int(os.environ.get("KEV_PREFIX_CACHE", "4"))          # stat
 PREFIX_MIN_TOKENS = os.environ.get("KEV_PREFIX_MIN_TOKENS")               # states shorter than this are not cached; default = the model's prefix_min_tokens (0 for hybrid backbones and MLX, 384 for attention-only torch models)
 DATE_FACTS = os.environ.get("KEV_DATE_FACTS", "0") == "1"
 API_KEY = os.environ.get("KEV_API_KEY")                                  # unset = open server; set = require Authorization: Bearer <key>, as the TypeSafe clients always send
+MAX_BATCH = 64                                                           # requests the model thread takes at once (kev.cuda_graphs splits them to fit its buffers)
 MODEL_NAMES = ("kev-latest", "jev-latest")                               # both names serve this checkpoint; jev-latest is the TypeSafe SDK default model, so an unconfigured client works
 
 
 @dataclass
+class PrefixCache:
+    """State prefixes kept across requests, least recently used first: (state token ids, option_isolation) -> prefix.
+    States shorter than min_tokens are not cached. A batch keeps (copies) only the new states that will still be here
+    after it, its last `size` distinct ones: the rest would be evicted by the batch itself."""
+    size: int
+    min_tokens: int
+    entries: dict = field(default_factory=dict)
+    hits: int = 0
+    misses: int = 0
+
+    def plan(self, encs):
+        """-> (key per request, None when its state is not cached; its cached prefix or None; whether to keep a new one)."""
+        lengths = [enc["seg"].count(0) for enc in encs]
+        keys = [(tuple(enc["ids"][:n]), bool(enc.get("option_isolation"))) if self.size and n >= self.min_tokens else None
+                for enc, n in zip(encs, lengths)]
+        survivors = set(list(dict.fromkeys(k for k in reversed(keys) if k is not None))[:self.size])
+        return keys, [self.entries.get(k) if k is not None else None for k in keys], [k in survivors for k in keys]
+
+    def store(self, keys, cached, prefixes):
+        """Record hits and misses, and (re)insert the batch's prefixes in order: most recently used last."""
+        for key, old, new in zip(keys, cached, prefixes):
+            if key is None: continue
+            self.hits += old is not None; self.misses += old is None
+            if new is None: continue
+            self.entries.pop(key, None); self.entries[key] = new
+            while len(self.entries) > self.size: self.entries.pop(next(iter(self.entries)))
+
+    def clear(self):
+        self.entries.clear()
+
+
+@dataclass
 class Server:
-    """The loaded checkpoint and the state-prefix cache shared by every request (one model, one lock)."""
+    """The loaded checkpoint, the state-prefix cache (PrefixCache), and the one model thread that runs every forward pass.
+
+    Request threads encode their record and queue it; the model thread takes everything queued when it becomes free and
+    runs it as one batch (model.probs_batch: with CUDA graphs, shared state and row passes; otherwise one request at a
+    time), then answers each request. It also captures pending CUDA graphs when the graphs say so (capture_due). `lock` is
+    held around each batch and capture: hold it to use the model directly."""
     checkpoint: Checkpoint
     tok: object
     model: object
     device: str
     lock: threading.Lock = field(default_factory=threading.Lock)
-    capture_lock: threading.Lock = field(default_factory=threading.Lock)   # held by the one CUDA-graph capture thread
-    prefix_cache: dict = field(default_factory=dict)   # (state token ids, option_isolation) -> prefix, in LRU order
-    prefix_hits: int = 0
-    prefix_misses: int = 0
+    batches: int = 0
+    batched_requests: int = 0
     release_date: str = field(default="")   # for the TypeSafe model card; resolved once (may ask the Hub)
 
     def __post_init__(self):
         self.release_date = self.release_date or self.checkpoint.release_date()
+        self.prefix_cache = PrefixCache(PREFIX_CACHE_SIZE, int(PREFIX_MIN_TOKENS) if PREFIX_MIN_TOKENS else self.model.prefix_min_tokens)
+        self.queue, self.stopping = queue.Queue(), threading.Event()
+        # the model thread gives up the GIL at every CUDA sync and waits to get it back while the event loop parses and
+        # answers requests; at Python's default 5 ms switch interval those waits stretched a batch's model time ~2x.
+        # Process-wide, so close() puts it back.
+        self.switch_interval = sys.getswitchinterval()
+        sys.setswitchinterval(0.0005)
+        self.thread = threading.Thread(target=self._work, name="kev-model", daemon=True)
+        self.thread.start()
+        atexit.register(self.close)   # a daemon thread killed inside a CUDA call at interpreter exit aborts the process
 
-    @property
-    def prefix_min_tokens(self):
-        return int(PREFIX_MIN_TOKENS) if PREFIX_MIN_TOKENS else self.model.prefix_min_tokens
+    def close(self):
+        """Stop the model thread after its current batch; requests still queued fail, and so do later ones (submit)."""
+        if self.stopping.is_set(): return
+        self.stopping.set(); self.thread.join()
+        while not self.queue.empty():
+            self.queue.get_nowait()[1].set_exception(RuntimeError("the server stopped")); self.queue.task_done()
+        sys.setswitchinterval(self.switch_interval)
 
-    def probs(self, rec):
-        """One forward pass. The state prefix (tokens up to the first question) is cached across requests, so a repeated
-        state only pays for its question branches. Exact: the state's activations do not depend on the branches."""
+    def submit(self, rec):
+        """Queue one record for the model thread. -> a Future of (probabilities, stats). The state prefix (tokens up to the
+        first question) is cached across requests, so a repeated state only pays for its question rows. latency_ms is the
+        model time of the batch the request ran in (not its wait in the queue)."""
+        if self.stopping.is_set(): raise HTTPException(503, "the server is stopping")
         try: enc = self.model.encode(self.tok, rec, max_state=SERVE_MAX_STATE, max_branch=SERVE_MAX_BRANCH)
         except ValueError as e: raise HTTPException(422, str(e))
-        Ls = enc["seg"].count(0); key = (tuple(enc["ids"][:Ls]), bool(enc.get("option_isolation")))
-        cache, hit = self.prefix_cache, False
-        with self.lock:
-            sync(self.device); t = time.time()
-            eligible = PREFIX_CACHE_SIZE and Ls >= self.prefix_min_tokens
-            if eligible and key in cache:
-                prefix = cache.pop(key)                            # pop + reinsert = LRU order
-                ps = self.model.probs_with_prefix(enc, prefix); cache[key] = prefix
-                self.prefix_hits += 1; hit = True
-            elif eligible:
-                ps, prefix = self.model.probs_and_prefix(enc)      # one pass, and the state prefix is kept for next time
-                cache[key] = prefix
-                while len(cache) > PREFIX_CACHE_SIZE: cache.pop(next(iter(cache)))
-                self.prefix_misses += 1
-            else:
-                ps = self.model.probs(enc)
-            sync(self.device); dt = time.time() - t
-        self.capture_graphs()
-        return [p.tolist() for p in ps], {"tokens": len(enc["ids"]), "state_tokens": Ls, "latency_ms": round(dt * 1000, 1), "prefix_cache_hit": hit}
+        done = Future()
+        self.queue.put((enc, done))
+        return done
 
-    def capture_graphs(self):
-        """Capture the CUDA graphs for shapes this request ran eagerly (kev.cuda_graphs) on a background thread, one graph
-        per turn of the model lock: the request that met a new shape does not wait for its capture, and a request arriving
-        meanwhile waits for at most one (~0.4 s on an H100). At most one such thread at a time."""
+    def probs(self, rec):
+        return self.submit(rec).result()
+
+    def _work(self):
         graphs = getattr(self.model, "graphs", None)
-        if graphs is None or not graphs.pending or not self.capture_lock.acquire(blocking=False): return
-
-        def run():
-            try:
-                while graphs.pending:
+        while not self.stopping.is_set():
+            try: batch = [self.queue.get(timeout=0.05)]
+            except queue.Empty:
+                if graphs is not None and graphs.capture_due(idle=True):
                     with self.lock: graphs.capture_pending(limit=1)
-            finally:
-                self.capture_lock.release()
-        threading.Thread(target=run, daemon=True).start()
+                continue
+            while len(batch) < MAX_BATCH:
+                try: batch.append(self.queue.get_nowait())
+                except queue.Empty: break
+            try:
+                with self.lock: results = self._run([enc for enc, _ in batch])
+            except Exception as e:   # every request of the batch gets the error; the thread lives on
+                results = [e] * len(batch)
+            for (_, done), result in zip(batch, results):
+                (done.set_exception if isinstance(result, Exception) else done.set_result)(result)
+                self.queue.task_done()
+            if graphs is not None and graphs.capture_due(idle=False):
+                with self.lock: graphs.capture_pending(limit=1)
+
+    def _run(self, encs):
+        """One batch through model.probs_batch, with the prefix cache. -> per request (probs, stats)."""
+        keys, cached, keep = self.prefix_cache.plan(encs)
+        sync(self.device); t = time.time()
+        ps, prefixes = self.model.probs_batch(encs, cached, keep)
+        sync(self.device); dt = round((time.time() - t) * 1000, 1)
+        self.prefix_cache.store(keys, cached, prefixes)
+        self.batches += 1; self.batched_requests += len(encs)
+        return [([q.tolist() for q in p], {"tokens": len(enc["ids"]), "state_tokens": enc["seg"].count(0), "latency_ms": dt, "prefix_cache_hit": c is not None})
+                for enc, p, c in zip(encs, ps, cached)]
+
+    def wait_idle(self):
+        """Block until every submitted request is answered and no CUDA graph waits to be captured (benchmarks, warm-up)."""
+        self.queue.join()
+        graphs = getattr(self.model, "graphs", None)
+        while graphs is not None and graphs.capture_due(idle=True): time.sleep(0.01)
+        with self.lock: pass                                   # a capture in progress finishes
 
     def answer(self, req):
         """The /v1/systemone response body for one request."""
         rec, meta = to_record(prepare(req))
-        ps, m = self.probs(rec)
+        return self._body(req, meta, *self.probs(rec))
+
+    async def answer_async(self, req):
+        """answer() for the event loop: a request waiting on the model thread holds no worker thread, so a container takes
+        as many concurrent requests as its batches can absorb (FastAPI runs sync endpoints on a 40-thread pool)."""
+        rec, meta = to_record(prepare(req))
+        return self._body(req, meta, *await asyncio.wrap_future(self.submit(rec)))
+
+    def _body(self, req, meta, ps, m):
         answers = to_answers(ps, meta)
         return {"model": req.model, "answers": answers, "usage": {"input_tokens": m["tokens"], "output_tokens": output_tokens(self.tok, answers)}, "latency_ms": m["latency_ms"]}
 
@@ -103,17 +175,19 @@ def prepare(req):
 
 
 app = FastAPI(title="kev")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["x-typesafe-request-id"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["x-typesafe-request-id", "server-timing"])
 
 
 @app.middleware("http")
 async def typesafe(request, call_next):
     """Bearer auth (when API_KEY is set) and the request id every TypeSafe client reads off the response."""
+    started = time.perf_counter()
     if API_KEY and request.url.path.startswith("/v1") and not hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {API_KEY}"):
         resp = JSONResponse({"detail": "missing or invalid API key; send Authorization: Bearer <KEV_API_KEY>"}, 401, {"www-authenticate": "Bearer"})
     else:
         resp = await call_next(request)
     resp.headers["x-typesafe-request-id"] = request.headers.get("x-typesafe-request-id") or uuid.uuid4().hex
+    resp.headers["server-timing"] = f"app;dur={(time.perf_counter() - started) * 1000:.1f}"   # time inside this process, for telling it from the network
     return resp
 
 
@@ -122,9 +196,9 @@ def server() -> Server:
 
 
 @app.post("/v1/systemone")
-def systemone(req: SystemOneRequest):
+async def systemone(req: SystemOneRequest):
     """TypeSafe-compatible endpoint: typed questions in, typed answers out, one prefill pass."""
-    return server().answer(req)
+    return await server().answer_async(req)
 
 
 class PermuteSystemOne(BaseModel):
@@ -170,9 +244,10 @@ def models():
             "release_date": s.release_date,
             "run": ck.requested, "base": meta.base, "lora": meta.lora, "device": s.device, "backend": s.model.backend, "dtype": s.model.dtype,
             "temperature": s.model.head.temperature,
-            "cuda_graphs": {"captured": graphs.captures, "kept": len(graphs.graphs)} if (graphs := getattr(s.model, "graphs", None)) else None,
-            "prefix_cache": {"size": PREFIX_CACHE_SIZE, "min_state_tokens": s.prefix_min_tokens, "hits": s.prefix_hits,
-                             "misses": s.prefix_misses, "cached_states": len(s.prefix_cache)}}
+            "cuda_graphs": graphs.stats() if (graphs := getattr(s.model, "graphs", None)) else None,
+            "prefix_cache": {"size": s.prefix_cache.size, "min_state_tokens": s.prefix_cache.min_tokens, "hits": s.prefix_cache.hits,
+                             "misses": s.prefix_cache.misses, "cached_states": len(s.prefix_cache.entries)},
+            "batches": {"count": s.batches, "requests": s.batched_requests, "queued": s.queue.qsize()}}
     return {"models": [{"name": name, **card} for name in MODEL_NAMES]}
 
 
@@ -189,6 +264,7 @@ def main():
     if dev == "mps" and opts.attn is None: opts = replace(opts, attn="sdpa")   # serving default on Apple GPUs (parity measured)
     if dev != "cpu" and opts.dtype is None: opts = replace(opts, dtype=torch.bfloat16)   # serving default: 2-4.5x faster than fp32 on an L4, same answers (LoadOptions.dtype); KEV_DTYPE=fp32 for the exact path
     if dev == "cuda" and opts.cuda_graphs is None: opts = replace(opts, cuda_graphs=True)   # serving default: a pass is ~2,000 kernel launches, so replaying graphs cuts warm latency several-fold (kev.cuda_graphs); KEV_CUDA_GRAPHS=0 to decline
+    if dev == "cuda" and opts.fused is None: opts = replace(opts, fused=True)   # serving default: fused Qwen3.5 kernels, ~1/3 less GPU time per batch (kev.fused_qwen35); KEV_FUSED=0 to decline
     if opts.backend is None: opts = replace(opts, backend="auto")   # serving default: MLX for the hybrid Qwen3.5 checkpoints on Apple Silicon (LoadOptions.backend); KEV_BACKEND=torch to decline
     ck = Checkpoint(run)
     tok, model = ck.load(dev, opts)
