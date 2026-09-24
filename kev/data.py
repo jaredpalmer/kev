@@ -369,18 +369,19 @@ def load_records(path, source="custom"):
     Labels: the option name for choice, true/false for noul, the level index (from 0) for score. `_meta` and per-question
     `src` are filled in so the records behave like a frozen suite's (source = `source`, id = line number)."""
     records = []
-    for n, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines()):
-        if not line.strip(): continue
-        r = json.loads(line)
-        if "state" not in r or not isinstance(r.get("questions"), dict) or not r["questions"]:
-            raise ValueError(f"{path}:{n + 1}: a record needs a state and a non-empty questions object")
-        for qid, q in r["questions"].items():
-            if "label" not in q: raise ValueError(f"{path}:{n + 1}: question {qid!r} has no label")
-            q.setdefault("src", f"{source}_{q['type']}")
-        text = json.dumps(r["state"], sort_keys=True, ensure_ascii=False) if not isinstance(r["state"], str) else r["state"]
-        r["_meta"] = {**{"source": source, "variant": "clean", "id": f"{source}/{n}", "group_id": f"{source}/{n}", "row": n, "split": "custom",
-                         "text_sha256": hashlib.sha256(" ".join(text.casefold().split()).encode()).hexdigest()}, **r.get("_meta", {})}
-        records.append(r)
+    with Path(path).open(encoding="utf-8") as f:
+        for n, line in enumerate(f):
+            if not line.strip(): continue
+            r = json.loads(line)
+            if "state" not in r or not isinstance(r.get("questions"), dict) or not r["questions"]:
+                raise ValueError(f"{path}:{n + 1}: a record needs a state and a non-empty questions object")
+            for qid, q in r["questions"].items():
+                if "label" not in q: raise ValueError(f"{path}:{n + 1}: question {qid!r} has no label")
+                q.setdefault("src", f"{source}_{q['type']}")
+            text = json.dumps(r["state"], sort_keys=True, ensure_ascii=False) if not isinstance(r["state"], str) else r["state"]
+            r["_meta"] = {**{"source": source, "variant": "clean", "id": f"{source}/{n}", "group_id": f"{source}/{n}", "row": n, "split": "custom",
+                             "text_sha256": hashlib.sha256(" ".join(text.casefold().split()).encode()).hexdigest()}, **r.get("_meta", {})}
+            records.append(r)
     if not records: raise ValueError(f"{path}: no records")
     return records
 

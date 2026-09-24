@@ -1,0 +1,85 @@
+{
+  "run": "/runs/release/kev-27b-v2/checkpoint",
+  "gpu": "NVIDIA H200",
+  "records": 200,
+  "load_seconds": 34.7,
+  "resident_gb": 55.0,
+  "latency_graphs": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 441.1,
+      "new_ms": 72.0,
+      "cached_ms": 38.1
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 183.2,
+      "new_ms": 111.4,
+      "cached_ms": 77.9
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 357.9,
+      "new_ms": 139.7,
+      "cached_ms": 74.1
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 446.5,
+      "new_ms": 403.6,
+      "cached_ms": 84.7
+    }
+  },
+  "questions": 280,
+  "graphs_miss_vs_eager_bf16": {
+    "max_dp": 0.023158550262451172,
+    "mean_dp": 0.001204498582800235,
+    "argmax_flips": 1
+  },
+  "graphs_hit_vs_eager_bf16": {
+    "max_dp": 0.023158550262451172,
+    "mean_dp": 0.001204498582800235,
+    "argmax_flips": 1
+  },
+  "isolation_served": {
+    "packed": {
+      "questions": 280,
+      "max_dp": 0.0051482319831848145,
+      "mean_dp": 0.00024751908640610056,
+      "argmax_flips": 0
+    },
+    "sibling": {
+      "questions": 280,
+      "max_dp": 0.0089942067861557,
+      "mean_dp": 0.000694055465360829,
+      "argmax_flips": 0
+    }
+  },
+  "graphs_captured": 55,
+  "latency_eager": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 257.8,
+      "new_ms": 242.9,
+      "cached_ms": 124.2
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 151.0,
+      "new_ms": 242.1,
+      "cached_ms": 126.0
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 268.7,
+      "new_ms": 261.0,
+      "cached_ms": 121.1
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 475.4,
+      "new_ms": 426.0,
+      "cached_ms": 126.6
+    }
+  }
+}

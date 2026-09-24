@@ -1,0 +1,86 @@
+{
+  "run": "jaredpalmer/kev-4b",
+  "gpu": "NVIDIA A100-SXM4-80GB",
+  "records": 200,
+  "load_seconds": 16.5,
+  "resident_gb": 10.1,
+  "latency_graphs": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 3925.0,
+      "new_ms": 30.8,
+      "cached_ms": 17.6
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 1339.4,
+      "new_ms": 54.6,
+      "cached_ms": 41.5
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 923.8,
+      "new_ms": 67.4,
+      "cached_ms": 40.0
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 2009.4,
+      "new_ms": 182.35000000000002,
+      "cached_ms": 46.4
+    }
+  },
+  "questions": 280,
+  "graphs_miss_vs_eager_bf16": {
+    "max_dp": 0.027764618396759033,
+    "mean_dp": 0.00143802738249568,
+    "argmax_flips": 1
+  },
+  "graphs_hit_vs_eager_bf16": {
+    "max_dp": 0.027764618396759033,
+    "mean_dp": 0.00143802738249568,
+    "argmax_flips": 1
+  },
+  "eager_vs_fp32": {
+    "max_dp": 0.01225590705871582,
+    "mean_dp": 0.001370270166080445,
+    "argmax_flips": 0
+  },
+  "graphs_miss_vs_fp32": {
+    "max_dp": 0.015508770942687988,
+    "mean_dp": 0.0014029829480153109,
+    "argmax_flips": 1
+  },
+  "graphs_hit_vs_fp32": {
+    "max_dp": 0.015508770942687988,
+    "mean_dp": 0.0014029829480153109,
+    "argmax_flips": 1
+  },
+  "graphs_captured": 55,
+  "latency_eager": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 160.0,
+      "new_ms": 157.35000000000002,
+      "cached_ms": 88.65
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 90.4,
+      "new_ms": 162.6,
+      "cached_ms": 85.44999999999999
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 166.7,
+      "new_ms": 166.95,
+      "cached_ms": 88.05
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 319.8,
+      "new_ms": 223.55,
+      "cached_ms": 86.30000000000001
+    }
+  }
+}

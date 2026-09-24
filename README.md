@@ -4,7 +4,7 @@ Small Jev-like decision models you can train and run yourself.
 
 <p>
   <a href="https://github.com/jaredpalmer/kev/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/jaredpalmer/kev/ci.yml?style=for-the-badge&labelColor=000000" height="28"></a>
-  <a href="https://huggingface.co/collections/jaredpalmer/kev-6aad9d0ea49f2589665e07cd"><img alt="Weights: Kev-0.8B · 4B · 9B" src="https://img.shields.io/badge/WEIGHTS-0.8B%20%C2%B7%204B%20%C2%B7%209B-0a0a0a.svg?style=for-the-badge&labelColor=000000" height="28"></a>
+  <a href="https://huggingface.co/collections/jaredpalmer/kev-6aad9d0ea49f2589665e07cd"><img alt="Weights: Kev-0.8B · 4B · 9B · 27B" src="https://img.shields.io/badge/WEIGHTS-0.8B%20%C2%B7%204B%20%C2%B7%209B%20%C2%B7%2027B-0a0a0a.svg?style=for-the-badge&labelColor=000000" height="28"></a>
   <a href="https://huggingface.co/spaces/jaredpalmer/kev"><img alt="Demo on Hugging Face Spaces" src="https://img.shields.io/badge/DEMO-HF%20Spaces-0a0a0a.svg?style=for-the-badge&labelColor=000000" height="28"></a>
   <a href="https://huggingface.co/datasets/jaredpalmer/kev-suites"><img alt="Frozen eval suites" src="https://img.shields.io/badge/EVAL%20SUITES-frozen-0a0a0a.svg?style=for-the-badge&labelColor=000000" height="28"></a>
   <a href="PLAN.md"><img alt="Research log" src="https://img.shields.io/badge/RESEARCH%20LOG-PLAN.md-0a0a0a.svg?style=for-the-badge&labelColor=000000" height="28"></a>
@@ -15,7 +15,7 @@ Kev is a family of small decision models built on Qwen3.5 and based on the archi
 
 ## Highlights
 
-- 0.8B, 4B, and 9B models, with training code and evaluation data.
+- 0.8B, 4B, 9B and 27B models, with training code and evaluation data.
 - Yes/no (`noul`), multiple-choice (`choice`), and rating (`score`) questions in the same request.
 - Questions share the input text but can't read each other.
 - Runs on CUDA, ROCm, and Apple Silicon (MLX). The 4B and 9B models fit a 32 GB Mac; see [Serving Performance](#serving-performance) for what to expect.
@@ -72,6 +72,18 @@ Example response from Kev-4B, running in bf16 on an Apple M5:
 
 The ticket mentions a return, a late delivery, and a billing problem, and the department probabilities say so. That is the point of getting probabilities back instead of a single label.
 
+### Host It on Modal
+
+To get your own HTTPS endpoint instead of a local server, you don't need this repo:
+
+```bash
+pip install modal && modal setup
+curl -LO https://raw.githubusercontent.com/jaredpalmer/kev/main/skills/kev-deploy/scripts/kev_serve.py
+KEV_API_KEY=$(openssl rand -hex 24) modal deploy kev_serve.py
+```
+
+That serves Kev-4B on an L40S at `https://<your-workspace>--kev-api.modal.run`, with the same API as above behind `Authorization: Bearer <key>`, in tens of milliseconds of model time per request (see [Serving Performance](#serving-performance)). It scales to zero when idle. `KEV_MODEL=jaredpalmer/kev-9b` picks another model, and the GPU follows. With a coding agent, `npx skills add jaredpalmer/kev@kev-deploy` does the same and wires the URL into your code; see [skills/kev-deploy](skills/kev-deploy/).
+
 ### Python
 
 The TypeSafe SDK is included in `uv sync --extra serve`:
@@ -121,13 +133,14 @@ There's a [chess demo](http://localhost:3001/chess), too. The board is the input
 
 ## Models
 
-Start with Kev-4B. Use Kev-9B when accuracy and calibration matter more than memory. Use Kev-0.8B if you need the smallest model. All three are built on Qwen3.5 bases with the same training data and settings.
+Start with Kev-4B. Use Kev-9B when accuracy and calibration matter more than memory. Use Kev-27B if you have a data-centre GPU and want the most accurate Kev. Use Kev-0.8B if you need the smallest model. The three Qwen3.5 models start from base checkpoints and share one recipe; Kev-4B and Kev-0.8B also carry the later training passes described below. Kev-27B starts from a post-trained model, so it is not a controlled comparison with the others.
 
 | Model | Base | Accuracy: Trained Sources | Accuracy: New Sources | Brier: New Sources | Model Card |
 |---|---|---|---|---|---|
-| [Kev-0.8B](https://huggingface.co/jaredpalmer/kev-0.8b) | Qwen3.5-0.8B-Base | 0.825 / 0.834 | 0.652 / 0.684 | 0.499 / 0.460 | [Details](docs/model-cards/kev-0.8b.md) |
-| [Kev-4B](https://huggingface.co/jaredpalmer/kev-4b) | Qwen3.5-4B-Base | 0.872 / 0.871 | 0.797 / 0.837 | 0.299 / 0.255 | [Details](docs/model-cards/kev-4b.md) |
-| [Kev-9B](https://huggingface.co/jaredpalmer/kev-9b) | Qwen3.5-9B-Base | 0.872 / 0.874 | **0.822 / 0.852** | **0.286 / 0.237** | [Details](docs/model-cards/kev-9b.md) |
+| [Kev-0.8B](https://huggingface.co/jaredpalmer/kev-0.8b) | Qwen3.5-0.8B-Base | 0.827 / 0.838 | 0.648 / 0.697 | 0.481 / 0.416 | [Details](docs/model-cards/kev-0.8b.md) |
+| [Kev-4B](https://huggingface.co/jaredpalmer/kev-4b) | Qwen3.5-4B-Base | 0.873 / 0.865 | 0.817 / 0.838 | 0.269 / 0.242 | [Details](docs/model-cards/kev-4b.md) |
+| [Kev-9B](https://huggingface.co/jaredpalmer/kev-9b) | Qwen3.5-9B-Base | 0.872 / 0.874 | 0.822 / 0.852 | 0.286 / 0.237 | [Details](docs/model-cards/kev-9b.md) |
+| [Kev-27B](https://huggingface.co/jaredpalmer/kev-27b) | Qwen3.8-27B (post-trained) | 0.866 / 0.870 | **0.848 / 0.896** | **0.236 / 0.164** | [Details](docs/model-cards/kev-27b.md) |
 | Jev | Hosted | 0.845 / – | 0.857 / – | 0.211 / – | – |
 
 Each cell is **development / test**. "Trained sources" means held-out examples from the datasets used to train Kev. "New sources" means datasets and policy rule types Kev wasn't trained on. Every model was evaluated on the same development sets (`decision-v7`, `transfer-v4`) and the same test sets, which were read once per released checkpoint, after model selection. Lower Brier is better.
@@ -136,7 +149,15 @@ Kev-9B trails Jev by 3.5 points on the new-source development set (0.822 vs 0.85
 
 All three models were updated on 2026-09-21 with a short second training pass on generated examples: policy cases with explicit day counts, and cases whose deciding evidence was removed, trained toward a uniform answer. On the test set this moved Kev-9B from 0.837 to 0.852 (95% CI +0.8 to +2.9 points), Kev-4B from 0.832 to 0.837, and Kev-0.8B from 0.668 to 0.684. The previous weights are at revision `v7-base`. Details and costs are in the model cards and [PLAN.md](PLAN.md).
 
-Probabilities are calibrated by default. Each checkpoint stores a temperature (about 2.1–2.4) fitted on its in-distribution development set, and the pointer head applies it when the model is loaded. It never changes an answer: on new sources Kev-9B's calibration error goes from 0.106 to 0.042 and its confident errors (wrong answers with probability ≥ 0.9) from 8.7% to 4.0%, about Jev's 3.7%, with accuracy identical. Set `KEV_TEMPERATURE=1.0` for the raw logits. `scripts/calibrate_checkpoint.py` also reports the out-of-fold (group-disjoint 5-fold) calibration error with bootstrap intervals, so the in-sample fit can be checked against held-out records. On Kev-4B's development rows the calibration error is 0.075 raw and 0.020 out of fold (95% interval 0.014 to 0.041), and the interval on the difference excludes zero. The accuracy numbers in the table are the same either way; the Brier numbers are for the raw logits.
+Kev-4B was updated again on 2026-09-24 with one epoch on real documents: 5,219 US consumer-finance complaint narratives (CFPB) with product and main-issue questions. On complaints it has never seen, accuracy rose from 0.804 to 0.904 on the locked test and from 0.811 to 0.891 on a private held-out set, and on the development split it scores 0.895 against Jev's 0.868. That gain is in distribution (the training data and every documents suite share one source and the same two question templates). Everything else moved within noise (as served, its new-source Brier was 0.265 / 0.233, the same as before). The weights from before that update are at revision `night2-du-release`.
+
+Later the same day Kev-4B got a second one-epoch update, on skill data: 6,000 generated records covering long policy documents, trade-offs, probability, multi-hop reasoning, dates, judging a proposed answer and missing facts (`hard-v1`, labels computed by solvers), plus 5,320 developer-tooling decisions from four public datasets (`devtools-v1`). On the held-out test splits accuracy rose from 0.540 to 0.803 on `hard-v1` and from 0.623 to 0.756 on `devtools-v1`, and on JevBench's public hard tier, which it never saw, from 0.450 to 0.541. The `hard-v1` gain is in distribution (the test split holds out templates of the same generators), which is why the JevBench gain is the one to generalise from. The new-source test moved 0.835 → 0.838; the in-distribution test fell 0.875 → 0.865. The round-8 weights is at revision `r8-documents-release`.
+
+Kev-0.8B got both updates at once: one epoch on the real documents and the skill data together (16,539 records, with 6,000 replayed records). On complaints it has never seen, accuracy rose from 0.608 to 0.851 on the locked test and from 0.616 to 0.848 on the private held-out set; on the held-out test splits `hard-v1` rose from 0.396 to 0.665 and `devtools-v1` from 0.472 to 0.637. Its new-source test moved 0.684 → 0.697. Both gains are in distribution, and on JevBench's public hard tier it moved only from 0.333 to 0.360, within noise. One tool-routing source it was never trained on (When2Call) got worse. Training the two updates one after the other did not work at this size: the second erased part of the first. Training them together passed with two seeds, on a pooled short-state panel of 656 + 1,150 questions. The previous weights is at revision `night2-du-release`.
+
+Kev-27B (2026-09-24) is trained on Kev-9B's data, plus 1,400 records with a real question buried in 1k-6k tokens of unrelated text and soft targets on ambiguous records, on top of `Qwen/Qwen3.8-27B`. That is Qwen's instruction-tuned release, not a base model, and what it was post-trained on is not known to us. One registered gate was overridden: before training, the untrained model had to score at least 0.65 on MMLU-Pro and scored 0.635; the trained model scores 0.665. On the locked new-source test it scores 0.896 with a Brier of 0.160 as served (Kev-9B 0.852 / 0.224), and it keeps buried questions in long states that the smaller models lose (0.833 against Kev-9B's 0.556 on a fresh panel). Its in-distribution test accuracy is no higher than Kev-9B's. It runs in bf16 only, on one H200 or H100 80 GB (55 GB resident); there is no Mac path.
+
+Probabilities are calibrated by default. Each checkpoint stores a temperature (Kev-27B 1.38, Kev-9B 2.30, Kev-4B 2.41, Kev-0.8B 2.35) fitted on its in-distribution development set, and the pointer head applies it when the model is loaded. It never changes an answer: on new sources Kev-9B's calibration error goes from 0.106 to 0.042 and its confident errors (wrong answers with probability ≥ 0.9) from 8.7% to 4.0%, about Jev's 3.7%, with accuracy identical. Set `KEV_TEMPERATURE=1.0` for the raw logits. `scripts/calibrate_checkpoint.py` also reports the out-of-fold (group-disjoint 5-fold) calibration error with bootstrap intervals, so the in-sample fit can be checked against held-out records. On the `night2-du` Kev-4B's development rows the calibration error is 0.075 raw and 0.020 out of fold (95% interval 0.014 to 0.041), and the interval on the difference excludes zero. The accuracy numbers in the table are the same either way; the Brier numbers are for the raw logits.
 
 One optional setting: `KEV_DATE_FACTS=1` appends the number of days between any two absolute dates found in the state ("June 26, 2026 is 8 days before July 4, 2026"). Kev can't subtract dates reliably but it can use a stated day count: on the deadline policy questions Kev-9B goes from 0.80 to 0.90 (Jev 0.93). The table above doesn't use it.
 
@@ -221,9 +242,57 @@ Asking questions together or separately produces probabilities within 4e-6 in th
 
 ## Serving Performance
 
-On CUDA and ROCm, install `flash-linear-attention` for the Qwen3.5 models (the Modal image does this); a five-question request takes tens of milliseconds on an H100 and MI300X.
+On CUDA, install `flash-linear-attention` for the Qwen3.5 models (the Modal images do this). The server runs them in bf16 and replays CUDA graphs. Model time per request (the `latency_ms` the API returns), median of 20 requests, as new state / repeated state. A new state is the normal API call, since every ticket is a new state. A repeated state is served from the prefix cache.
 
-The server runs in bf16 by default on CUDA and Apple GPUs. That is a latency decision, measured on Kev-4B on an L4 with three questions and 20 requests per row. Every mode returned the same probabilities to two decimals.
+| Model | GPU ($/h) | 2 questions | 6 questions | 5 questions, 370-token state | 5 questions, 2,200-token state | 6 questions without graphs |
+|---|---|---|---|---|---|---|
+| Kev-0.8B | L4 (0.80) | 21 / 12 ms | 37 / 28 ms | 46 / 24 ms | 156 / 32 ms | 138 / 74 ms |
+| Kev-4B | L40S (1.95) | 36 / 20 ms | 50 / 34 ms | 59 / 32 ms | 179 / 39 ms | 102 / 54 ms |
+| Kev-4B | H100 (3.95) | 21 / 12 ms | 30 / 20 ms | 34 / 19 ms | 87 / 22 ms | 113 / 71 ms |
+| Kev-4B | A100 80 GB (2.50) | 31 / 18 ms | 55 / 42 ms | 67 / 40 ms | 182 / 46 ms | 163 / 85 ms |
+| Kev-4B | L4 (0.80) | 90 / 49 ms | 157 / 116 ms | 200 / 108 ms | 642 / 130 ms | 205 / 118 ms |
+| Kev-9B | H100 (3.95) | 26 / 14 ms | 37 / 24 ms | 42 / 23 ms | 116 / 27 ms | 112 / 60 ms |
+| Kev-9B | L40S (1.95) | 60 / 32 ms | 80 / 53 ms | 91 / 46 ms | 270 / 54 ms | 136 / 76 ms |
+| Kev-9B | A100 80 GB (2.50) | 42 / 24 ms | 73 / 56 ms | 95 / 54 ms | 267 / 60 ms | 207 / 110 ms |
+
+Without graphs, a forward pass took about 60 ms on an H100 whatever its length. A pass launches about 2,000 kernels, and Python could not issue them faster than the GPU ran them. A new state costs two passes (the state, then the question rows on its cache) and a repeated one costs one. That is why the last column depends more on the host CPU than on the model or the GPU. [`kev/cuda_graphs.py`](kev/cuda_graphs.py) pads each pass to a shape bucket (under a quarter larger), captures it once as a CUDA graph, and replays it with one call. The padding is masked exactly, so the answers match the eager pass up to bf16 rounding. On 200 clean decision-v7 development records (280 questions), the graphed answers differ from the fp32 evaluation path by at most 0.016 to 0.028 across these eight setups; eager bf16 differs by 0.012 to 0.039. Either way at most one of the 280 highest-probability answers changes.
+
+A new bucket's first request runs eagerly, about as fast as before. The server captures its graphs between requests, one at a time, about 0.4 s each on an H100. States over 1,024 tokens run the state pass eagerly because it is compute-bound there. `KEV_CUDA_GRAPHS=0` turns graphs off and `KEV_FUSED=0` the fused kernels below; `/v1/models` reports how many graphs are captured.
+
+Two more steps take a container from one request at a time to batches, and from transformers' reference layers to fused kernels.
+
+- **Batching.** One model thread runs every pass. When it frees up, it takes every request that is waiting: one state pass computes all their new states into a fixed-layout state bank, and row passes compute all their questions, each row first gathering its state from the bank inside the graph. Items of similar length share a pass, so one long document does not pad the rest. A request's answers do not depend on what shares its batch.
+- **Fused kernels.** [`kev/fused_qwen35.py`](kev/fused_qwen35.py) rewrites the Qwen3.5 layers for serving with flash-linear-attention's Triton kernels: one projection GEMM per mixer, the causal convolution continuing the cached state, the gate, beta and q/k L2 norm inside the delta-rule kernel, and fused norms, SwiGLU and attention output gate. Passes that continue a cached state do not write their final states back. On a batch of 16 six-question requests on an H100 this cut the GPU time from 199 to 128 ms.
+
+Model time per request with both (median of 20, new / repeated state; `runs/fused-*/report.json`):
+
+| Model | GPU | 2 questions | 6 questions | 5 questions, 370-token state | 5 questions, 2,200-token state |
+|---|---|---|---|---|---|
+| Kev-4B | H100 | 12.9 / 7.7 ms | 18.0 / 13.0 ms | 22.2 / 14.1 ms | 90.3 / 22.7 ms |
+| Kev-4B | L40S | 30.7 / 16.6 ms | 42.3 / 27.9 ms | 51.1 / 29.8 ms | 149.1 / 43.3 ms |
+| Kev-9B | H100 | 17.4 / 10.1 ms | 24.1 / 17.0 ms | 29.6 / 18.0 ms | 100.3 / 26.6 ms |
+
+Requests per second with concurrent clients, in-process, steady state (every level runs once to meet its batch shapes, then again for the numbers):
+
+| Model | GPU | Traffic | 1 client | 8 clients | 32 clients | 64 clients |
+|---|---|---|---|---|---|---|
+| Kev-4B | H100 | 6 questions, a new short state each | 49.6 | 84.1 | 95.3 | 93.6 |
+| Kev-4B | H100 | decision-v7 development records | 64.1 | 97.7 | 115.5 | 120.7 |
+| Kev-4B | H100 | 5 questions on a 2,200-token state | 12.5 | 13.1 | 12.3 | 11.4 |
+| Kev-4B | L40S | 6 questions, a new short state each | 22.2 | 32.0 | 43.6 | 43.9 |
+| Kev-4B | L40S | decision-v7 development records | 29.6 | 44.7 | 52.7 | 58.9 |
+| Kev-4B | L40S | 5 questions on a 2,200-token state | 6.2 | 6.5 | 6.7 | 6.9 |
+| Kev-9B | H100 | 6 questions, a new short state each | 37.5 | 58.0 | 63.4 | 63.5 |
+| Kev-9B | H100 | decision-v7 development records | 48.4 | 58.2 | 76.9 | 82.0 |
+| Kev-9B | H100 | 5 questions on a 2,200-token state | 9.3 | 9.7 | 10.0 | 10.0 |
+
+Against the fp32 evaluation path on the same 280 questions, the served probabilities differ by at most 0.012 to 0.027 with no answer changing. Over HTTP, Modal's web endpoint path (`@modal.asgi_app`) caps a container at about 40-50 requests/s and adds ~65 ms per round trip in the same region; its experimental direct HTTP server (`modal.experimental.http_server`) served 99 requests/s at 64 clients with a 37 ms round trip for one.
+
+`scripts/serving_bench.py` (`uv run modal run modal_app.py::serving --run jaredpalmer/kev-4b --gpu L40S --name <name>`) reproduces a row of any of these tables; the reports behind them are in `runs/serving-*/report.json` and `runs/fused-*/report.json`.
+
+Pick the GPU by the model. An L4 is enough for Kev-0.8B. It runs out of compute on Kev-4B, where 6 questions take about the same time with graphs as without, so an L40S is the cheapest GPU that answers Kev-4B in tens of milliseconds. An H100 is fastest for both larger models. The A100 costs more than the L40S and is slower here. Loading merges the fp32 adapter into the bf16 weights with fp32 math, which gives the same bits as merging an fp32 copy and casting. Kev-9B therefore needs about 17 GB of GPU memory to load instead of 36 GB, and fits an L40S.
+
+The server runs in bf16 by default on CUDA and Apple GPUs. That choice was measured on Kev-4B on an L4 with three questions and 20 requests per row, before CUDA graphs. Every precision returned the same probabilities to two decimals.
 
 | Precision | 101-token request | 330-token request |
 |---|---|---|
@@ -231,7 +300,7 @@ The server runs in bf16 by default on CUDA and Apple GPUs. That is a latency dec
 | fp32 with TF32 matmuls | 113 ms | 354 ms |
 | bf16 (default) | 118 ms | 189 ms |
 
-The `causal_conv1d` kernel transformers asks for on load made no difference for prefill (114 vs 118 ms), so the images do not install it. `KEV_DTYPE=fp32` serves the exact path the evaluations use; the benchmark and research tools always score in fp32 regardless of this default.
+Transformers warns at load that `causal_conv1d` is missing and falls back to PyTorch. Before graphs, installing it made no difference (114 vs 118 ms). In a graphed pass the fallback convolution is about 7% of the GPU time on an H100. The prebuilt `causal-conv1d` 1.7.0 wheel does not load against this torch build, so the images still skip it. `KEV_DTYPE=fp32` serves the exact path the evaluations use; the benchmark and research tools always score in fp32 regardless of this default.
 
 On Apple Silicon there are no PyTorch kernels for the DeltaNet layers, so the server runs the Qwen3.5 models through [MLX](https://github.com/ml-explore/mlx-lm) instead (`uv sync --extra serve` installs it on Macs). Only the backbone changes. Kev's encoder, the pointer head and the calibration are the same code, and the probabilities match the fp32 PyTorch path to bf16 rounding. On all 1,024 clean decision-v7 development records (1,264 questions), Kev-4B's largest difference is 0.025 and the mean 0.0016, and the highest-probability answer changes on one question (none through the prefix cache); Kev-0.8B's largest is 0.054 and the mean 0.0023, with four changed answers (0.3%). Median time on an M5 (32 GB) for five questions with three options each on a ~270-token state, through the model directly:
 
@@ -265,7 +334,7 @@ ExecuTorch 1.5 needs torch 2.14, so this runs in its own environment (AGENTS.md 
 
 Every program passes the MLX backend's accuracy bar. On speed, bf16 is slower than fp32 on this CPU, as ExecuTorch's own M1 Pro measurements also found, and on a Mac Kev's MLX backend stays the faster choice: the programs are for apps that cannot ship Python. Times are through the Python bindings; the C++ runner measured within 3% of them (235 vs 242 ms for the ticket on XNNPACK fp32). The C++ runner re-implements Kev's encoder and links ExecuTorch's own tokenizer. The encoder matches Kev's exactly, but the tokenizer currently drops accents from some non-ASCII text ("Agustín" becomes "Agustin"): that changes the tokens of 29 of the 1,264 questions and their probabilities by up to 0.008, with no changed answers. ASCII text is unaffected. The fix belongs in ExecuTorch's tokenizer library; until it lands, the native runner is not recommended for non-English text, and `scripts/backend_parity.py --native_tokenizer --suite <suite>` measures the effect on a suite's development records. The exported programs accept states of up to 384 tokens and 1,024 tokens per question with its state (the training context, smaller than the server's 8,192); a longer request is refused, never truncated.
 
-For the attention-only models the server merges the LoRA weights in fp32 before casting, uses SDPA attention on Apple GPUs, pads MPS inputs to 64-token buckets, and caches the state prefix for repeated requests (four states of at least 384 tokens by default). With a repeated 772-token state, Kev-4B (Qwen3) answers in 242 ms instead of 861 ms.
+For the attention-only models the server merges the LoRA weights (fp32 math, one rounding to bf16), uses SDPA attention on Apple GPUs, pads MPS inputs to 64-token buckets, and caches the state prefix for repeated requests (four states of at least 384 tokens by default). With a repeated 772-token state, Kev-4B (Qwen3) answers in 242 ms instead of 861 ms.
 
 You can disable these with `KEV_MERGE=0`, `KEV_ATTN=eager`, `KEV_SHAPE_BUCKET=1`, and `KEV_PREFIX_CACHE=0`. On 24 new-source records, bf16 probabilities differed from fp32 by at most 0.017, with no change in the highest-probability answer. That is a small check, not a guarantee for every input.
 

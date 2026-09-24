@@ -1,0 +1,86 @@
+{
+  "run": "jaredpalmer/kev-9b",
+  "gpu": "NVIDIA L40S",
+  "records": 200,
+  "load_seconds": 5.2,
+  "resident_gb": 17.4,
+  "latency_graphs": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 149.8,
+      "new_ms": 59.6,
+      "cached_ms": 32.0
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 78.1,
+      "new_ms": 80.1,
+      "cached_ms": 53.2
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 149.0,
+      "new_ms": 91.15,
+      "cached_ms": 46.45
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 284.5,
+      "new_ms": 270.05,
+      "cached_ms": 53.55
+    }
+  },
+  "questions": 280,
+  "graphs_miss_vs_eager_bf16": {
+    "max_dp": 0.02087859809398651,
+    "mean_dp": 0.0014499302030474479,
+    "argmax_flips": 1
+  },
+  "graphs_hit_vs_eager_bf16": {
+    "max_dp": 0.02087859809398651,
+    "mean_dp": 0.0014499302030474479,
+    "argmax_flips": 1
+  },
+  "eager_vs_fp32": {
+    "max_dp": 0.03773733973503113,
+    "mean_dp": 0.0015794740058481694,
+    "argmax_flips": 0
+  },
+  "graphs_miss_vs_fp32": {
+    "max_dp": 0.024517148733139038,
+    "mean_dp": 0.0013516298062833292,
+    "argmax_flips": 1
+  },
+  "graphs_hit_vs_fp32": {
+    "max_dp": 0.024517148733139038,
+    "mean_dp": 0.0013516298062833292,
+    "argmax_flips": 1
+  },
+  "graphs_captured": 55,
+  "latency_eager": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 133.8,
+      "new_ms": 132.3,
+      "cached_ms": 68.75
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 76.6,
+      "new_ms": 135.65,
+      "cached_ms": 76.25
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 143.3,
+      "new_ms": 138.3,
+      "cached_ms": 71.4
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 305.8,
+      "new_ms": 299.70000000000005,
+      "cached_ms": 72.8
+    }
+  }
+}

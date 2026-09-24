@@ -23,11 +23,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kev.api import render  # noqa: E402
 from kev.data import materialize  # noqa: E402
-from kev.model import SERVE_MAX_STATE, fits, load_tokenizer  # noqa: E402
-from kev.suite import SERVING_CONTEXT, digest, load_split, read_manifest, record_digest, write_json, write_jsonl  # noqa: E402
+from kev.model import MAX_TRAIN_STATE, fits, load_tokenizer  # noqa: E402
+from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, SERVING_CONTEXT, digest, load_split, read_manifest, record_digest, write_json, write_jsonl  # noqa: E402
 
 SUITE = "evals/v7/decision-v7"
-TOKENIZER = ("Qwen/Qwen3.5-4B-Base", "1001bb4d826a52d1f399e183466143f4da7b741b")
 LENGTHS = (1024, 2048, 4096)
 NOTE = "Answer about the primary record only; the other records are unrelated."
 PAIRING = ("pair_id", "sibling", "control_id")   # the parent's minimal-pair links; copies at several lengths must not claim them
@@ -56,7 +55,7 @@ def bury(record, pool, length, rng, count):
             continue
         position = rng.randrange(len(records) + 1)
         records.insert(position, other["state"]); slot += position <= slot
-    if n > min(1.25 * length, SERVE_MAX_STATE - 64):
+    if n > min(1.25 * length, MAX_TRAIN_STATE - 64):   # every record stays trainable (kev.model.training_context) and servable
         return None
     rec = copy.deepcopy(record); rec["state"] = state
     for q in rec["questions"].values(): q["src"] = f"longstate_{length}_{q['src']}"
@@ -74,9 +73,10 @@ def control(record):
     return rec
 
 
-def build(records, per_length, rng, count, with_controls):
+def build(records, counts, rng, count, with_controls):
+    """`counts`: {length: records to make}, drawn in that order."""
     out, primaries = [], set()
-    for length in LENGTHS:
+    for length, per_length in counts.items():
         made = 0
         for record in rng.sample(records, len(records)):
             if made == per_length: break
@@ -94,13 +94,23 @@ def main():
     ap.add_argument("--train_per_length", type=int, default=600)
     ap.add_argument("--dev_per_length", type=int, default=100)
     ap.add_argument("--seed", default="round4-longstate-v1")
+    ap.add_argument("--lengths", default=",".join(map(str, LENGTHS)), help="comma-separated target state lengths in tokens")
+    ap.add_argument("--train_counts", default="", help="comma-separated training records per length (default --train_per_length each)")
+    ap.add_argument("--panel_partition", default="development", choices=["development", "calibration"], help="decision-v7 partition the scored panel is built from")
+    ap.add_argument("--version", default="longstate-v1")
     a = ap.parse_args()
+    lengths = [int(x) for x in a.lengths.split(",")]
+    counts = [int(x) for x in a.train_counts.split(",")] if a.train_counts else [a.train_per_length] * len(lengths)
+    if len(counts) != len(lengths):
+        raise SystemExit("--train_counts needs one count per --lengths entry")
+    train_counts = dict(zip(lengths, counts))
+    panel_counts = {length: a.dev_per_length for length in lengths}
     tok = load_tokenizer(TOKENIZER[0], revision=TOKENIZER[1])
     count = lambda state: len(tok.encode(as_text(state), add_special_tokens=False))
     trainable = set(read_manifest(SUITE)["trainable_sources"])
-    parts = {part: [r for r in load_split(SUITE, part) if r["_meta"]["source"] in trainable] for part in ("train", "development")}
-    train = build(parts["train"], a.train_per_length, random.Random(f"{a.seed}:train"), count, with_controls=False)
-    dev = build(parts["development"], a.dev_per_length, random.Random(f"{a.seed}:development"), count, with_controls=True)
+    parts = {part: [r for r in load_split(SUITE, part) if r["_meta"]["source"] in trainable] for part in ("train", a.panel_partition)}
+    train = build(parts["train"], train_counts, random.Random(f"{a.seed}:train"), count, with_controls=False)
+    dev = build(parts[a.panel_partition], panel_counts, random.Random(f"{a.seed}:development"), count, with_controls=True)   # RNG key kept for every partition: v1 and v2 were built with it
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     parents = {r["_meta"]["id"]: r for r in parts["train"]}
     train_control = [parents[r["_meta"]["parent_id"]] for r in train]
@@ -112,13 +122,13 @@ def main():
     if not all(fits(materialize(r), tok, **serving) for r in dev):
         raise SystemExit("a development record exceeds the serving context")
     write_json(out / "manifest.json", {
-        "version": "longstate-v1", "parent": SUITE, "parent_manifest_sha256": digest(Path(SUITE) / "manifest.json"), "seed": a.seed,
-        "tokenizer": {"model": TOKENIZER[0], "revision": TOKENIZER[1]}, "lengths": list(LENGTHS),
-        "state_tokens": {str(L): {"train_median": (t := tokens(train, L))[len(t) // 2], "dev_median": (d := tokens(dev, L))[len(d) // 2]} for L in LENGTHS},
-        "rendered_state_tokens": {str(L): {"train": quantiles(rendered(train, L)), "development": quantiles(rendered(dev, L))} for L in LENGTHS},
+        "version": a.version, "parent": SUITE, "panel_partition": a.panel_partition, "train_counts": {str(k): v for k, v in train_counts.items()}, "parent_manifest_sha256": digest(Path(SUITE) / "manifest.json"), "seed": a.seed,
+        "tokenizer": {"model": TOKENIZER[0], "revision": TOKENIZER[1]}, "lengths": lengths,
+        "state_tokens": {str(L): {"train_median": (t := tokens(train, L))[len(t) // 2], "dev_median": (d := tokens(dev, L))[len(d) // 2]} for L in lengths},
+        "rendered_state_tokens": {str(L): {"train": quantiles(rendered(train, L)), "development": quantiles(rendered(dev, L))} for L in lengths},
         "eval_only": True, "context": SERVING_CONTEXT, "holdout_sources": [], "base_revisions": read_manifest(SUITE)["base_revisions"],
         "files": {name: {"sha256": digest(out / name), "records": len(rows)} for name, rows in (("train.jsonl", train), ("train_control.jsonl", train_control), ("development.jsonl", dev))},
-        "protocol": "development = decision-v7/development primaries buried at each length + the same primaries unburied (longstate_control); "
+        "protocol": f"development = decision-v7/{a.panel_partition} primaries buried at each length + the same primaries unburied (longstate_control); "
                     "train = decision-v7/train primaries buried (delta data, never scored). Scored under the serving context."})
     print(f"train {len(train)} records, development {len(dev)} records -> {out}")
 

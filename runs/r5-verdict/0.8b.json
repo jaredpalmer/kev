@@ -1,0 +1,110 @@
+{
+  "size": "0.8b",
+  "candidate": "C08",
+  "parent": "P08",
+  "temperature": {
+    "C08": 1.1224620483093728,
+    "P08": 2.406050072164233
+  },
+  "long": {
+    "C08": {
+      "n": 591,
+      "acc": 0.5482233502538071,
+      "brier": 0.5245249201175347
+    },
+    "P08": {
+      "n": 591,
+      "acc": 0.4450084602368866,
+      "brier": 0.6685782115399254
+    }
+  },
+  "short": {
+    "C08": {
+      "n": 1150,
+      "acc": 0.7260869565217392,
+      "brier": 0.3735701310625659,
+      "ece": 0.02713729960333109,
+      "confident_error_rate": 0.00782608695652174,
+      "coverage_at_5pct_error": 0.25478260869565217,
+      "aurc": 0.11754472609972748
+    },
+    "P08": {
+      "n": 1150,
+      "acc": 0.7121739130434782,
+      "brier": 0.37848599593088456,
+      "ece": 0.0341157873206115,
+      "confident_error_rate": 0.0017391304347826088,
+      "coverage_at_5pct_error": 0.35130434782608694,
+      "aurc": 0.12013521616099683
+    }
+  },
+  "long_minus_parent": {
+    "C08": {
+      "delta": 0.10321489001692047,
+      "ci95": [
+        0.05630965211663973,
+        0.14809383922688338
+      ]
+    }
+  },
+  "short_minus_parent": {
+    "C08": {
+      "acc": {
+        "delta": 0.013913043478260945,
+        "ci95": [
+          0.0,
+          0.02782608695652178
+        ]
+      },
+      "brier": {
+        "delta": -0.004915864868318631,
+        "ci95": [
+          -0.014822444158398085,
+          0.005444801635445434
+        ]
+      },
+      "confident_error_rate": {
+        "delta": 0.006086956521739131,
+        "ci95": [
+          0.0008695652173913043,
+          0.01391304347826087
+        ]
+      }
+    }
+  },
+  "v9_unknowable_share": {
+    "C08": 0.0,
+    "P08": 0.0
+  },
+  "externals": {
+    "semif": {
+      "C08": 0.7847222222222222,
+      "P08": 0.7013888888888888
+    },
+    "scienthoon": {
+      "C08": 0.4627720504009164,
+      "P08": 0.5200458190148912
+    },
+    "wanli": {
+      "C08": 0.5859375,
+      "P08": 0.58984375
+    },
+    "typesafe": {
+      "C08": 0.6179775280898876,
+      "P08": 0.6292134831460674
+    }
+  },
+  "criteria": {
+    "1_long_lower_above_0": true,
+    "1_long_point_at_least_5pp": true,
+    "2_short_accuracy_lower_at_least_minus_1pp": true,
+    "2_short_brier_upper_at_most_0.01": true,
+    "2_short_confident_errors_upper_at_most_1pp": false,
+    "3_unknowable_share_at_most_0.05": true,
+    "3_semif_accuracy_within_1pp": true,
+    "3_scienthoon_accuracy_within_1pp": false,
+    "3_wanli_accuracy_within_1pp": true,
+    "3_typesafe_accuracy_within_1pp": false
+  },
+  "passed": false
+}

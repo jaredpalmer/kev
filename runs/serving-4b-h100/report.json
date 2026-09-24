@@ -1,0 +1,86 @@
+{
+  "run": "jaredpalmer/kev-4b",
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "records": 200,
+  "load_seconds": 5.7,
+  "resident_gb": 10.1,
+  "latency_graphs": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 163.2,
+      "new_ms": 20.7,
+      "cached_ms": 11.5
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 88.6,
+      "new_ms": 29.5,
+      "cached_ms": 20.2
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 164.9,
+      "new_ms": 34.0,
+      "cached_ms": 18.9
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 208.3,
+      "new_ms": 87.05,
+      "cached_ms": 22.5
+    }
+  },
+  "questions": 280,
+  "graphs_miss_vs_eager_bf16": {
+    "max_dp": 0.02030932903289795,
+    "mean_dp": 0.0015081283881694877,
+    "argmax_flips": 2
+  },
+  "graphs_hit_vs_eager_bf16": {
+    "max_dp": 0.02030932903289795,
+    "mean_dp": 0.0015081283881694877,
+    "argmax_flips": 2
+  },
+  "eager_vs_fp32": {
+    "max_dp": 0.024991869926452637,
+    "mean_dp": 0.0014015834475035911,
+    "argmax_flips": 1
+  },
+  "graphs_miss_vs_fp32": {
+    "max_dp": 0.028197288513183594,
+    "mean_dp": 0.001628771931531706,
+    "argmax_flips": 1
+  },
+  "graphs_hit_vs_fp32": {
+    "max_dp": 0.028197288513183594,
+    "mean_dp": 0.001628771931531706,
+    "argmax_flips": 1
+  },
+  "graphs_captured": 55,
+  "latency_eager": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 123.4,
+      "new_ms": 113.6,
+      "cached_ms": 58.55
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 74.7,
+      "new_ms": 112.7,
+      "cached_ms": 70.6
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 166.6,
+      "new_ms": 135.55,
+      "cached_ms": 64.1
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 137.6,
+      "new_ms": 129.55,
+      "cached_ms": 65.6
+    }
+  }
+}

@@ -19,6 +19,7 @@ KEV_HF_SECRET=<modal secret name> to attach a Secret carrying HF_TOKEN for gated
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -42,6 +43,7 @@ GPU = os.environ.get("KEV_GPU", "H100")   # H100 needs a payment method on the w
 
 def worker_environment(app_name, gpu, secret_name=None):
     env = {"HF_HOME": HF_MOUNT, "HF_HUB_DISABLE_PROGRESS_BARS": "1", "TOKENIZERS_PARALLELISM": "false", "PYTHONUNBUFFERED": "1",
+           "TRITON_CACHE_DIR": f"{HF_MOUNT}/triton-cache",   # compiled DeltaNet kernels and their autotuning results survive the container
            "KEV_APP_NAME": app_name, "KEV_GPU": gpu}
     if secret_name:
         env["KEV_HF_SECRET"] = secret_name
@@ -52,10 +54,10 @@ app = modal.App(APP_NAME)
 image = (
     modal.Image.debian_slim(python_version="3.13")
     .apt_install("git")
-    .uv_sync(uv_project_dir=str(ROOT), groups=[])           # exact locked deps; Linux torch wheels are the CUDA build
+    .uv_sync(uv_project_dir=str(ROOT), groups=[], extras=["serve"])   # exact locked deps (serve: kev.serve for serving_bench); Linux torch wheels are the CUDA build
     # Gated DeltaNet kernels for the Qwen3.5 hybrid backbones (transformers falls back to slow reference code without them)
     # fla refuses its gated chunk backward on Hopper with Triton 3.4-3.7.0 (incorrect results, fla#640); torch 2.8 pins 3.4
-    .uv_pip_install("flash-linear-attention", "triton>=3.7.1")
+    .uv_pip_install("flash-linear-attention==0.5.2", "triton>=3.7.1")   # pinned: kev.fused_qwen35 patches fla kernel launches
     .env(worker_environment(APP_NAME, GPU, os.environ.get("KEV_HF_SECRET")))
     .add_local_python_source("kev")
     .add_local_file(ROOT / "uv.lock", "/root/uv.lock")
@@ -134,7 +136,7 @@ def run_locked_test(trial_path, name, suites, git_commit, redo_interrupted=False
                 # a read that crashed before any aggregate was produced: no number was ever observed, so completing it does
                 # not enable selection on the test; it must be requested explicitly and is recorded
                 if not redo_interrupted: raise RuntimeError(f"{label} partition was touched but not summarised; pass redo_interrupted to complete it")
-                import shutil; shutil.rmtree(out / label); interrupted.append(label)
+                shutil.rmtree(out / label); interrupted.append(label)
         summary = {**prior, "resumed_for": sorted(suites), "interrupted_reads_redone": interrupted}
     out.mkdir(parents=True, exist_ok=True)
     result = read_json(trial / "result.json")
@@ -156,9 +158,9 @@ def run_locked_test(trial_path, name, suites, git_commit, redo_interrupted=False
     return summary
 
 
-def run_tool(cmd, out):
+def run_tool(cmd, out, block="clean"):
     """Run a repo script/module inside the container against the mounted checkout, refusing to overwrite `out` on the
-    volume; returns the report's clean block. Shared by the probe and bench functions."""
+    volume; returns the report's `block` (None = the whole report). Shared by the probe, bench and serving functions."""
     import subprocess as sp
     if out.exists():
         raise FileExistsError(f"{out} exists on the volume")
@@ -167,7 +169,8 @@ def run_tool(cmd, out):
     finally:
         runs_volume.commit(); hf_cache.commit()
     from kev.suite import read_json
-    return read_json(out / "report.json")["clean"]
+    report = read_json(out / "report.json")
+    return report if block is None else report[block]
 
 
 @app.function(image=image, gpu=GPU, cpu=2, memory=(32768, 131072), retries=0, timeout=3600,
@@ -192,6 +195,21 @@ def run_bench(run, suite, name, flags=""):
     out = Path(RUNS_MOUNT) / "bench" / name
     source = ["--data", f"/root/{suite}"] if suite.endswith(".jsonl") else ["--suite", f"/root/{suite}"]
     return run_tool([sys.executable, "-m", "kev.benchmark", "--run", run, *source, "--out", out, "--device", "cuda", *flags.split()], out)
+
+
+@app.function(image=image, gpu=GPU, cpu=2, memory=(32768, 131072), retries=0, timeout=3600,
+              volumes={RUNS_MOUNT: runs_volume, HF_MOUNT: hf_cache}, secrets=secrets)
+def run_serving(run, name, flags=""):
+    """scripts/serving_bench.py (served latency with and without CUDA graphs, parity against fp32) -> /runs/serving/<name>."""
+    out = Path(RUNS_MOUNT) / "serving" / name
+    return run_tool([sys.executable, "/root/scripts/serving_bench.py", "--run", run, "--suite", "/root/evals/v7/decision-v7", "--out", out, *flags.split()], out, block=None)
+
+
+@app.local_entrypoint()
+def serving(run: str, name: str, gpu: str = GPU, flags: str = ""):
+    report = run_serving.with_options(gpu=gpu).remote(run, name, flags)
+    print(json.dumps(report, indent=1))
+    pull_volume(f"/serving/{name}", ROOT / "runs")
 
 
 @app.function(image=image, gpu=GPU, cpu=2, memory=(32768, 131072), retries=0, timeout=2400,
@@ -268,14 +286,27 @@ def base_probe(bases: str, suite: str = "evals/v4/transfer-v4", tasks: str = "al
         print(f"{name}: acc {result['acc']:.3f} brier {result['brier']:.3f} conf-err {result['confident_error_rate']:.3f}")
 
 
+# Per-read timeouts by suite (fp32 evaluation; a 9B on H100/H200). Long-state panels take over an hour for ~900 records of
+# 6k-token rows; one timeout for a mixed batch made every job carry the slowest one's admission bound (round 6).
+READ_TIMEOUTS = (("longstate", 7200), ("documents", 5400), ("transfer-v9", 3600))
+DEFAULT_READ_TIMEOUT = 1800
+
+
+def read_timeout(suite):
+    return next((t for key, t in READ_TIMEOUTS if key in suite), DEFAULT_READ_TIMEOUT)
+
+
 @app.local_entrypoint()
-def benchmarks(jobs: str, gpu: str = GPU):
+def benchmarks(jobs: str, gpu: str = GPU, timeout: int = 0):
     """Score checkpoints on suites or --data .jsonl files: comma-separated run@suite@name[@flags] entries, e.g.
     "jaredpalmer/kev-9b@evals/external/semif-v1@kev-9b-semif,/runs/X/00-trial-0/checkpoint@evals/v9/transfer-v9@x-v9@--date_facts".
-    Results are pulled to runs/<name>."""
+    Results are pulled to runs/<name>. Each job gets its suite's timeout (READ_TIMEOUTS); --timeout N sets one for all
+    of them (raise it for a 27B, whose fp32 reads run about three times longer than a 9B's)."""
     entries = [(j.split("@") + [""])[:4] for j in jobs.split(",")]
-    for (run, suite, name, _), result in zip(entries, run_bench.with_options(gpu=gpu).starmap(entries, return_exceptions=True)):
-        if isinstance(result, Exception): print(f"{name}: FAILED {type(result).__name__}: {str(result)[:300]}"); continue
+    calls = [run_bench.with_options(gpu=gpu, timeout=timeout or read_timeout(suite)).spawn(*e) for e, suite in zip(entries, (e[1] for e in entries))]
+    for (run, suite, name, _), call in zip(entries, calls):
+        try: result = call.get()
+        except Exception as e: print(f"{name}: FAILED {type(e).__name__}: {str(e)[:300]}"); continue
         pull_volume(f"/bench/{name}", ROOT / "runs")
         print(f"{name}: acc {result['acc']:.3f} brier {result['brier']:.3f}")
 
@@ -365,12 +396,21 @@ def launch(suite, plan_path, name, gpu, existing=(), transfer=None, budget=20.0,
 
 
 def pull_study(study):
-    """Download a study directory from the runs volume into runs/<study> and rank it."""
+    """Download a study directory from the runs volume into runs/<study> and rank it. A study pulled before all its trials
+    finished is refreshed: finished trial directories (with result.json) are kept, unfinished ones are fetched again."""
     target = ROOT / "runs" / study
-    if target.exists():
-        raise FileExistsError(f"refusing to overwrite local study: {target}")
     target.parent.mkdir(exist_ok=True)
-    pull_volume(f"/{study}", target.parent)   # recreates runs/<study>/... locally, checkpoints included (gitignored)
+    if not target.exists():
+        pull_volume(f"/{study}", target.parent)   # recreates runs/<study>/... locally, checkpoints included (gitignored)
+    else:
+        # a local trial dir without result.json is a copy taken while the trial was still running: replace it
+        for p in target.glob("*-trial-*"):
+            if p.is_dir() and not (p / "result.json").exists(): shutil.rmtree(p)
+        missing = sorted(d for d in volume_names(f"/{study}")[0] if not (target / d).exists())
+        for d in missing: pull_volume(f"/{study}/{d}", target)
+        (target / "results.jsonl").unlink(missing_ok=True)   # derived from the trials' result.json; aggregate rebuilds it
+        running = sorted(p.name for p in target.glob("*-trial-*") if p.is_dir() and not (p / "result.json").exists())
+        print(f"{study}: fetched {len(missing)} trial dir(s) {missing or ''}" + (f"; still running (or failed, no result.json): {running}" if running else ""))
     subprocess.run([sys.executable, "-m", "kev.experiment", "--aggregate", "--out", str(target)], check=True, cwd=ROOT)
     return target
 
@@ -427,15 +467,16 @@ def pull(name: str):
 
 
 @app.local_entrypoint()
-def locked_test(trial: str, name: str, decision: str = "evals/v4/decision-v4", transfer: str = "evals/v4/transfer-v4", gpu: str = GPU, redo_interrupted: bool = False):
-    """One locked-test read for a promoted trial (path under the runs volume, e.g. v4-4b-baseline/01-trial-1)."""
+def locked_test(trial: str, name: str, decision: str = "evals/v4/decision-v4", transfer: str = "evals/v4/transfer-v4", gpu: str = GPU, redo_interrupted: bool = False,
+                timeout: int = 3600, memory_mb: int = 49152):
+    """One locked-test read for a promoted trial (path under the runs volume, e.g. v4-4b-baseline/01-trial-1). A 27B needs
+    --gpu H200 --timeout 14400 --memory-mb 131072 (its bf16 weights are staged through host memory while loading)."""
     from kev.suite import read_json
     target = ROOT / "runs/locked" / name
     if (target / "summary.json").exists() and all(k in read_json(target / "summary.json")["suites"] for k in ("decision", "transfer")):
         raise FileExistsError(f"{target} is complete; the locked test is read once per candidate")
-    fn = modal.Function.from_name(APP_NAME, "run_locked_test").with_options(gpu=gpu)
+    fn = modal.Function.from_name(APP_NAME, "run_locked_test").with_options(gpu=gpu, timeout=timeout, memory=(32768, max(32768, memory_mb)))
     summary = fn.remote(trial, name, {"decision": decision, "transfer": transfer}, local_git_commit(), redo_interrupted)
-    import shutil
     if target.exists(): shutil.rmtree(target)   # local copy only; the volume is the record
     target.parent.mkdir(parents=True, exist_ok=True)
     pull_volume(f"/locked/{name}", target.parent)

@@ -29,6 +29,20 @@ def test_merged_load_matches_unmerged_exactly_in_fp32(smoke_run):
             pa, pb = torch.cat(a.probs(a.encode(tok, r))), torch.cat(b.probs(b.encode(tok, r)))
             assert (pa - pb).abs().max() < 1e-5
 
+def test_bf16_merge_equals_fp32_merge_then_cast(smoke_run):
+    """A bf16 load merges the fp32 adapter straight into the bf16 weights (one rounding in fp32 math), which must give the
+    same bits as the old path: load in fp32, merge, cast. That path held an fp32 copy of the backbone (36 GB for Kev-9B)."""
+    import torch
+    from peft import PeftModel
+    from kev.checkpoint import Checkpoint, LoadOptions
+    from kev.model import DecisionModel
+    ck = Checkpoint(smoke_run)
+    tok, new = ck.load("cpu", LoadOptions(dtype=torch.bfloat16))
+    old = DecisionModel(ck.meta.base, tok, "cpu", revision=ck.meta.base_revision, head_dim=ck.meta.head_dim)
+    old = PeftModel.from_pretrained(old.lm, ck.path, torch_device="cpu").merge_and_unload().to(torch.bfloat16)
+    a, b = old.state_dict(), new.lm.state_dict()
+    assert a.keys() == b.keys() and all(torch.equal(a[k], b[k]) for k in a)
+
 def test_prefix_cache_matches_full_pass(smoke_run):
     import torch
     from kev.checkpoint import load
@@ -142,6 +156,38 @@ def test_hybrid_rows_isolation_and_prefix():
         finally: M.rows_per_pass = saved
     for a, b, c, d, e, f in zip(together, alone, cached, again, again2, chunked):
         assert (a - b).abs().max() < 1e-4 and (a - c).abs().max() < 1e-4 and (a - d).abs().max() < 1e-4 and (a - e).abs().max() < 1e-4 and (a - f).abs().max() < 1e-4
+
+def test_cuda_graphs_match_eager():
+    """kev.cuda_graphs + kev.fused_qwen35 (CUDA only): the served path (probs_batch) gives the eager bf16 answers up to
+    bf16 noise, first with its new buckets run eagerly and then replayed, for new states (two sharing one) and cached
+    ones (made either way), with more rows than one pass holds, a state past GRAPH_STATE (its own eager state pass, then
+    batched rows) and a row past GRAPH_ROW (the plain eager path). scripts/serving_bench.py measures the same on 200
+    records against fp32."""
+    import torch
+    if not torch.cuda.is_available(): pytest.skip("needs CUDA")
+    from kev.checkpoint import Checkpoint, LoadOptions
+    from kev import cuda_graphs
+    from kev.model import SERVE_MAX_BRANCH, SERVE_MAX_STATE
+    tok, m = Checkpoint("jaredpalmer/kev-0.8b").load("cuda", LoadOptions(dtype=torch.bfloat16, cuda_graphs=True, fused=True))
+    q = {"instr": "Which team should handle this?", "options": ["returns", "shipping", "billing", "other"], "label": 0}
+    recs = [{"state": "Order 4411 arrived late and the box was crushed. Two charges appear on the card." * k, "questions": [q] * n}
+            for k, n in ((1, 1), (1, 3), (4, cuda_graphs.GRAPH_ROWS + 3), (20, 2), (300, 2))]
+    recs.append({"state": "short", "questions": [{**q, "instr": "word " * (cuda_graphs.GRAPH_ROW + 10)}]})
+    graphs = m.graphs
+    with torch.no_grad():
+        encs = [m.encode(tok, rec, max_state=SERVE_MAX_STATE, max_branch=SERVE_MAX_BRANCH) for rec in recs + recs[:2]]
+        m.graphs = None; refs = [m.probs(e) for e in encs]; eager_prefix = m.prefix(encs[2])
+        m.graphs = graphs
+        new_prefixes = None
+        for _ in range(2):   # first run: new buckets run eagerly; second: replayed
+            got, new_prefixes = m.probs_batch(encs, [None] * len(encs), [True] * len(encs))
+            graphs.capture_pending()
+        cached = list(new_prefixes); cached[2] = eager_prefix                    # cached states, one of them made eagerly
+        hits, same = m.probs_batch(encs, cached, [True] * len(encs))
+        for ref, ps, hs, p, c in zip(refs, got, hits, new_prefixes, same):
+            assert p is not None and c is p or c is eager_prefix
+            assert all((a - b).abs().max() < 0.05 for a, b in zip(ref, ps)) and all((a - b).abs().max() < 0.05 for a, b in zip(ref, hs))
+    assert graphs.captures > 0 and not graphs.pending
 
 def test_init_from_warm_start_and_compatibility_checks(tmp_path):
     """PR #9: --init_from loads an existing adapter + pointer head before training and refuses incompatible sources.

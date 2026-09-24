@@ -15,8 +15,8 @@ SCANNED = ("kev", "scripts", "space", "tests", "modal_app.py")
 RULES = [
     ("head.pt is read and written through kev.checkpoint (Meta, read_meta, write_meta)",
      r"torch\.(load|save)\([^\n]*head\.pt", {"kev/checkpoint.py"}),
-    ("KEV_DTYPE/KEV_MERGE/KEV_ATTN/KEV_LORA_SCALE/KEV_TEMPERATURE/KEV_BACKEND/KEV_PROGRAM are read only by LoadOptions.from_env",
-     r"environ(\.get)?\(?\[?\s*\"KEV_(DTYPE|MERGE|ATTN|LORA_SCALE|TEMPERATURE|BACKEND|PROGRAM)\"", {"kev/checkpoint.py"}),
+    ("KEV_DTYPE/KEV_MERGE/KEV_ATTN/KEV_LORA_SCALE/KEV_TEMPERATURE/KEV_BACKEND/KEV_CUDA_GRAPHS/KEV_PROGRAM are read only by LoadOptions.from_env",
+     r"environ(\.get)?\(?\[?\s*\"KEV_(DTYPE|MERGE|ATTN|LORA_SCALE|TEMPERATURE|BACKEND|CUDA_GRAPHS|PROGRAM)\"", {"kev/checkpoint.py"}),
     ("a checkpoint becomes a model only through kev.checkpoint (Checkpoint.load picks the torch, MLX or ExecuTorch implementation)",
      r"MLXDecisionModel\(|merge_lora\(|ExecuTorchDecisionModel\(|load_program\(", {"kev/checkpoint.py", "kev/mlx_model.py", "kev/executorch_model.py", "tests/test_mlx.py", "tests/test_executorch.py"}),
     ("option keys come from kev.api.question_keys",
@@ -30,6 +30,14 @@ RULES = [
      r"manifest\.json\"\)\.read_text\(\)", {"kev/suite.py"}),
     ("device selection, synchronize and empty_cache go through kev.device (the Space is a CUDA-only one-off)",
      r"is_available\(\) else|torch\.(mps|cuda)\.(synchronize|empty_cache|current_allocated_memory|max_memory_allocated)\(", {"kev/device.py", "space/app.py"}),
+    ("the isolation sibling probe is kev.experiment.ISOLATION_PROBE (fp32 mechanism check and served isolation read the same question)",
+     r"CRANE-9274", {"kev/experiment.py"}),
+    ("which partitions stay out of git is kev.suite.GIT_LIMIT",
+     r"10 \* 1024 \* 1024", {"kev/suite.py"}),
+    ("the pinned Qwen3.5 tokenizer suite builders admit records under is kev.suite.ADMISSION_TOKENIZER",
+     r"1001bb4d826a52d1f399e183466143f4da7b741b", {"kev/suite.py", "kev/transfer_v9.py"}),   # transfer_v9 pins every Qwen3.5 base it scores
+    ("a state's normalised-text hash (text_sha256) is kev.suite.text_digest",
+     r"\.casefold\(\)\.split\(\)\)\.encode\(\)", {"kev/suite.py", "kev/data.py"}),   # kev.suite imports kev.data, so kev.data keeps its inline copy
 ]
 
 
@@ -37,6 +45,16 @@ def sources():
     for entry in SCANNED:
         path = ROOT / entry
         yield from (p for p in ([path] if path.is_file() else sorted(path.rglob("*.py"))) if "__pycache__" not in p.parts and p != Path(__file__))
+
+
+def test_private_suites_keep_their_partitions_out_of_git():
+    """A manifest that names its own mirror (kev.suite: a held-out suite) publishes hashes only: no partition in git."""
+    import json, subprocess
+    tracked = set(subprocess.run(["git", "ls-files", "evals"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split())
+    for manifest in sorted((ROOT / "evals").rglob("manifest.json")):
+        if "mirror" not in json.loads(manifest.read_text(encoding="utf-8")): continue
+        leaked = [f for f in tracked if f.startswith(str(manifest.parent.relative_to(ROOT)) + "/") and f.endswith(".jsonl")]
+        assert not leaked, f"{manifest.parent} names a private mirror but tracks partitions: {leaked}"
 
 
 def test_published_claims_trace_to_committed_evidence():

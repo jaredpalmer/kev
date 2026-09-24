@@ -1,0 +1,104 @@
+{
+  "candidate": {
+    "run": "runs/jevbench-public/kev-4b-r10",
+    "tiers": {
+      "easy": {
+        "n": 48,
+        "n_correct": 48,
+        "accuracy": 1.0,
+        "ece": 0.02058125000000014,
+        "brier": 0.0031299737500000003
+      },
+      "original": {
+        "n": 72,
+        "n_correct": 67,
+        "accuracy": 0.9305555555555556,
+        "ece": 0.1481277777777778,
+        "brier": 0.1610703359722222
+      },
+      "hard": {
+        "n": 111,
+        "n_correct": 60,
+        "accuracy": 0.5405405405405406,
+        "ece": 0.11217117117117117,
+        "brier": 0.5659723461261261
+      }
+    },
+    "all": {
+      "n": 231,
+      "n_correct": 175,
+      "accuracy": 0.7575757575757576
+    }
+  },
+  "reference": {
+    "run": "runs/jevbench-public/kev-4b-r8",
+    "tiers": {
+      "easy": {
+        "n": 48,
+        "n_correct": 48,
+        "accuracy": 1.0,
+        "ece": 0.0071708333333333485,
+        "brier": 0.00018950499999999978
+      },
+      "original": {
+        "n": 72,
+        "n_correct": 67,
+        "accuracy": 0.9305555555555556,
+        "ece": 0.0792763888888889,
+        "brier": 0.12220294180555556
+      },
+      "hard": {
+        "n": 111,
+        "n_correct": 50,
+        "accuracy": 0.45045045045045046,
+        "ece": 0.26286936936936944,
+        "brier": 0.7377171559459459
+      }
+    },
+    "all": {
+      "n": 231,
+      "n_correct": 165,
+      "accuracy": 0.7142857142857143
+    }
+  },
+  "bootstrap": {
+    "samples": 10000,
+    "seed": 0,
+    "unit": "item"
+  },
+  "paired": {
+    "easy": {
+      "n": 48,
+      "delta": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "newly_right": 0,
+      "newly_wrong": 0,
+      "mcnemar_exact_p": 1.0
+    },
+    "original": {
+      "n": 72,
+      "delta": 0.0,
+      "ci95": [
+        -0.041666666666666664,
+        0.041666666666666664
+      ],
+      "newly_right": 1,
+      "newly_wrong": 1,
+      "mcnemar_exact_p": 1.0
+    },
+    "hard": {
+      "n": 111,
+      "delta": 0.09009009009009009,
+      "ci95": [
+        0.02702702702702703,
+        0.15315315315315314
+      ],
+      "newly_right": 12,
+      "newly_wrong": 2,
+      "mcnemar_exact_p": 0.012939453125
+    }
+  }
+}

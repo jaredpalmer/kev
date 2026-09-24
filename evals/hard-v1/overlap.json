@@ -1,0 +1,460 @@
+{
+  "suite": "evals/hard-v1",
+  "external": {
+    "files": {
+      "easy.jsonl": {
+        "items": 48,
+        "sha256": "231df3c2c8e88a1a8c137ebe85de96ba70fabd330849098ac7b3c52c70b7172b"
+      },
+      "hard.jsonl": {
+        "items": 111,
+        "sha256": "89e9e6becb33ed88c1de7d42dcc87531b2fb64cfaef4e1986faf7c37b3f80ebb"
+      },
+      "original.jsonl": {
+        "items": 72,
+        "sha256": "5c2414edb3006b8bfcb70fda433f0f9ca015759433849f8d3104328a1f7c4180"
+      }
+    },
+    "items": 231
+  },
+  "n": 8,
+  "normalisation": "casefold, \\w+ tokens, single spaces",
+  "threshold": 0.2,
+  "records": 7400,
+  "offending_records": 0,
+  "max_jaccard_overall": {
+    "min": 0.0,
+    "median": 0.0,
+    "p99": 0.0005,
+    "max": 0.0008
+  },
+  "partitions": {
+    "train": {
+      "ambiguous": {
+        "records": 858,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 858,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "judge": {
+        "records": 857,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 857,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "long_policy": {
+        "records": 857,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 744,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0004,
+          "p99": 0.0007,
+          "max": 0.0008
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 857,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "multi_hop": {
+        "records": 857,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 857,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "probability": {
+        "records": 857,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 857,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "temporal_numeric": {
+        "records": 857,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 857,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "tradeoff": {
+        "records": 857,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 857,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      }
+    },
+    "development": {
+      "ambiguous": {
+        "records": 100,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 100,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "judge": {
+        "records": 100,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 100,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "long_policy": {
+        "records": 100,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 79,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0003,
+          "p99": 0.0007,
+          "max": 0.0007
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 100,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "multi_hop": {
+        "records": 100,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 100,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "probability": {
+        "records": 100,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 100,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "temporal_numeric": {
+        "records": 100,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 100,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "tradeoff": {
+        "records": 100,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 100,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      }
+    },
+    "test": {
+      "ambiguous": {
+        "records": 100,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 100,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "judge": {
+        "records": 100,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 100,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "long_policy": {
+        "records": 100,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 86,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0004,
+          "p99": 0.0006,
+          "max": 0.0006
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 100,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "multi_hop": {
+        "records": 100,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 100,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "probability": {
+        "records": 100,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 100,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "temporal_numeric": {
+        "records": 100,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 100,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      },
+      "tradeoff": {
+        "records": 100,
+        "exact_state": 0,
+        "exact_question": 0,
+        "any_shared_8gram": 0,
+        "over_threshold": 0,
+        "max_jaccard": {
+          "min": 0.0,
+          "median": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "max_jaccard_histogram": {
+          "<=0.01": 100,
+          "<=0.05": 0,
+          "<=0.1": 0,
+          "<=0.2": 0,
+          "<=1.0": 0
+        }
+      }
+    }
+  },
+  "note": "counts only; no external text is stored. A record offends on an exact normalised state or question match, or a maximum word 8-gram Jaccard above the threshold."
+}

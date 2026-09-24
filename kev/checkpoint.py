@@ -81,9 +81,13 @@ class LoadOptions:
                  backbone). kev.serve defaults to bf16 on CUDA and MPS instead: half the memory, 2-4.5x lower latency on an
                  L4 (Kev-4B: 209 -> 118 ms at 101 tokens, 850 -> 189 ms at 330 tokens), probabilities within ~0.01 and
                  the same argmax on the checks run so far. KEV_DTYPE=fp32 restores the exact path when serving.
-    merge        fold the LoRA into the base weights in fp32 before any cast. Exact in fp32; in bf16 it is faster (~15%)
-                 and closer to the fp32 numbers than the unmerged adapter (kev-4b, 24 dev records: max |dp| 0.017 vs
-                 0.029, 0 vs 1 argmax flips). Ignored for adapters that carry trained token embeddings.
+    merge        fold the LoRA into the base weights: the delta is computed from the fp32 adapter and added in fp32 with
+                 one rounding to the load dtype, so a bf16 model holds exactly round(W + delta), the same bits as merging
+                 an fp32 copy and casting, without the fp32 copy (Kev-9B needed 36 GB of GPU memory to load for that).
+                 Identical because the Qwen bases are stored in bf16; a base stored in fp32 would be rounded twice.
+                 Exact in fp32; in bf16 it is faster (~15%) and closer to the fp32 numbers than the unmerged adapter
+                 (kev-4b, 24 dev records: max |dp| 0.017 vs 0.029, 0 vs 1 argmax flips). Ignored for adapters that carry
+                 trained token embeddings.
     attn         attention backend; None = the model default (SDPA on CUDA, eager elsewhere). "sdpa" on MPS measured
                  parity with eager and is a few percent faster.
     lora_scale   WiSE-FT-style interpolation between base (0) and fine-tuned weights (1), at inference.
@@ -99,6 +103,13 @@ class LoadOptions:
                  Weights, precision and delegate are fixed at export: `dtype` and `attn` are ignored (as on MLX), an
                  unmerged adapter or a `lora_scale` would change the weights and is refused, and `temperature` still
                  applies (kev.executorch_model.ProgramHead).
+    cuda_graphs  replay the serving passes of a hybrid backbone on CUDA (state prefix, question rows on a cached state) as
+                 CUDA graphs, batched across requests (kev.cuda_graphs, DecisionModel.probs_batch). None = off, the eager
+                 path every reported number uses; kev.serve turns it on for CUDA. Exact up to floating-point
+                 reassociation, not bit for bit (the passes are padded to buckets).
+    fused        rewrite a merged hybrid backbone on CUDA with fused Triton kernels (kev.fused_qwen35; needs
+                 flash-linear-attention fused_qwen35.FLA_VERSION and refuses any other). None = off; kev.serve turns it on
+                 for CUDA (KEV_FUSED=0 to decline). Equal to the reference layers up to bf16 rounding.
     """
     dtype: torch.dtype | None = None
     merge: bool = True
@@ -106,6 +117,8 @@ class LoadOptions:
     lora_scale: float = 1.0
     temperature: float | None = None
     backend: str | None = None
+    cuda_graphs: bool | None = None
+    fused: bool | None = None
     program: str | None = None
 
     BACKENDS = (None, "torch", "mlx", "executorch", "auto")
@@ -113,7 +126,7 @@ class LoadOptions:
     @classmethod
     def from_env(cls, env=os.environ):
         """KEV_DTYPE=bf16|fp16|fp32, KEV_MERGE=0, KEV_ATTN=sdpa|eager, KEV_LORA_SCALE, KEV_TEMPERATURE,
-        KEV_BACKEND=torch|mlx|executorch|auto, KEV_PROGRAM (the .pte for executorch).
+        KEV_BACKEND=torch|mlx|executorch|auto, KEV_PROGRAM (the .pte for executorch), KEV_CUDA_GRAPHS=0|1, KEV_FUSED=0|1.
         For command-line entry points only; library code passes an explicit LoadOptions. Explicit values that equal a
         library default are kept (fp32 as torch.float32, "torch" as a string) so a caller with its own default, like
         kev.serve, can tell "asked for it" from "did not say"."""
@@ -123,7 +136,8 @@ class LoadOptions:
                    merge=env.get("KEV_MERGE", "1") != "0", attn=env.get("KEV_ATTN") or None,
                    lora_scale=float(env.get("KEV_LORA_SCALE", "1")),
                    temperature=float(env["KEV_TEMPERATURE"]) if env.get("KEV_TEMPERATURE") else None, backend=backend,
-                   program=env.get("KEV_PROGRAM") or None)
+                   cuda_graphs={"0": False, "1": True}.get(env.get("KEV_CUDA_GRAPHS", "")),
+                   fused={"0": False, "1": True}.get(env.get("KEV_FUSED", "")), program=env.get("KEV_PROGRAM") or None)
 
 
 def mlx_available():
@@ -213,15 +227,22 @@ class Checkpoint:
             dtype, merge = torch.bfloat16, False
         merge = merge and not self.adapter_config().get("trainable_token_indices")   # token-trained adapters stay unmerged
         m = DecisionModel(meta.base, tok, device, lora=None, revision=meta.base_revision, head_dim=meta.head_dim,
-                          option_isolation=meta.option_isolation, dtype=torch.float32 if merge else dtype, attn=opts.attn)
+                          option_isolation=meta.option_isolation, dtype=dtype, attn=opts.attn)
         m.lm = PeftModel.from_pretrained(m.lm, self.path, torch_device=str(device)).to(device)   # trainable token embeddings, if any, live in the adapter
         if opts.lora_scale != 1:
             for module in m.lm.modules():
                 if isinstance(getattr(module, "scaling", None), dict):
                     for k in module.scaling: module.scaling[k] *= opts.lora_scale
             m.lora_scale = opts.lora_scale
-        if merge: m.lm = m.lm.merge_and_unload()     # in fp32: exact
+        if merge: m.lm = m.lm.merge_and_unload()     # W += delta: fp32 math, one rounding (see LoadOptions.merge)
         if dtype != torch.float32: m.lm = m.lm.to(dtype)
+        serving = str(device).startswith("cuda") and m.hybrid
+        if opts.fused and serving and merge:   # fused projections need the adapter folded in
+            from .fused_qwen35 import fuse
+            fuse(m.lm)
+        if opts.cuda_graphs and serving:
+            from .cuda_graphs import CudaGraphs
+            m.graphs = CudaGraphs(m.lm, m.pad_id)
         return m
 
     COMPAT_FIELDS = ("base", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings")
