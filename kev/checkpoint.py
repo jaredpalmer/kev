@@ -203,9 +203,10 @@ class Checkpoint:
         meta = self.meta
         dtype, merge = opts.dtype or torch.float32, opts.merge
         if meta.weights_dtype == "bf16":
-            # trained with a bf16 backbone (--weights_dtype bf16, e.g. the 35B-A3B MoE whose fused experts need bf16): load it
-            # the same way and keep the fp32 adapter unmerged rather than folding it into bf16 weights.
-            dtype, merge = torch.bfloat16, False
+            # trained with a bf16 backbone (--weights_dtype bf16: Kev-27B, the 35B-A3B MoE whose fused experts need bf16):
+            # load it the same way. The exact path keeps the fp32 adapter unmerged; the fused serving path folds it in
+            # (one rounding of W + delta, as for every served Kev; parity in runs/serving-27b-*).
+            dtype, merge = torch.bfloat16, merge and bool(opts.fused)
         merge = merge and not self.adapter_config().get("trainable_token_indices")   # token-trained adapters stay unmerged
         m = DecisionModel(meta.base, tok, device, lora=None, revision=meta.base_revision, head_dim=meta.head_dim,
                           option_isolation=meta.option_isolation, dtype=dtype, attn=opts.attn)

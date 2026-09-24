@@ -128,6 +128,8 @@ def fuse(lm):
     if fla.__version__ != FLA_VERSION:
         raise RuntimeError(f"kev's fused kernels need flash-linear-attention=={FLA_VERSION}, found {fla.__version__}; "
                            "install that version or load with LoadOptions(fused=False) (KEV_FUSED=0 for kev.serve)")
+    if not all(hasattr(layer.mlp, "gate_proj") for layer in lm.layers):
+        raise NotImplementedError("kev's fused kernels cover the dense Qwen3.5 MLP, not mixture-of-experts layers; load with fused=False (KEV_FUSED=0)")
     _fix_nb()
     for layer in lm.layers:
         if layer.block_type == "linear_attention":

@@ -51,7 +51,8 @@ GRAPH_ROWS = 32        # question rows per graphed pass; more run as several rep
 GRAPH_STATES = 16      # states per state pass: the bank's entries
 BANK_WIDTH = 4096      # positions per bank entry (states are right-aligned in it; about 2 GB for 16 entries on Kev-4B and 9B)
 GRAPHS_KEPT = 256      # captured graphs kept, least recently used evicted (a busy server met ~160 on mixed traffic)
-PAD_SPLIT = 4096       # padded tokens under which a batched pass is never split by length (see length_groups)
+PASS_TOKENS = 256      # tokens a pass costs however few it holds: below about this many, a pass is bound by reading the
+                       # weights, not by compute (bf16 GEMMs: peak FLOP/s over memory bandwidth is ~200-400 on H100, H200, B200, L40S)
 HOT_BUCKET = 3         # eager passes after which a busy server captures a bucket's graph anyway (capture_due)
 
 
@@ -73,16 +74,20 @@ def count_bucket(n):
 
 
 def length_groups(lengths, cap):
-    """Indices grouped into padded passes of at most `cap` items, in order of length. A group is split only where padding
-    to its longest item would more than double its tokens past PAD_SPLIT: a small pass costs about the same padded or not,
-    while a batch padded to one long outlier wastes most of a large one."""
-    groups, cur = [], []
-    for i in sorted(range(len(lengths)), key=lengths.__getitem__):
-        padded = (len(cur) + 1) * bucket(lengths[i])
-        if cur and (len(cur) == cap or (padded > PAD_SPLIT and padded > 2 * (sum(lengths[j] for j in cur) + lengths[i]))):
-            groups.append(cur); cur = []
-        cur.append(i)
-    return groups + [cur]
+    """Indices grouped into padded passes of at most `cap` items, in order of length, computing the fewest tokens: a pass
+    costs its padded size, count_bucket(items) x bucket(longest), but at least PASS_TOKENS (below that, reading the
+    weights dominates). Optimal among groupings of consecutive lengths (dynamic programming; ties keep larger passes)."""
+    order = sorted(range(len(lengths)), key=lengths.__getitem__)
+    padded = [bucket(lengths[i]) for i in order]
+    counts = [0] + [count_bucket(n) for n in range(1, cap + 1)]
+    best, cut = [0] + [float("inf")] * len(order), [0] * (len(order) + 1)
+    for j in range(1, len(order) + 1):
+        for i in range(max(0, j - cap), j):
+            cost = best[i] + max(PASS_TOKENS, counts[j - i] * padded[j - 1])
+            if cost < best[j]: best[j], cut[j] = cost, i
+    groups, j = [], len(order)
+    while j: groups.append(order[cut[j]:j]); j = cut[j]
+    return groups[::-1]
 
 
 class Request(NamedTuple):
