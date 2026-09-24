@@ -98,7 +98,7 @@ Reported, never gating:
 
 **Next (to be registered, not read):** the 9B recipe minus the MNLI soft targets (keep them hard) isolates the WANLI question. It needs fresh panels (both round-5 panels have now been read by these candidates) and a WANLI panel disjoint from the 256 items, large enough that a 1 pp point threshold is not three questions. The external gates in this round were point estimates on 89–256 questions; the next registration should use paired intervals with a margin sized to the suite.
 
-## Round 9 - documents delta at 9B / 0.8B that keeps short states (registered 2026-09-24T03:55Z, before any training or read)
+## Round 9 - documents delta at 9B / 0.8B that keeps short states (registered 2026-09-24T02:38Z, before any training or read)
 
 **Why.** Round 7/8: the documents delta gains +7.0 pp (9B) and +22.5 / +22.7 pp (0.8B) on `documents-v1` development, but costs short-state accuracy: 9B −2.3 [−4.0, −0.8] and −1.7 [−3.7, +0.2] (two seeds), 0.8B −0.9 and −1.2 (lower bounds −3.2, −3.7). Kev-4B passed and was released (round 8). The standard remedies for forgetting in a delta are more replay of the original training data and a smaller step; this round tests both at 9B and more replay at 0.8B.
 
