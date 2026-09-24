@@ -40,8 +40,9 @@ PARENTS["08b-r11"] = ("runs/r11-docs/03-trial-3", {"hard": "runs/r13-P08r11-hard
 ROUNDS[15] = {"08b-a": ("runs/r15-08b/00-trial-0", "08b"), "08b-b": ("runs/r15-08b/01-trial-1", "08b"), "08b-c": ("runs/r15-08b/02-trial-2", "08b")}
 ROUNDS[16] = {"9b-r10k-lr1e5": ("runs/r16-9b/00-trial-0", "9b"), "9b-r10k-lr2e5": ("runs/r16-9b/01-trial-1", "9b")}
 ROUNDS[17] = {"27b-r10k-lr2e5": ("runs/r17-27b/00-trial-0", "27b"), "27b-r10k-lr1e5": ("runs/r17-27b/01-trial-1", "27b")}
-POOLED_SHORT = {12, 13, 14, 15, 16}
-JOINT = {15}   # documents and skills trained together: both primaries must hold (PLAN.md round 15)   # rounds whose short-state guard pools transfer-v4 dev with transfer-r3 test (round 11)
+ROUNDS[18] = {"9b-joint-lr2e5": ("runs/r18-9b/00-trial-0", "9b"), "9b-joint-lr1e5": ("runs/r18-9b/01-trial-1", "9b")}
+POOLED_SHORT = {12, 13, 14, 15, 16, 18}
+JOINT = {15, 18}   # documents and skills trained together: both primaries must hold (PLAN.md round 15)   # rounds whose short-state guard pools transfer-v4 dev with transfer-r3 test (round 11)
 
 
 # devtools-v1 development has one record id used by two different records (a builder bug found at the first read;

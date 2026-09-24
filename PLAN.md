@@ -202,6 +202,16 @@ Skills on top of the round-11 0.8B documents candidate: seed 1 primary +20.6 [+1
 
 From the Kev-27B release candidate (B1 v2 seed 2), one epoch on skills with replay 4000, lr 2e-5: hard-v1 development 0.733 → **0.885** (+15.1 [+12.4, +18.0]; Jev 0.777), devtools-v1 0.702 → **0.787** (+8.5 [+6.2, +10.7]; Jev 0.713), primary +11.8 [+10.1, +13.6], documents −0.5 [−1.6, +0.5], short state +0.5 [−0.8, +1.7], pooled externals −0.4 [−1.3, +0.4], hard-set ECE 0.047 → **0.015**, in-trial held-out pairs 0.891 → 0.922. **Fails one guard: scienthoon −1.8 [−3.0, −0.7]** (lower bound under −2 pp). Scienthoon (support-ticket routing) is the external that skills/devtools deltas cost most often (4B devtools-only arm, both 9B seeds, here); the next 27B attempt should carry more replay (round 16's 9B arms test replay 10,000). The read client died on a local network drop while downloading results; the eight reads had finished on Modal and were pulled from the volume unchanged.
 
+## Round 16 result (2026-09-24; `runs/r16-readout/round16.json`) — no 9B candidate
+
+Replay 10,000: (a) lr 1e-5 primary +16.2 [+14.3, +18.1], pooled externals −0.6 [−1.7, +0.5] (better than round 12's −2.1 / −3.5), but documents −1.7 [−3.1, −0.3], WANLI-v2 and short-state Brier below their bounds; (b) lr 2e-5 +18.6 (hard-v1 0.821), documents −2.2 [−3.6, −0.9], WANLI-v2, scienthoon and pooled (−0.9 [−1.9, +0.1]) below their bounds. More replay reduces the external cost at 9B but skills-only training now costs the 9B its documents accuracy, which the 0.8B avoided only by training documents in the same delta (round 15). Round 18 applies round 15's joint recipe at 9B with round 16's replay.
+
+## Round 18 - 9B documents and skills in one delta (registered 2026-09-24T09:40Z, before any training or read)
+
+**Arms** (study `r18-9b`, `experiments/round18/joint.json`): from `jaredpalmer/kev-9b`, one epoch on `evals/round15/joint/train.jsonl` (documents + skills, 16,539 records), `replay 10000`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, H200, timeout 14,400 s: (a) lr 2e-5 seed 1, (b) lr 1e-5 seed 1.
+
+**Rule:** round 15's rule (both primaries — documents-v1 development lower bound > 0 and hard-v1 + devtools-v1 development pooled lower bound > 0; pooled short-state panel; externals; unknowable; hard-set ECE) against the released Kev-9B (its reads as round 12). Candidate: the passing arm with the larger sum of primary estimates; confirmation as round 15 (documents-v1 test, hard-v1 + devtools-v1 test, locked transfer-v4, documents-v2 reported).
+
 ## Round 17 - 27B skills with more replay (registered 2026-09-24T08:42Z, before any training or read)
 
 **Why.** Round 10's 27B skills arm passed everything except scienthoon (−1.8 [−3.0, −0.7]). More replay of the original training data is the remedy that removed the external cost at 9B in round 9.
