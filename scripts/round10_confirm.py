@@ -18,18 +18,20 @@ from kev.suite import read_json, write_json  # noqa: E402
 from round6_readout import boot, knowable, serve  # noqa: E402
 from round10_readout import DUPLICATE_IDS, PARENTS  # noqa: E402
 
-PARENT_LOCKED = {"4b": "runs/locked/kev-4b-r8-ungated", "27b": "runs/locked/kev-27b-v2-ungated"}
+PARENT_LOCKED = {"4b": "runs/locked/kev-4b-r8-ungated", "27b": "runs/locked/kev-27b-v2-ungated", "9b": "runs/locked/kev-9b-night2-du-ungated",
+                 "08b": "runs/locked/kev-08b-night2-du-ungated"}
 f = lambda b: f"{100 * b['delta']:+.2f} [{100 * b['ci95'][0]:+.2f}, {100 * b['ci95'][1]:+.2f}]"
 
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("stage", choices=["tests", "locked"]); ap.add_argument("--size", required=True, choices=list(PARENTS))
-    ap.add_argument("--candidate", required=True); ap.add_argument("--out", required=True); a = ap.parse_args()
+    ap.add_argument("--candidate", required=True); ap.add_argument("--out", required=True); ap.add_argument("--round", type=int, default=10); a = ap.parse_args()
+    tag = f"r{a.round}"
     trial = {"cand": a.candidate, "parent": PARENTS[a.size][0]}
     t = {k: served(read_json(Path(x) / "development/rows.json"), [])[0] for k, x in trial.items()}
     rows = lambda k, path: [r for r in knowable(serve(trial[k], path, t[k])[0]) if r["id"] not in DUPLICATE_IDS]
     if a.stage == "tests":
-        R = {k: {s: rows(k, f"runs/r10c-{a.size}-{k}-{s}/rows.json") for s in ("hardtest", "devtest")} for k in trial}
+        R = {k: {s: rows(k, f"runs/{tag}c-{a.size}-{k}-{s}/rows.json") for s in ("hardtest", "devtest")} for k in trial}
         pooled = {k: R[k]["hardtest"] + R[k]["devtest"] for k in trial}
         rep = {"stage": "tests", "temperature": t, "pooled": boot(pooled["cand"], pooled["parent"], "acc"),
                **{s: {"cand": metrics(R["cand"][s])["acc"], "parent": metrics(R["parent"][s])["acc"], "delta": boot(R["cand"][s], R["parent"][s], "acc"), "n": len(R["cand"][s])} for s in ("hardtest", "devtest")},
@@ -37,7 +39,7 @@ def main():
         rep["criteria"] = {"pooled_lower_above_0": rep["pooled"]["ci95"][0] > 0}
         print(f"hard-v1 test {rep['hardtest']['parent']:.3f} -> {rep['hardtest']['cand']:.3f} {f(rep['hardtest']['delta'])} | devtools-v1 test {rep['devtest']['parent']:.3f} -> {rep['devtest']['cand']:.3f} {f(rep['devtest']['delta'])} | pooled {f(rep['pooled'])} | hard ECE {rep['hard_ece']['parent']:.3f} -> {rep['hard_ece']['cand']:.3f}")
     else:
-        R = {"cand": rows("cand", f"runs/locked/kev-{a.size}-r10-ungated/transfer/rows.json"), "parent": rows("parent", f"{PARENT_LOCKED[a.size]}/transfer/rows.json")}
+        R = {"cand": rows("cand", f"runs/locked/kev-{a.size}-{tag}-ungated/transfer/rows.json"), "parent": rows("parent", f"{PARENT_LOCKED[a.size]}/transfer/rows.json")}
         m = {k: metrics(R[k]) for k in trial}
         rep = {"stage": "locked", "temperature": t, "locked": {k: {"acc": m[k]["acc"], "brier": m[k]["brier"]} for k in trial}, "acc_delta": boot(R["cand"], R["parent"], "acc")}
         rep["criteria"] = {"locked_acc_at_least_parent_minus_1pp": m["cand"]["acc"] >= m["parent"]["acc"] - 0.01, "served_brier_at_most_parent_plus_0.005": m["cand"]["brier"] <= m["parent"]["brier"] + 0.005}

@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 from kev.composition import POLICY_WRAPPERS, evaluate_rule, render_rule
 from kev.data import materialize
 from kev.model import fits, load_tokenizer
-from kev.suite import digest, load_split, write_json, write_jsonl
+from kev.suite import ADMISSION_TOKENIZER, digest, load_split, write_json, write_jsonl
 
 NAMES = ["Mira", "Noah", "Aiko", "Ravi", "Sana", "Elin", "Tomas", "Kofi"]
 NOUNS = ["request", "account", "package", "review", "member", "shipment", "entry", "case"]
@@ -107,7 +107,7 @@ def main():
     a = ap.parse_args(); out = ROOT / a.out
     if out.exists(): raise FileExistsError(out)
     recs = binding_records(a.n, a.seed) + elapsed_records(a.n, a.seed)
-    seen = state_hashes(); toks = [load_tokenizer("Qwen/Qwen3.5-4B-Base", revision="1001bb4d826a52d1f399e183466143f4da7b741b")]
+    seen = state_hashes(); toks = [load_tokenizer(*ADMISSION_TOKENIZER)]
     kept = []
     for r in recs:
         h = hashlib.sha256(json.dumps(r["state"], sort_keys=True).encode()).hexdigest()

@@ -24,10 +24,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kev.api import render  # noqa: E402
 from kev.data import materialize  # noqa: E402
 from kev.model import MAX_TRAIN_STATE, fits, load_tokenizer  # noqa: E402
-from kev.suite import SERVING_CONTEXT, digest, load_split, read_jsonl, read_manifest, record_digest, write_json, write_jsonl  # noqa: E402
+from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, SERVING_CONTEXT, digest, load_split, read_manifest, record_digest, write_json, write_jsonl  # noqa: E402
 
 SUITE = "evals/v7/decision-v7"
-TOKENIZER = ("Qwen/Qwen3.5-4B-Base", "1001bb4d826a52d1f399e183466143f4da7b741b")
 LENGTHS = (1024, 2048, 4096)
 NOTE = "Answer about the primary record only; the other records are unrelated."
 PAIRING = ("pair_id", "sibling", "control_id")   # the parent's minimal-pair links; copies at several lengths must not claim them
@@ -74,15 +73,13 @@ def control(record):
     return rec
 
 
-def build(records, counts, rng, count, with_controls, exclude=frozenset()):
-    """`counts`: {length: records to make}, drawn in that order. Records whose id is in `exclude` are never primaries (they
-    may still be buried as neighbours); skipping them leaves the draws unchanged, so an empty `exclude` reproduces v1/v2."""
+def build(records, counts, rng, count, with_controls):
+    """`counts`: {length: records to make}, drawn in that order."""
     out, primaries = [], set()
     for length, per_length in counts.items():
         made = 0
         for record in rng.sample(records, len(records)):
             if made == per_length: break
-            if record["_meta"]["id"] in exclude: continue
             rec = bury(record, records, length, rng, count)
             if rec is None: continue
             out.append(rec); primaries.add(record["_meta"]["id"]); made += 1
@@ -101,7 +98,6 @@ def main():
     ap.add_argument("--train_counts", default="", help="comma-separated training records per length (default --train_per_length each)")
     ap.add_argument("--panel_partition", default="development", choices=["development", "calibration"], help="decision-v7 partition the scored panel is built from")
     ap.add_argument("--version", default="longstate-v1")
-    ap.add_argument("--exclude_panel", default="", help="comma-separated earlier panel .jsonl files; their primaries (parent_id) are not reused as panel primaries")
     a = ap.parse_args()
     lengths = [int(x) for x in a.lengths.split(",")]
     counts = [int(x) for x in a.train_counts.split(",")] if a.train_counts else [a.train_per_length] * len(lengths)
@@ -114,8 +110,7 @@ def main():
     trainable = set(read_manifest(SUITE)["trainable_sources"])
     parts = {part: [r for r in load_split(SUITE, part) if r["_meta"]["source"] in trainable] for part in ("train", a.panel_partition)}
     train = build(parts["train"], train_counts, random.Random(f"{a.seed}:train"), count, with_controls=False)
-    excluded = frozenset(r["_meta"]["parent_id"] for path in filter(None, a.exclude_panel.split(",")) for r in read_jsonl(path) if "parent_id" in r["_meta"])
-    dev = build(parts[a.panel_partition], panel_counts, random.Random(f"{a.seed}:development"), count, with_controls=True, exclude=excluded)   # RNG key kept for every partition: v1 and v2 were built with it
+    dev = build(parts[a.panel_partition], panel_counts, random.Random(f"{a.seed}:development"), count, with_controls=True)   # RNG key kept for every partition: v1 and v2 were built with it
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     parents = {r["_meta"]["id"]: r for r in parts["train"]}
     train_control = [parents[r["_meta"]["parent_id"]] for r in train]
@@ -127,8 +122,7 @@ def main():
     if not all(fits(materialize(r), tok, **serving) for r in dev):
         raise SystemExit("a development record exceeds the serving context")
     write_json(out / "manifest.json", {
-        "version": a.version, "parent": SUITE, "panel_partition": a.panel_partition,
-        "excluded_panels": {path: digest(Path(path)) for path in filter(None, a.exclude_panel.split(","))}, "excluded_primaries": len(excluded), "train_counts": {str(k): v for k, v in train_counts.items()}, "parent_manifest_sha256": digest(Path(SUITE) / "manifest.json"), "seed": a.seed,
+        "version": a.version, "parent": SUITE, "panel_partition": a.panel_partition, "train_counts": {str(k): v for k, v in train_counts.items()}, "parent_manifest_sha256": digest(Path(SUITE) / "manifest.json"), "seed": a.seed,
         "tokenizer": {"model": TOKENIZER[0], "revision": TOKENIZER[1]}, "lengths": lengths,
         "state_tokens": {str(L): {"train_median": (t := tokens(train, L))[len(t) // 2], "dev_median": (d := tokens(dev, L))[len(d) // 2]} for L in lengths},
         "rendered_state_tokens": {str(L): {"train": quantiles(rendered(train, L)), "development": quantiles(rendered(dev, L))} for L in lengths},

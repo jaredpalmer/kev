@@ -30,8 +30,17 @@ PARENTS.update({
                                                "semif": "runs/r5r-P08-semif", "scienthoon": "runs/r5r-P08-scienthoon", "wanli2": "runs/r6-P08-wanli2", "typesafe": "runs/r5r-P08-typesafe"})})
 ROUNDS = {10: {"4b-skills": ("runs/r10-skills/00-trial-0", "4b"), "4b-hard": ("runs/r10-skills/01-trial-1", "4b"), "4b-devtools": ("runs/r10-skills/02-trial-2", "4b"),
                "27b-skills": ("runs/r10-skills-27b/00-trial-0", "27b")},
-          12: {"9b-s1": ("runs/r12-skills/00-trial-0", "9b"), "9b-s2": ("runs/r12-skills/01-trial-1", "9b"), "08b-s1": ("runs/r12-skills/02-trial-2", "08b")}}
-POOLED_SHORT = {12}   # rounds whose short-state guard pools transfer-v4 dev with transfer-r3 test (round 11)
+          12: {"9b-s1": ("runs/r12-skills/00-trial-0", "9b"), "9b-s2": ("runs/r12-skills/01-trial-1", "9b"), "08b-s1": ("runs/r12-skills/02-trial-2", "08b")},
+          13: {"08b-s1": ("runs/r13-08b/00-trial-0", "08b-r11"), "08b-s2": ("runs/r13-08b/01-trial-1", "08b-r11")},
+          14: {"4b-lr1e5": ("runs/r14-4b/00-trial-0", "4b-r10"), "4b-lr2e5": ("runs/r14-4b/01-trial-1", "4b-r10")}}
+PARENTS["4b-r10"] = ("runs/r10-skills/00-trial-0", {"hard": "runs/r10-4b-skills-hard", "devtools": "runs/r10-4b-skills-devtools", "docs": "runs/r10-4b-skills-docs",
+                                                    "v9": "runs/r10-4b-skills-v9", "r3test": "runs/r14-P4r10-r3test", **{s: f"runs/r10-4b-skills-{s}" for s in EXTERNALS}})
+PARENTS["08b-r11"] = ("runs/r11-docs/03-trial-3", {"hard": "runs/r13-P08r11-hard", "devtools": "runs/r13-P08r11-devtools", "docs": "runs/r11-08b-s5-docs",
+                                                   "v9": "runs/r11-08b-s5-v9", "r3test": "runs/r11-08b-s5-r3test", **{s: f"runs/r11-08b-s5-{s}" for s in EXTERNALS}})
+ROUNDS[15] = {"08b-a": ("runs/r15-08b/00-trial-0", "08b"), "08b-b": ("runs/r15-08b/01-trial-1", "08b"), "08b-c": ("runs/r15-08b/02-trial-2", "08b")}
+ROUNDS[16] = {"9b-r10k-lr1e5": ("runs/r16-9b/00-trial-0", "9b"), "9b-r10k-lr2e5": ("runs/r16-9b/01-trial-1", "9b")}
+POOLED_SHORT = {12, 13, 14, 15, 16}
+JOINT = {15}   # documents and skills trained together: both primaries must hold (PLAN.md round 15)   # rounds whose short-state guard pools transfer-v4 dev with transfer-r3 test (round 11)
 
 
 # devtools-v1 development has one record id used by two different records (a builder bug found at the first read;
@@ -74,11 +83,13 @@ def main():
                            **{f"2_{k}_lower_at_least_minus_2pp": rep["externals"][k]["ci95"][0] >= -0.02 for k in ("wanli2", "scienthoon")},
                            "2_pooled_lower_at_least_minus_1.5pp": rep["pooled_external"]["ci95"][0] >= -0.015, "2_unknowable_at_most_0.05": rep["unknowable_share"] <= 0.05,
                            "3_hard_ece_at_most_parent_plus_0.01": rep["hard_ece"]["candidate"] <= rep["hard_ece"]["parent"] + 0.01}
+        if a.round in JOINT: rep["criteria"]["1_docs_lower_above_0"] = rep["docs_delta"]["ci95"][0] > 0
         rep["passed"] = all(rep["criteria"].values())
         report["arms"][arm] = rep
-    for size in sorted({size for _, size in ROUNDS[a.round].values()}):
+    for size in sorted({size.split("-")[0] for _, size in ROUNDS[a.round].values()}):
         passing = [(k, v) for k, v in report["arms"].items() if k.startswith(size + "-") and isinstance(v, dict) and v["passed"]]
-        report[f"candidate_{size}"] = max(passing, key=lambda kv: kv[1]["primary"]["delta"])[0] if passing else None
+        score = (lambda v: v["primary"]["delta"] + v["docs_delta"]["delta"]) if a.round in JOINT else (lambda v: v["primary"]["delta"])
+        report[f"candidate_{size}"] = max(passing, key=lambda kv: score(kv[1]))[0] if passing else None
     Path(a.out).mkdir(parents=True, exist_ok=True); write_json(Path(a.out) / f"round{a.round}.json", report)
     f = lambda b: f"{100 * b['delta']:+.1f} [{100 * b['ci95'][0]:+.1f}, {100 * b['ci95'][1]:+.1f}]"
     for arm, r in report["arms"].items():
