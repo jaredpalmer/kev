@@ -299,6 +299,23 @@ uv run python -m kev.train --suite evals/v7/decision-v7 --base Qwen/Qwen3.5-4B-B
 
 Use `uv run python -m kev.train --help` for all training options. The released models don't use the optional `--perm_kl` or `--ord_w` losses. [PLAN.md](PLAN.md) records what was tried, what helped, and what didn't.
 
+### Gemma 4 Bases (Experimental)
+
+Kev also trains and serves on Gemma 4 E2B and E4B (`google/gemma-4-E2B`, `google/gemma-4-E4B`). Gemma's tokenizer has none of the Qwen delimiter tokens, so Kev uses Gemma's reserved `<unused0>`–`<unused4>` tokens and a leading `<bos>`. The sliding-window attention layers get their own copy of the packed mask, and only the text model is loaded. No released Kev uses these bases. [JohnP1/kev-gemma4-e2b](https://huggingface.co/JohnP1/kev-gemma4-e2b) is a one-epoch community prototype; its model card has the results. Here it is in the playground on an M1 Max:
+
+![Kev playground serving a Gemma 4 E2B checkpoint: a support ticket, packed vs separate, option permutations, a Japanese ticket, the isolation probe and delimiter-forgery attempts](docs/gemma4-demo.gif)
+
+```bash
+# the base recipe on Gemma 4 E2B: one L4 is enough (about 15 GB peak with a bf16 backbone)
+uv run python -m kev.train --suite evals/v7/decision-v7 --base google/gemma-4-E2B --base_revision d29ff6b45f081a49ee2733a859c9c9c2d95d1a6f \
+    --epochs 2 --lr 1e-4 --batch 4 --accum 2 --dtype bf16 --weights_dtype bf16 --checkpointing 1 --p_none_pair 0.25 --device cuda --out runs/kev-gemma4-e2b
+
+# serve a Gemma checkpoint like any other (attention-only, so PyTorch MPS on a Mac, not MLX)
+uv run --extra serve python -m kev.serve --run JohnP1/kev-gemma4-e2b --port 8009
+```
+
+The frozen suites were admitted under Qwen tokenizers, so `kev.train` re-admits their records under Gemma's tokenizer with the suite's own rule (70 of decision-v7's 12,576 records are dropped).
+
 ### Modal
 
 Each trial gets its own H100. The study keeps running if you disconnect, and you can download the results when it finishes:
