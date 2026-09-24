@@ -47,7 +47,11 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   unknowable) for OOD, `evals/round3/{decision-r3,transfer-r3}` (calibration audit; the 1,260-record final panel is
   unscored), `evals/smoke-v1` for tests, plus `evals/external/` (semif-v1, scienthoon-v1, ekzhang-mmlupro-v1, and SemIf's pinned third-party selections wanli-v1 + typesafe-v1 via
   `scripts/freeze_semif_external.py`; `scripts/compare_typesafe.py` reports equal-case agreement/TVD against the reference and published answers, `--tokenizer` adds accuracy by state length; Kev-9B/4B scored 2026-09-22: WANLI 0.703/0.695 vs Jev 0.758, TypeSafe 0.809/0.856 agreement on 89 answered rows vs 0.891, `runs/kev-*-{wanli,typesafe}-v1`),
-  `evals/night2/` (delta training data, `scripts/build_night2_data.py`) and `evals/diagnostics/` (binding-v1).
+  `evals/night2/` (delta training data, `scripts/build_night2_data.py`), `evals/diagnostics/` (binding-v1) and `evals/hard-v1`
+  (programmatically labelled skill records in seven families: long policy documents, trade-offs, probability, multi-hop,
+  temporal/numeric, judging a proposed answer, missing-fact abstention; `scripts/build_hard_v1.py`, labels from each family's
+  solver over `_meta.facts`, templates 0-3 train / 4 development / 5 test; long_policy states reach ~5k tokens, so train with
+  `--max_state` >= 5120; `scripts/screen_overlap.py` checks it against JevBench's public items, counts only, in `overlap.json`).
   Partitions over ~10 MB are not in git; they are mirrored at the Hub dataset `jaredpalmer/kev-suites` (revision pinned
   in `kev/suite.py: SUITES_REVISION`) and `load_split` fetches + verifies them on first use. After freezing a new suite:
   `hf upload jaredpalmer/kev-suites evals . --type dataset --include "*.jsonl" --include "*.json"`, bump
