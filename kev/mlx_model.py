@@ -12,6 +12,7 @@ benchmark, whose reported numbers stay on the fp32 torch path. Parity against th
 tests/test_mlx.py (max |dp| and argmax flips on development records, prefix vs full pass, one question vs several).
 """
 import json
+import os
 from pathlib import Path
 
 import mlx.core as mx
@@ -48,10 +49,13 @@ def merge_lora(lm, adapter_dir, scale=1.0):
             base = params[target]
             delta = (weights[stem + ".lora_B.weight"].astype(mx.float32) @ a.astype(mx.float32)) * (alpha * scale)
             merged[target] = (base.astype(mx.float32) + delta).astype(base.dtype)
-        mx.eval(list(merged.values()))
+            mx.eval(merged[target])   # one tensor at a time: one graph over every target peaks at ~2.9x the base weights and leaves ~2x of them in MLX's buffer cache (25.8 GB RSS for the 4B)
     lm.load_weights(list(merged.items()), strict=False)
     mx.eval(lm.parameters())
-    return len(merged)
+    count = len(merged)
+    del params, merged   # drop the pre-merge weights before clearing the cache, or ~7 GB of them stay cached
+    mx.clear_cache()   # hand the merge transients back to the OS; MLX keeps freed buffers otherwise
+    return count
 
 
 class MLXDecisionModel:
@@ -61,6 +65,7 @@ class MLXDecisionModel:
 
     def __init__(self, base_dir, pad_id, head_dim=256):
         self.lm, _ = load_model(Path(base_dir))                       # weights as stored (bf16 for the Qwen3.5 bases)
+        mx.set_cache_limit(int(float(os.environ.get("KEV_MLX_CACHE_GB", "1")) * 2**30))   # bound MLX's buffer cache: each new request shape otherwise adds a buffer that is never returned (+3.6 GB over 50 requests on the 4B)
         self.text = self.lm.language_model.model                      # Qwen3_5TextModel: embeddings -> layers -> final norm = `.model.last_hidden_state`
         self.pad_id = pad_id
         self.head = PointerHead(self.text.embed_tokens.weight.shape[1], dp=head_dim).eval()
