@@ -3,11 +3,14 @@ JevBench item is ever used for selection). Writes the one JSON a model card's Je
 
     uv run python scripts/jevbench_paired.py --candidate runs/jevbench-public/kev-4b-r10 \
         --reference runs/jevbench-public/kev-4b-r8 --out runs/jevbench-public/kev-4b-r10/paired-vs-kev-4b-r8.json
+    uv run python scripts/jevbench_paired.py --candidate runs/jevbench-public/kev-08b-r15 \
+        --reference runs/jevbench-public/kev-08b --out runs/jevbench-public/kev-08b-r15/paired-vs-kev-08b.json
 
 Per tier (easy / original = "standard" / hard): accuracy and ECE as the harness's summary-<tier>.json reports them.
 "all": pooled accuracy over every public item (sum of n_correct over sum of n_scorable). Paired, per tier, on items both
-runs scored: accuracy delta with an item bootstrap (every JevBench item is its own group; 2,000 resamples, seed 0,
-percentile 95 % interval), discordant counts and the exact two-sided McNemar p.
+runs scored: accuracy delta with an item bootstrap (every JevBench item is its own group; 10,000 resamples, seed 0,
+percentile 95 % interval: with a handful of discordant items the percentile sits on a boundary between two attainable
+deltas, and 2,000 resamples flip the Kev-0.8B pair's upper bound between +7.2 and +8.1 with the seed; 10,000 do not), discordant counts and the exact two-sided McNemar p.
 """
 import argparse, math, sys
 from pathlib import Path
@@ -18,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kev.suite import read_json, read_jsonl, write_json  # noqa: E402
 
 TIERS = ("easy", "original", "hard")
-SAMPLES, SEED = 2000, 0
+SAMPLES, SEED = 10000, 0
 
 
 def outcomes(run, tier):

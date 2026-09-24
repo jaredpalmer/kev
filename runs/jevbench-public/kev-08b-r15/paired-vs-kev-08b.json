@@ -1,0 +1,104 @@
+{
+  "candidate": {
+    "run": "runs/jevbench-public/kev-08b-r15",
+    "tiers": {
+      "easy": {
+        "n": 48,
+        "n_correct": 48,
+        "accuracy": 1.0,
+        "ece": 0.06887916666666671,
+        "brier": 0.021144388958333333
+      },
+      "original": {
+        "n": 72,
+        "n_correct": 59,
+        "accuracy": 0.8194444444444444,
+        "ece": 0.1677194444444445,
+        "brier": 0.3302950163888889
+      },
+      "hard": {
+        "n": 111,
+        "n_correct": 40,
+        "accuracy": 0.36036036036036034,
+        "ece": 0.18146756756756757,
+        "brier": 0.7160370578378378
+      }
+    },
+    "all": {
+      "n": 231,
+      "n_correct": 147,
+      "accuracy": 0.6363636363636364
+    }
+  },
+  "reference": {
+    "run": "runs/jevbench-public/kev-08b",
+    "tiers": {
+      "easy": {
+        "n": 48,
+        "n_correct": 48,
+        "accuracy": 1.0,
+        "ece": 0.049006249999999946,
+        "brier": 0.012856138750000001
+      },
+      "original": {
+        "n": 72,
+        "n_correct": 53,
+        "accuracy": 0.7361111111111112,
+        "ece": 0.11204861111111118,
+        "brier": 0.34738534916666663
+      },
+      "hard": {
+        "n": 111,
+        "n_correct": 37,
+        "accuracy": 0.3333333333333333,
+        "ece": 0.24460630630630634,
+        "brier": 0.7856554076576577
+      }
+    },
+    "all": {
+      "n": 231,
+      "n_correct": 138,
+      "accuracy": 0.5974025974025974
+    }
+  },
+  "bootstrap": {
+    "samples": 10000,
+    "seed": 0,
+    "unit": "item"
+  },
+  "paired": {
+    "easy": {
+      "n": 48,
+      "delta": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "newly_right": 0,
+      "newly_wrong": 0,
+      "mcnemar_exact_p": 1.0
+    },
+    "original": {
+      "n": 72,
+      "delta": 0.08333333333333333,
+      "ci95": [
+        0.027777777777777776,
+        0.1527777777777778
+      ],
+      "newly_right": 6,
+      "newly_wrong": 0,
+      "mcnemar_exact_p": 0.03125
+    },
+    "hard": {
+      "n": 111,
+      "delta": 0.02702702702702703,
+      "ci95": [
+        -0.018018018018018018,
+        0.07207207207207207
+      ],
+      "newly_right": 5,
+      "newly_wrong": 2,
+      "mcnemar_exact_p": 0.453125
+    }
+  }
+}
