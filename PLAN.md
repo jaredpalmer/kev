@@ -98,7 +98,7 @@ Reported, never gating:
 
 **Next (to be registered, not read):** the 9B recipe minus the MNLI soft targets (keep them hard) isolates the WANLI question. It needs fresh panels (both round-5 panels have now been read by these candidates) and a WANLI panel disjoint from the 256 items, large enough that a 1 pp point threshold is not three questions. The external gates in this round were point estimates on 89–256 questions; the next registration should use paired intervals with a margin sized to the suite.
 
-## Round 10 - skills delta: hard-v1 + devtools-v1 (registered 2026-09-24T03:25Z, before its data is built or any training or read)
+## Round 10 - skills delta: hard-v1 + devtools-v1 (registered 2026-09-24T03:13Z, before its data is built or any training or read)
 
 **Why.** Two new suites measure what the released models are worst at. `evals/hard-v1` (programmatic, exact labels; seven families: long policy documents, trade-offs, probability, multi-hop, temporal/numeric, judging a proposed answer, missing-fact abstention; templates held out per split; JevBench overlap screen clean) is Target B of the JevBench section; `evals/devtools-v1` (six licence-checked developer-tooling sources) is the developer workload. Baseline on devtools-v1 development (1,074 questions, served): Kev-0.8B 0.488, Kev-4B 0.606, Kev-9B 0.631, Kev-27B 0.703, Jev 0.713.
 
