@@ -146,23 +146,25 @@ Next, with evidence: (a) the round 17 / 18 verdicts; (b) a joint documents + ski
 
 **Protocol.** AutoJev is served by its own unmodified server (`github.com/denis-pplx/autojev@ee63c151`, weights `denis-pplx/autojev-27b@6f5b557e`, bf16, one H200, `scripts/serve_autojev.py`) and scored through its TypeSafe-compatible `/v1/systemone` with `kev.benchmark --remote` (`--remote-model jev-latest`), as served (its own fitted temperature). Suites, development / public partitions only: `transfer-v4` dev, `hard-v1` dev, `devtools-v1` dev, `documents-v1` dev, SemIf-144, scienthoon, WANLI-v2, TypeSafe-89, `transfer-v9` dev; then JevBench's public items through the unchanged JevBench harness. Kev-27B's rows are its existing reads at its fitted temperature 1.38 (`runs/release/kev-27b-v2`, `runs/r6-27bv2-s2-*`, `runs/hv1-27b`, `runs/dt1-27b`, `runs/jevbench-public/kev-27b`). Paired record-clustered bootstraps on the shared (id, question) rows; requests AutoJev rejects (for example more options than its readout supports) are counted as coverage, not dropped silently. **Nothing here selects or gates a Kev model**; no test partition is read; AutoJev outputs never enter training data.
 
-**Result (2026-09-24, report only; `runs/autojev-h2h/report.json`, `scripts/autojev_h2h.py`, reads `runs/autojev-*`).** AutoJev as served against the Kev-27B release candidate at T = 1.38, paired on shared questions:
+**Result (2026-09-24, report only; `runs/autojev-h2h/report.json`, `scripts/autojev_h2h.py`, reads `runs/autojev-*`).** AutoJev as served against the Kev-27B release candidate at its shipped T = 1.38, paired on shared questions (corrected the same day: the first version of `scripts/autojev_h2h.py` served Kev-27B at the in-trial fit T = 1.19, which changed Kev's Brier / ECE columns but no accuracy):
 
 | suite (questions) | AutoJev-27B | Kev-27B | Jev | AutoJev − Kev, acc | Brier AJ / Kev | ECE AJ / Kev |
 |---|---|---|---|---|---|---|
-| transfer-v4 dev (656) | **0.863** | 0.848 | 0.857 | +1.5 [−0.6, +3.7] | 0.201 / 0.232 | 0.041 / 0.049 |
-| hard-v1 dev (1,083) | **0.782** | 0.733 | 0.777 | **+4.9 [+2.4, +7.3]** | 0.309 / 0.340 | 0.103 / 0.048 |
-| devtools-v1 dev (1,072) | 0.708 | 0.702 | 0.715 | +0.6 [−0.7, +1.8] | 0.403 / 0.436 | 0.105 / 0.123 |
-| documents-v1 dev (920) | **0.877** | 0.862 | 0.868 | +1.5 [−0.1, +3.3] | 0.175 / 0.192 | 0.015 / 0.055 |
-| SemIf (144) | 0.993 | 0.972 | 0.965 | +2.1 [0.0, +4.9] | 0.018 / 0.055 | 0.048 / 0.048 |
-| scienthoon (873) | 0.769 | **0.796** | 0.753 | **−2.7 [−4.9, −0.6]** | 0.307 / 0.273 | 0.071 / 0.038 |
-| WANLI-v2 (1,002) | 0.764 | 0.745 | – | +2.0 [+0.3, +3.7] | 0.357 / 0.368 | 0.082 / 0.091 |
-| TypeSafe (89) | 0.865 | 0.865 | – | +0.0 [−7.4, +8.1] | 0.179 / 0.198 | 0.082 / 0.074 |
-| transfer-v9 dev (1,046; MMLU-Pro, buried, unknowable) | 0.812 | 0.822 | 0.854 | −1.1 [−3.0, +0.9] | 0.271 / 0.264 | 0.045 / 0.048 |
+| transfer-v4 dev (656) | **0.863** | 0.848 | 0.857 | +1.5 [−0.6, +3.7] | 0.201 / 0.229 | 0.041 / 0.043 |
+| hard-v1 dev (1,083) | **0.782** | 0.733 | 0.777 | **+4.9 [+2.4, +7.3]** | 0.309 / 0.338 | 0.103 / 0.047 |
+| devtools-v1 dev (1,072) | 0.708 | 0.702 | 0.715 | +0.6 [−0.7, +1.8] | 0.403 / 0.425 | 0.105 / 0.096 |
+| documents-v1 dev (920) | **0.877** | 0.862 | 0.868 | +1.5 [−0.1, +3.3] | 0.175 / 0.201 | 0.015 / 0.088 |
+| SemIf (144) | 0.993 | 0.972 | 0.965 | +2.1 [0.0, +4.9] | 0.018 / 0.061 | 0.048 / 0.068 |
+| scienthoon (873) | 0.769 | **0.796** | 0.753 | **−2.7 [−4.9, −0.6]** | 0.307 / 0.275 | 0.071 / 0.044 |
+| WANLI-v2 (1,002) | 0.764 | 0.745 | – | +2.0 [+0.3, +3.7] | 0.357 / 0.362 | 0.082 / 0.070 |
+| TypeSafe (89) | 0.865 | 0.865 | – | +0.0 [−7.4, +8.1] | 0.179 / 0.197 | 0.082 / 0.057 |
+| transfer-v9 dev (1,046; MMLU-Pro, buried, unknowable) | 0.812 | 0.822 | 0.854 | −1.1 [−3.0, +0.9] | 0.271 / 0.265 | 0.045 / 0.050 |
 
 Macro accuracy over the nine suites: AutoJev 0.826, Kev-27B 0.816. JevBench public items (unchanged harness; `runs/jevbench-public/autojev`): AutoJev all 0.870 (standard 0.986, hard **0.739**), Kev-27B 0.866 (1.000, 0.721); paired on the 111 hard items +1.8 pp [−3.6, +7.2] (6 vs 4 discordant); hard-tier ECE **0.075** vs 0.128. AutoJev refused 13 TypeSafe records (8,192-token question-branch limit, HTTP 422); none of them carries a label, so no scored question was lost. Serving: its server answers one request at a time (HTTP 529 while busy), p50 0.34 s per JevBench hard item over the internet against Kev-27B's 0.94 s through `kev-deploy`.
 
-**Reading.** On the same base weights, full-weight SFT on 73k broad synthetic decisions beats our LoRA recipe modestly and broadly: ahead or level on eight of nine suites (significantly on hard-v1 and WANLI-v2), behind on scienthoon, level on MMLU-Pro-heavy transfer-v9 and on JevBench; better Brier almost everywhere and much better calibrated on JevBench's hard tier, but worse ECE on hard-v1 and devtools-v1. Kev-27B's unreleased round-10 skills arm (hard-v1 0.885, devtools-v1 0.787, trained on those suites' templates) would lead on those two; it failed our scienthoon guard. Two things to take: breadth of training data is what AutoJev has that we do not (our replay is decision-v7 only), and full-weight fine-tuning at 27B is now a live question for us rather than a settled no.
+**Kev-27B on main's batched serving path (#93 / #97; 2026-09-24).** Served by the kev-deploy template on one H200 (bf16, unmerged adapter, CUDA graphs, 6 buckets captured) and read on transfer-v4 development through `kev.benchmark --remote`: against the recorded fp32 read at the same temperature 1.38, max |Δp| 0.029, mean 0.0016, 3 argmax flips in 656 questions; accuracy 0.851 vs 0.848, Brier 0.229 vs 0.229; model latency median 809 ms / p95 1,101 ms at 8 requests in flight over the internet. The release's serving numbers therefore still hold on main.
+
+**Reading.** On the same base weights, full-weight SFT on 73k broad synthetic decisions beats our LoRA recipe modestly and broadly: ahead or level on eight of nine suites (significantly on hard-v1 and WANLI-v2), behind on scienthoon, level on MMLU-Pro-heavy transfer-v9 and on JevBench; better Brier on seven of nine suites and much better calibrated on JevBench's hard tier and on documents (ECE 0.015 vs 0.088), worse ECE on hard-v1, devtools-v1, scienthoon, WANLI-v2 and TypeSafe. Kev-27B's unreleased round-10 skills arm (hard-v1 0.885, devtools-v1 0.787, trained on those suites' templates) would lead on those two; it failed our scienthoon guard. Two things to take: breadth of training data is what AutoJev has that we do not (our replay is decision-v7 only), and full-weight fine-tuning at 27B is now a live question for us rather than a settled no.
 
 ### Round 7 - documents delta (registered 2026-09-23T22:15Z, before any training or read)
 

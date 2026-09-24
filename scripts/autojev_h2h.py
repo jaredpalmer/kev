@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from kev.metrics import metrics  # noqa: E402
+from kev.metrics import metrics, served  # noqa: E402
 from kev.suite import read_json, write_json  # noqa: E402
 from round6_readout import boot, knowable, serve  # noqa: E402
 
@@ -35,7 +35,7 @@ def clean(rows):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--out", required=True); a = ap.parse_args()
-    t = read_json(f"{KEV}/result.json")["calibration_fit"]["temperature"]
+    t = served(read_json(f"{KEV}/development/rows.json"), [])[0]   # the shipped temperature (head.pt 1.38), not the in-trial fit
     report = {"kev_temperature": t, "suites": {}}
     for tag, (aj, kev, jev) in SUITES.items():
         if not Path(f"{aj}/report.json").exists(): report["suites"][tag] = "not read yet"; continue
