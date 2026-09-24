@@ -29,6 +29,28 @@ def test_merged_load_matches_unmerged_exactly_in_fp32(smoke_run):
             pa, pb = torch.cat(a.probs(a.encode(tok, r))), torch.cat(b.probs(b.encode(tok, r)))
             assert (pa - pb).abs().max() < 1e-5
 
+def test_full_parameter_checkpoint_serves_like_the_adapter(smoke_run, tmp_path):
+    """A full-parameter checkpoint (the backbone's own weights + head.pt with lora 0) loads without peft and gives the
+    merged adapter's probabilities; adapter-only options and the MLX backend refuse it."""
+    import torch
+    from kev.checkpoint import Checkpoint, LoadOptions, read_meta, write_meta
+    from kev.data import materialize
+    from kev.suite import load_split
+    recs = [materialize(r) for r in load_split("evals/smoke-v1", "development")[:3]]
+    tok, adapter = Checkpoint(smoke_run).load("cpu")
+    adapter.lm.save_pretrained(tmp_path)                       # the merged backbone, as a full fine-tune would save it
+    meta = read_meta(smoke_run); meta.lora = 0; write_meta(tmp_path, meta)
+    ck = Checkpoint(str(tmp_path))
+    assert ck.full and [f.name for f in ck.weight_files()] == ["model.safetensors"] and ck.backend("mps", LoadOptions(backend="auto")) == "torch"
+    _, full = ck.load("cpu")
+    with torch.no_grad():
+        for r in recs:
+            assert (torch.cat(adapter.probs(adapter.encode(tok, r))) - torch.cat(full.probs(full.encode(tok, r)))).abs().max() < 1e-6
+    for opts in (LoadOptions(lora_scale=0.5), LoadOptions(backend="mlx")):
+        with pytest.raises(ValueError): ck.load("cpu", opts)
+    with pytest.raises(ValueError): ck.warm_start(full, meta)
+
+
 def test_bf16_merge_equals_fp32_merge_then_cast(smoke_run):
     """A bf16 load merges the fp32 adapter straight into the bf16 weights (one rounding in fp32 math), which must give the
     same bits as the old path: load in fp32, merge, cast. That path held an fp32 copy of the backbone (36 GB for Kev-9B)."""

@@ -1,4 +1,7 @@
-"""Trained checkpoints: a run directory or a Hub repo holding a LoRA adapter, `head.pt` and the tokenizer.
+"""Trained checkpoints: a run directory or a Hub repo holding `head.pt`, the tokenizer, and either a LoRA adapter
+(`adapter_config.json` + `adapter_model.safetensors`, every released Kev) or, for a full-parameter fine-tune, the
+backbone's own weights (`config.json` + `model*.safetensors`, as `DecisionModel.lm.save_pretrained` writes them, with
+`lora: 0` in `head.pt`; `Meta.base` still names the base the tokenizer and architecture come from).
 
 This is the one place that knows the layout of `head.pt` and how a checkpoint becomes a `DecisionModel`:
 `kev.serve`, `kev.benchmark`, `kev.train --init_from`, `kev.publish`, the scripts and the Hugging Face Space all go
@@ -153,8 +156,20 @@ class Checkpoint:
     def file(self, name):
         return Path(self.path) / name
 
+    @property
+    def full(self):
+        """A full-parameter checkpoint: the fine-tuned backbone's weights instead of a LoRA adapter."""
+        if self.file("adapter_config.json").exists(): return False
+        if not self.file("config.json").exists():
+            raise FileNotFoundError(f"{self.path} has neither a LoRA adapter (adapter_config.json) nor backbone weights (config.json)")
+        return True
+
     def adapter_config(self):
         return json.loads(self.file("adapter_config.json").read_text(encoding="utf-8"))
+
+    def weight_files(self):
+        """The files holding the fine-tuned weights: the adapter, or a full-parameter checkpoint's backbone shards."""
+        return sorted(Path(self.path).glob("model*.safetensors")) if self.full else [self.file("adapter_model.safetensors")]
 
     def release_date(self):
         """ISO date for the TypeSafe model card: the Hub commit date for a Hub checkpoint (falls back to the cached file's
@@ -178,7 +193,7 @@ class Checkpoint:
         if opts.backend not in LoadOptions.BACKENDS: raise ValueError(f"unknown backend {opts.backend!r}")
         if opts.backend != "auto": return opts.backend or "torch"
         exact = opts.dtype is torch.float32   # KEV_DTYPE=fp32: the caller wants the reported-numbers path, not a faster one
-        return "mlx" if str(device) == "mps" and not exact and mlx_available() and self.hybrid_base() else "torch"
+        return "mlx" if str(device) == "mps" and not exact and not self.full and mlx_available() and self.hybrid_base() else "torch"
 
     def load(self, device, opts=LoadOptions()):
         """-> (tokenizer, model) in eval mode with the LoRA applied and the pointer head loaded. The model is a
@@ -192,6 +207,7 @@ class Checkpoint:
 
     def _load_mlx(self, tok, opts):
         from .mlx_model import MLXDecisionModel, merge_lora
+        if self.full: raise ValueError("full-parameter checkpoints run on the torch backend (the MLX backend loads the base and merges an adapter)")
         if not opts.merge: raise ValueError("the MLX backend always merges the adapter (KEV_MERGE=0 needs backend=torch)")
         if self.meta.option_isolation: raise ValueError("option_isolation needs the packed mask; not available on the MLX backend")
         if not self.hybrid_base(): raise ValueError(f"the MLX backend is for the hybrid (Qwen3.5) bases; {self.meta.base} is attention-only and runs on MPS with backend=torch")
@@ -201,7 +217,6 @@ class Checkpoint:
         return m
 
     def _load_torch(self, tok, device, opts):
-        from peft import PeftModel
         meta = self.meta
         dtype, merge = opts.dtype or torch.float32, opts.merge
         if meta.weights_dtype == "bf16":
@@ -209,16 +224,21 @@ class Checkpoint:
             # load it the same way. The exact path keeps the fp32 adapter unmerged; the fused serving path folds it in
             # (one rounding of W + delta, as for every served Kev; parity in runs/serving-27b-*).
             dtype, merge = torch.bfloat16, merge and bool(opts.fused)
-        merge = merge and not self.adapter_config().get("trainable_token_indices")   # token-trained adapters stay unmerged
-        m = DecisionModel(meta.base, tok, device, lora=None, revision=meta.base_revision, head_dim=meta.head_dim,
-                          option_isolation=meta.option_isolation, dtype=dtype, attn=opts.attn)
-        m.lm = PeftModel.from_pretrained(m.lm, self.path, torch_device=str(device)).to(device)   # trainable token embeddings, if any, live in the adapter
-        if opts.lora_scale != 1:
-            for module in m.lm.modules():
-                if isinstance(getattr(module, "scaling", None), dict):
-                    for k in module.scaling: module.scaling[k] *= opts.lora_scale
-            m.lora_scale = opts.lora_scale
-        if merge: m.lm = m.lm.merge_and_unload()     # W += delta: fp32 math, one rounding (see LoadOptions.merge)
+        arch = dict(head_dim=meta.head_dim, option_isolation=meta.option_isolation, dtype=dtype, attn=opts.attn)
+        if self.full:   # the weights are the model: nothing to fold in, so the merged-only paths (fused kernels) apply
+            if opts.lora_scale != 1: raise ValueError(f"lora_scale scales a LoRA adapter; {self.path} is a full-parameter checkpoint")
+            m, merge = DecisionModel(self.path, tok, device, lora=None, **arch), True
+        else:
+            from peft import PeftModel
+            merge = merge and not self.adapter_config().get("trainable_token_indices")   # token-trained adapters stay unmerged
+            m = DecisionModel(meta.base, tok, device, lora=None, revision=meta.base_revision, **arch)
+            m.lm = PeftModel.from_pretrained(m.lm, self.path, torch_device=str(device)).to(device)   # trainable token embeddings, if any, live in the adapter
+            if opts.lora_scale != 1:
+                for module in m.lm.modules():
+                    if isinstance(getattr(module, "scaling", None), dict):
+                        for k in module.scaling: module.scaling[k] *= opts.lora_scale
+                m.lora_scale = opts.lora_scale
+            if merge: m.lm = m.lm.merge_and_unload()     # W += delta: fp32 math, one rounding (see LoadOptions.merge)
         if dtype != torch.float32: m.lm = m.lm.to(dtype)
         serving = str(device).startswith("cuda") and m.hybrid
         if opts.fused and serving and merge:   # fused projections need the adapter folded in
@@ -237,6 +257,7 @@ class Checkpoint:
         loads matching keys silently and a half-loaded adapter still trains and still reports a loss. Returns provenance."""
         from peft import get_peft_model_state_dict, load_peft_weights, set_peft_model_state_dict
         from .suite import digest   # lazy: the Space vendors this module without kev/suite.py
+        if self.full: raise ValueError(f"--init_from warm-starts a LoRA adapter and head; {self.path} is a full-parameter checkpoint")
         for name in self.COMPAT_FIELDS:
             theirs, mine = getattr(self.meta, name), getattr(ours, name)
             if theirs != mine and not (name == "base_revision" and None in (theirs, mine)):

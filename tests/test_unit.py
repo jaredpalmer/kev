@@ -221,6 +221,21 @@ def test_prefix_cache_keeps_what_survives_the_batch():
     assert PrefixCache(size=0, min_tokens=0).plan([enc("abc")])[2] == [False]
 
 
+def test_checkpoint_kind_follows_its_files(tmp_path):
+    """A checkpoint with adapter_config.json is a LoRA adapter; with only config.json it is a full-parameter fine-tune;
+    with neither it is an error, not a silent guess."""
+    import json
+    from kev.checkpoint import Checkpoint, Meta, write_meta
+    write_meta(tmp_path, Meta(base="Qwen/Qwen3.5-0.8B-Base"))
+    with pytest.raises(FileNotFoundError): Checkpoint(str(tmp_path)).full
+    (tmp_path / "config.json").write_text(json.dumps({"model_type": "qwen3_5_text"}), encoding="utf-8")
+    (tmp_path / "model-00001-of-00002.safetensors").write_bytes(b""); (tmp_path / "model-00002-of-00002.safetensors").write_bytes(b"")
+    ck = Checkpoint(str(tmp_path))
+    assert ck.full and [f.name for f in ck.weight_files()] == ["model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors"]
+    (tmp_path / "adapter_config.json").write_text("{}", encoding="utf-8")
+    assert not Checkpoint(str(tmp_path)).full and [f.name for f in Checkpoint(str(tmp_path)).weight_files()] == ["adapter_model.safetensors"]
+
+
 def test_graph_buckets_and_length_groups():
     """kev.cuda_graphs pads batched passes: counts to count_bucket (under half extra), token lengths to bucket (under a
     quarter), and length_groups computes the fewest tokens: a pass under PASS_TOKENS stays whole, one long item does not

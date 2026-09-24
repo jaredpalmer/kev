@@ -27,7 +27,7 @@ from pathlib import Path
 import torch
 
 from kev.benchmark import evaluate_records
-from kev.checkpoint import LoadOptions
+from kev.checkpoint import Checkpoint, LoadOptions
 from kev.device import default_device, empty_cache
 from kev.metrics import fit_temperature, paired_bootstrap
 from kev.model import MAX_STATE, MAX_TRAIN_STATE
@@ -241,7 +241,7 @@ def score_trial(run, suite, output, expected_sources, device, provenance, transf
     predictor = LocalPredictor(run, device, LoadOptions(temperature=1.0))
     provenance["measured_checkpoint"] = {"requested": run, "resolved": str(predictor.run),
                                           "head_sha256": digest(Path(predictor.run) / "head.pt"),
-                                          "adapter_sha256": digest(Path(predictor.run) / "adapter_model.safetensors"),
+                                          "weights_sha256": {f.name: digest(f) for f in Checkpoint(predictor.run).weight_files()},
                                           "inference_temperature": predictor.temperature}
     write_json(output / "provenance.json", provenance)
     try:
