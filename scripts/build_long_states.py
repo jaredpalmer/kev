@@ -1,5 +1,5 @@
-"""Long-state records (PLAN.md round 4, item 4.12; PLAN_27b A3): a decision-v7 record's state buried among unrelated
-states from the same partition until the state reaches about 1k, 2k or 4k tokens. The question and label are unchanged
+"""Long-state records (PLAN.md round 4, item 4.12; PLAN_27b A3; both at git tag research-archive-2026-09-24): a
+decision-v7 record's state buried among unrelated states from the same partition until the state reaches about 1k, 2k or 4k tokens. The question and label are unchanged
 and a note names the primary record, as in kev.transfer_v9.buried (which stops at three neighbours and ~400 tokens).
 
     uv run python scripts/build_long_states.py --out evals/round4/longstate-v1

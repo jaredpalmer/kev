@@ -57,7 +57,7 @@ def request(case, i):
 
 def latency(server, reps):
     """Median model time per case, new and repeated state. first_ms is the case's first request: with graphs its new
-    buckets run eagerly and are captured in the background afterwards; it also pays any first-call kernel autotuning."""
+    buckets run eagerly and are captured once the server is idle; it also pays any first-call kernel autotuning."""
     out = {}
     for case in CASES:
         first = server.answer(request(case, 0))

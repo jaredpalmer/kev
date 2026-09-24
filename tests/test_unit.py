@@ -223,13 +223,20 @@ def test_prefix_cache_keeps_what_survives_the_batch():
 
 def test_graph_buckets_and_length_groups():
     """kev.cuda_graphs pads batched passes: counts to count_bucket (under half extra), token lengths to bucket (under a
-    quarter), and length_groups keeps one long item from padding a whole large batch while never splitting a small one."""
-    from kev.cuda_graphs import bucket, count_bucket, length_groups
+    quarter), and length_groups computes the fewest tokens: a pass under PASS_TOKENS stays whole, one long item does not
+    pad the rest, and the grouping beats every other split of the sorted lengths."""
+    import itertools
+    from kev.cuda_graphs import PASS_TOKENS, bucket, count_bucket, length_groups
     assert [count_bucket(n) for n in (1, 3, 5, 7, 9, 13, 17, 25)] == [1, 3, 6, 8, 12, 16, 24, 32]
     assert all(n <= count_bucket(n) < 1.5 * n for n in range(2, 200)) and all(n <= bucket(n) < max(1.25 * n, n + 16) for n in range(1, 5000))
     assert length_groups([40, 20, 35, 30, 25, 45], 32) == [[1, 4, 3, 2, 0, 5]]            # a small pass stays whole
-    assert length_groups([30] * 20 + [900], 32) == [list(range(20)), [20]]               # the outlier gets its own pass
-    assert [len(g) for g in length_groups([100] * 40, 16)] == [16, 16, 8]                # capped per pass
+    assert length_groups([30] * 20 + [900], 32)[-1] == [20]                              # the outlier gets its own pass
+    assert sorted(len(g) for g in length_groups([100] * 40, 16)) == [8, 16, 16]          # capped per pass
+    cost = lambda groups, L: sum(max(PASS_TOKENS, count_bucket(len(g)) * bucket(max(L[i] for i in g))) for g in groups)
+    lengths = [17, 900, 33, 250, 41, 64, 120, 300, 18, 75]
+    order = sorted(range(len(lengths)), key=lengths.__getitem__)
+    splits = [[order[a:b] for a, b in zip((0, *cuts), (*cuts, len(order)))] for k in range(len(order)) for cuts in itertools.combinations(range(1, len(order)), k)]
+    assert cost(length_groups(lengths, 4), lengths) == min(cost(g, lengths) for g in splits if all(len(x) <= 4 for x in g))
 
 
 def test_rows_hidden_replicates_cache_without_changing_prefix(monkeypatch):

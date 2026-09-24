@@ -55,7 +55,7 @@ Kev-9B is a **decision model**: one document (the *state*) and a set of typed qu
 
 - Hub: `jaredpalmer/kev-9b` (this repo; trial `night2-9b-du/00-trial-0`). The pre-delta checkpoint is at revision `v7-base`.
 - Demo: [huggingface.co/spaces/jaredpalmer/kev](https://huggingface.co/spaces/jaredpalmer/kev) runs Kev-4B and Kev-0.8B on ZeroGPU with the same encoder and API code as `kev.serve`.
-- Code, suites, every trial with hashes and paired bootstraps: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — `PLAN.md` (the Qwen3.5 port and this experiment are under History), `runs/leaderboard.md`
+- Code, suites, every trial with hashes and paired bootstraps: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — `PLAN.md` (the full record, including the Qwen3.5 port and this experiment under History, is at git tag `research-archive-2026-09-24`), `runs/leaderboard.md`
 
 ## Results (same frozen items for every row)
 
@@ -78,7 +78,7 @@ Per-source out-of-domain accuracy (Kev-9B / Jev): QNLI 0.93 / 0.93, SciQ 0.96 / 
 
 **`date_facts` preprocessor.** Kev, like every Kev before it, cannot subtract dates reliably (the untrained base can; LoRA training erodes it). It can use a stated day count. `KEV_DATE_FACTS=1` appends one sentence per pair of absolute dates found in the state ("June 26, 2026 is 8 days before July 4, 2026"); this checkpoint was trained on such renderings, so with it `deadline` goes from 0.80 to 0.90 and overall out-of-domain accuracy from 0.822 to 0.828. It is preprocessing, reported separately, never folded into the model's own numbers.
 
-**What the delta cost.** Coverage at ≤ 5% error fell (0.53 → 0.47 on development; 0.66 → 0.62 on the locked test), confident errors rose (7.5% → 8.7% raw), MMLU-Pro fell 0.545 → 0.515, and scienthoon's ECE rose 0.082 → 0.113. The pre-registered criteria for the delta (`PLAN.md`, "Tonight's autoresearch") were met for dates and for the unknowable-confidence behaviour and *not* met for coverage; the locked read decided promotion.
+**What the delta cost.** Coverage at ≤ 5% error fell (0.53 → 0.47 on development; 0.66 → 0.62 on the locked test), confident errors rose (7.5% → 8.7% raw), MMLU-Pro fell 0.545 → 0.515, and scienthoon's ECE rose 0.082 → 0.113. The pre-registered criteria for the delta (`PLAN.md` at tag `research-archive-2026-09-24`, "Round 2 autoresearch") were met for dates and for the unknowable-confidence behaviour and *not* met for coverage; the locked read decided promotion.
 
 **Newer evaluation columns** (`transfer-v9` development, Kev-9B / Jev): MMLU-Pro (10-way) 0.515 / 0.840; state buried among unrelated records 0.74 / 0.70; unknowable share at ≥ 0.9 confidence 0.00 / 0.09 (intact controls 0.95).
 
@@ -87,18 +87,18 @@ Per-source out-of-domain accuracy (Kev-9B / Jev): QNLI 0.93 / 0.93, SciQ 0.96 / 
 ## How it was built
 
 - **Base model**: Qwen3.5-9B-Base, a hybrid of 24 Gated DeltaNet (linear attention) layers and 8 full-attention layers. Because the recurrent layers cannot honour a block-causal mask, questions run as separate causal rows that continue from the shared state (`kev/model.py: forward_rows_batch`); isolation is exact by construction (together vs alone within 1e-5) and on attention-only models this form is bit-identical to the packed one.
-- **Recipe**: `decision-v7`, two epochs, LoRA r=16 (attention, MLP and DeltaNet projections), lr 5e-5 — the same data and settings as every other Kev, so the Qwen3 → Qwen3.5 difference is the base (`PLAN.md`, Qwen3.5 port §10: locked test +7.3 pp [+2.8, +11.7] over Kev-8B).
+- **Recipe**: `decision-v7`, two epochs, LoRA r=16 (attention, MLP and DeltaNet projections), lr 5e-5 — the same data and settings as every other Kev, so the Qwen3 → Qwen3.5 difference is the base (`PLAN.md` at tag `research-archive-2026-09-24`, Qwen3.5 port §10: locked test +7.3 pp [+2.8, +11.7] over Kev-8B).
 - **Delta**: `kev.train --init_from jaredpalmer/kev-9b@v7-base --data evals/night2/dates_unknowable.jsonl --replay 2000 --lr 2e-5 --epochs 1`. The 1,425 new records are generated (no public dataset): 900 date-bearing policy cases, a third rendered plainly, a third with a relational day-count sentence, a third with a `date_facts` field; 255 cases with the deciding sentence removed and a uniform soft target over the options, plus their 270 intact controls. Record hashes are in `evals/night2/manifest.json`; the source checkpoint's hashes are in `training_config.json`.
 - Why a delta and not a retrain: it is a controlled change (one fixed checkpoint, one data addition, 15 minutes), and the results section shows exactly what it moved.
 
 ## Known limits
 
-- **Slow on a Mac.** The DeltaNet kernels have no MPS implementation; PyTorch falls back to reference code. A five-question request that takes 0.3 s on Kev-8B takes about 2 s here in bf16 on an M5. On CUDA with `flash-linear-attention` installed it is fast. Use Kev-8B (Qwen3, `jaredpalmer/kev-8b`) for low latency on Apple Silicon until an MLX path exists.
+- **Slower on a Mac than on a GPU.** The DeltaNet kernels have no MPS implementation, so on Apple Silicon `kev.serve` runs this checkpoint through MLX (`kev/mlx_model.py`, installed by `uv sync --extra serve`); plain PyTorch on MPS takes about 2 s for five questions on an M5. On CUDA with `flash-linear-attention` it answers in tens of milliseconds.
 - Requires `transformers >= 5.17` (the `qwen3_5` architecture) and `peft >= 0.21`.
-- Knowledge (MMLU 0.74 vs Jev 0.90; MMLU-Pro 0.515 vs 0.840) is the remaining gap and is set by the base: the untrained Qwen3.5-9B scores the same, and a Kev on the 35B-A3B MoE did not move MMLU-Pro either (`PLAN.md`, night-2 results).
+- Knowledge (MMLU 0.74 vs Jev 0.90; MMLU-Pro 0.515 vs 0.840) is the remaining gap and is set by the base: the untrained Qwen3.5-9B scores the same, and a Kev on the 35B-A3B MoE did not move MMLU-Pro either (`PLAN.md` at tag `research-archive-2026-09-24`, night-2 results).
 - Date arithmetic without the preprocessor: `deadline` 0.80 (Jev 0.93). With `KEV_DATE_FACTS=1`: 0.90.
 - The raw logits are over-confident out of domain; the built-in temperature (T = 2.30) fixes most of it without changing any answer. `KEV_TEMPERATURE=1.0` gives the raw values. Coverage at a 5% error budget is 0.47–0.62 against Jev's 0.70.
-- 9B bf16 needs ~19 GB of GPU memory for serving; training took 91 min on one H100 (peak 39.5 GB).
+- 9B bf16 needs ~19 GB of GPU memory for its weights and ~22 GB with the server's batching buffers; training took 91 min on one H100 (peak 39.5 GB).
 
 ## Training
 

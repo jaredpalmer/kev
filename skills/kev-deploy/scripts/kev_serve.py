@@ -8,7 +8,7 @@ GET /v1/models), so existing Jev / TypeSafe clients only change their base URL.
     curl -L --max-time 900 https://<workspace>--kev-api.modal.run/v1/models -H "authorization: Bearer $KEV_API_KEY"   # wait for the cold start
     modal app stop kev                                                 # take it down
 
-Settings are read when you deploy: KEV_MODEL (jaredpalmer/kev-0.8b, kev-4b or kev-9b, optionally `@revision`; default
+Settings are read when you deploy: KEV_MODEL (jaredpalmer/kev-0.8b, kev-4b, kev-9b or kev-27b, optionally `@revision`; default
 kev-4b), KEV_GPU (override the GPU list, comma-separated), KEV_API_KEY (bearer auth; without it the URL is the only
 secret), HF_TOKEN (only for a private checkpoint; if it is set in your shell it is uploaded as a Modal secret),
 KEV_MIN_CONTAINERS (1 keeps one container warm; default 0 scales to zero after 5 idle minutes), KEV_REGION (e.g. "us" or
@@ -27,11 +27,14 @@ import time
 import modal
 import modal.experimental
 
-KEV_REF = "60c8d3956fb9adc67d64bfdd3cf145e62114dd79"   # github.com/jaredpalmer/kev commit whose kev package this endpoint runs
-# GPU preference lists (Modal takes the first with capacity), from runs/serving-*/report.json in the repo. An L4 is enough
-# for the 0.8B but runs out of compute on the 4B; the L40S is the cheapest GPU that answers the 4B in tens of milliseconds,
-# the H100 the fastest for the 4B and 9B. The A100 is slower than the L40S here and costs more.
-GPU_FOR = {"jaredpalmer/kev-0.8b": ["L4", "L40S"], "jaredpalmer/kev-4b": ["L40S", "H100"], "jaredpalmer/kev-9b": ["H100", "H200", "L40S"]}
+KEV_REF = "1b62aa2d5b5ebf137d03fd393ad4288649fa8ddc"   # github.com/jaredpalmer/kev commit whose kev package this endpoint runs
+# GPU preference lists (Modal takes the first with capacity), from runs/serve-*/, runs/fused-27b-*/ and runs/serving-*/report.json in the repo.
+# An L4 is enough for the 0.8B but runs out of compute on the 4B; the L40S is the cheapest GPU that answers the 4B in tens
+# of milliseconds, the H100 the fastest for the 4B and 9B. The A100 is slower than the L40S here and costs more. Kev-27B
+# (55 GB of weights, ~66 GB resident with the batching buffers) is compute-bound under load: a B200 serves it fastest, at
+# about the same cost per request as an H200 or H100; an RTX PRO 6000 is slower and costs more per request.
+GPU_FOR = {"jaredpalmer/kev-0.8b": ["L4", "L40S"], "jaredpalmer/kev-4b": ["L40S", "H100"], "jaredpalmer/kev-9b": ["H100", "H200", "L40S"],
+           "jaredpalmer/kev-27b": ["B200", "H200", "H100"]}
 
 # Deploy-time settings travel in the image env, so the container evaluates this file with the same values.
 SETTINGS = {"KEV_MODEL": "jaredpalmer/kev-4b", "KEV_APP_NAME": "kev", "KEV_MIN_CONTAINERS": "0", "KEV_GPU": "", "KEV_REGION": "", "KEV_FLASH": "0"}
@@ -77,7 +80,7 @@ def with_serving(cls):
     return modal.concurrent(max_inputs=64, target_inputs=32)(cls)
 
 
-@app.cls(image=image, gpu=GPU, region=SETTINGS["KEV_REGION"].split(",") if SETTINGS["KEV_REGION"] else None, cpu=4, memory=(16384, 65536), volumes={"/hf": cache}, secrets=[modal.Secret.from_dict(SECRET)] if SECRET else [],
+@app.cls(image=image, gpu=GPU, region=SETTINGS["KEV_REGION"].split(",") if SETTINGS["KEV_REGION"] else None, cpu=4, memory=(16384, 131072), volumes={"/hf": cache}, secrets=[modal.Secret.from_dict(SECRET)] if SECRET else [],
          min_containers=MIN_CONTAINERS, scaledown_window=300, timeout=600, startup_timeout=1200)
 @with_serving
 class Kev:

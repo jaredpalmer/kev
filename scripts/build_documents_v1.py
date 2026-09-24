@@ -1,5 +1,5 @@
-"""documents-v1 candidates (PLAN_27b B2): real consumer-complaint narratives with the complainant's own product and issue
-labels, stratified by product and length, split by text. Writes unlabelled-by-AI candidates; scripts/label_documents_v1.py
+"""documents-v1 candidates (PLAN_27b B2, at git tag research-archive-2026-09-24): real consumer-complaint narratives
+with the complainant's own product and issue labels, stratified by product and length, split by text. Writes unlabelled-by-AI candidates; scripts/label_documents_v1.py
 checks the labels and scripts/freeze_documents_v1.py writes the frozen suite.
 
     uv run python scripts/build_documents_v1.py --out runs/documents-v1-work/candidates

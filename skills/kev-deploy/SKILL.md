@@ -31,15 +31,18 @@ Modal's official skill and documentation, which helps with anything beyond this 
 
 | `KEV_MODEL` | GPU (automatic; fallbacks in parentheses) | $/h while up | Model time, 6 questions (new / repeated state) | Cold start (cached weights) | When |
 | --- | --- | --- | --- | --- | --- |
-| `jaredpalmer/kev-0.8b` | L4 (L40S) | 0.80 | 37 / 28 ms | ~40 s | cheapest, prototyping |
+| `jaredpalmer/kev-0.8b` | L4 (L40S) | 0.80 | 23 / 16 ms | ~40 s | cheapest, prototyping |
 | `jaredpalmer/kev-4b` (default) | L40S (H100) | 1.95 | 42 / 28 ms (H100: 18 / 13 ms) | ~35 s | the default: best quality per dollar |
-| `jaredpalmer/kev-9b` | H100 (H200, L40S) | 3.95 | 24 / 17 ms | ~55 s | best released accuracy |
+| `jaredpalmer/kev-9b` | H100 (H200, L40S) | 3.95 | 24 / 17 ms | ~55 s | accuracy on smaller GPUs |
+| `jaredpalmer/kev-27b` | B200 (H200, H100) | 6.25 | 47 / 32 ms (H200: 65 / 48 ms) | ~50 s | best released accuracy and calibration; 55 GB of weights |
 
-Model time is the `latency_ms` the API returns (median of 20 requests, measured in the Kev repo: `runs/fused-*/report.json`
-for Kev-4B and Kev-9B, `runs/serving-*/report.json` for Kev-0.8B). A new state is the normal call, since every ticket is a
+Model time is the `latency_ms` the API returns (median of 20 requests, measured in the Kev repo: `runs/serve-*`,
+`runs/grouping-4b-h100` and `runs/fused-27b-*`). A new state is the normal call, since every ticket is a
 new state; a repeated state is served from a prefix cache. The very first cold start of an account also downloads the
 weights and compiles kernels (1-2 minutes); both are cached on the `kev-hf-cache` volume afterwards. Other GPUs work with
 `KEV_GPU` but are worse picks: an L4 runs out of compute on Kev-4B, and an A100 is slower than an L40S here and costs more.
+Kev-27B is compute-bound under load: a B200 serves ~57 mixed requests/s at 64 concurrent clients (H200 ~40, H100 ~36) for
+about the same cost per request, with the lowest latency. Its first cold start downloads 55 GB of weights (several minutes).
 
 A warm container costs the GPU's hourly rate only while it is up; after five idle minutes it scales to zero.
 `KEV_MIN_CONTAINERS=1` keeps one warm (no cold starts, pays the hourly rate all the time). `@revision` pins a checkpoint

@@ -1,0 +1,73 @@
+{
+  "round": 5,
+  "registered": "PLAN.md > Round 5 - long states + soft targets as a release candidate (registered 2026-09-22)",
+  "archive": "research-archive-2026-09-24",
+  "gpu": "H200",
+  "app": "kev-round6",
+  "studies": {
+    "r5-combined": {
+      "plan": "experiments/r5-combined.json",
+      "suite": "evals/v7/decision-v7",
+      "transfer": "evals/v4/transfer-v4",
+      "gpu": "H200",
+      "timeout": 14400,
+      "budget": 151
+    }
+  },
+  "reads": {
+    "long": {"suite": "evals/round5/longstate-v2"},
+    "r5test": {"suite": "evals/round5/transfer-r5", "flags": "--allow-test"},
+    "scienthoon": {"suite": "evals/external/scienthoon-v1"},
+    "semif": {"suite": "evals/external/semif-v1"},
+    "typesafe": {"suite": "evals/external/typesafe-v1"},
+    "v9": {"suite": "evals/v9/transfer-v9"},
+    "wanli": {"suite": "evals/external/wanli-v1"}
+  },
+  "parents": {
+    "P9": {
+      "trial": "runs/night2-9b-du/00-trial-0",
+      "reads": {"long": "runs/r5r-P9-long", "r5test": "runs/r5r-P9-r5test", "v9": "runs/r5r-P9-v9", "semif": "runs/r5r-P9-semif", "scienthoon": "runs/r5r-P9-scienthoon", "wanli": "runs/r5r-P9-wanli", "typesafe": "runs/r5r-P9-typesafe"}
+    },
+    "P4": {
+      "trial": "runs/night2-4b-du/00-trial-0",
+      "reads": {"long": "runs/r5r-P4-long", "r5test": "runs/r5r-P4-r5test", "v9": "runs/r5r-P4-v9", "semif": "runs/r5r-P4-semif", "scienthoon": "runs/r5r-P4-scienthoon", "wanli": "runs/r5r-P4-wanli", "typesafe": "runs/r5r-P4-typesafe"}
+    },
+    "P08": {
+      "trial": "runs/night2-08b-du2/00-trial-0",
+      "reads": {"long": "runs/r5r-P08-long", "r5test": "runs/r5r-P08-r5test", "v9": "runs/r5r-P08-v9", "semif": "runs/r5r-P08-semif", "scienthoon": "runs/r5r-P08-scienthoon", "wanli": "runs/r5r-P08-wanli", "typesafe": "runs/r5r-P08-typesafe"}
+    }
+  },
+  "arms": {
+    "9b-C9": {"trial": "runs/r5-combined/00-trial-0", "parent": "P9", "reads": "runs/r5r-C9-{tag}"},
+    "9b-C9-s2": {"trial": "runs/r5-combined/01-trial-1", "parent": "P9", "reads": "runs/r5r-C9-s2-{tag}", "select": false},
+    "9b-H9": {"trial": "runs/r5-combined/02-trial-2", "parent": "P9", "reads": "runs/r5r-H9-{tag}", "select": false},
+    "9b-S9": {"trial": "runs/r4-soft/00-trial-0", "parent": "P9", "reads": "runs/r5r-S9-{tag}", "select": false},
+    "4b-C4": {"trial": "runs/r5-combined/03-trial-3", "parent": "P4", "reads": "runs/r5r-C4-{tag}"},
+    "4b-H4": {"trial": "runs/r5-combined/04-trial-4", "parent": "P4", "reads": "runs/r5r-H4-{tag}", "select": false},
+    "08b-C08": {"trial": "runs/r5-combined/05-trial-5", "parent": "P08", "reads": "runs/r5r-C08-{tag}"}
+  },
+  "rule": {
+    "panels": {
+      "long": {"reads": ["long"], "source": "longstate", "metrics": ["acc"], "report": ["brier"]},
+      "short": {"reads": ["r5test"], "metrics": ["acc", "brier", "confident_error_rate"], "report": ["ece", "coverage_at_5pct_error", "aurc"]},
+      "semif": {"reads": ["semif"], "report": ["acc"]},
+      "scienthoon": {"reads": ["scienthoon"], "report": ["acc"]},
+      "wanli": {"reads": ["wanli"], "report": ["acc"]},
+      "typesafe": {"reads": ["typesafe"], "report": ["acc"]}
+    },
+    "unknowable": "v9",
+    "criteria": {
+      "1_long_lower_above_0": {"left": "long.acc.lower", "op": ">", "right": 0},
+      "1_long_point_at_least_5pp": {"left": "long.acc.delta", "op": ">=", "right": 0.05},
+      "2_short_accuracy_lower_at_least_minus_1pp": {"left": "short.acc.lower", "op": ">=", "right": -0.01},
+      "2_short_brier_upper_at_most_0.01": {"left": "short.brier.upper", "op": "<=", "right": 0.01},
+      "2_short_confident_errors_upper_at_most_1pp": {"left": "short.confident_error_rate.upper", "op": "<=", "right": 0.01},
+      "3_unknowable_share_at_most_0.05": {"left": "unknowable.candidate", "op": "<=", "right": 0.05},
+      "3_semif_accuracy_within_1pp": {"left": ["semif.acc.candidate", "semif.acc.parent"], "op": ">=", "right": -0.01},
+      "3_scienthoon_accuracy_within_1pp": {"left": ["scienthoon.acc.candidate", "scienthoon.acc.parent"], "op": ">=", "right": -0.01},
+      "3_wanli_accuracy_within_1pp": {"left": ["wanli.acc.candidate", "wanli.acc.parent"], "op": ">=", "right": -0.01},
+      "3_typesafe_accuracy_within_1pp": {"left": ["typesafe.acc.candidate", "typesafe.acc.parent"], "op": ">=", "right": -0.01}
+    },
+    "rank": []
+  }
+}

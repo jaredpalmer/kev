@@ -16,7 +16,7 @@ jobs:
       - run: uv sync --extra serve
       # Unit tests only: no model weights, no server. The tokenizer (~10 MB) is downloaded from the Hub.
       # test_executorch.py runs its fake-program tests here and skips the weight-backed ones (no KEV_PROGRAM).
-      - run: uv run python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py tests/test_documents_tools.py tests/test_hard_v1.py tests/test_devtools_v1.py tests/test_executorch.py -q
+      - run: uv run python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py tests/test_documents_tools.py tests/test_hard_v1.py tests/test_devtools_v1.py tests/test_rounds.py tests/test_executorch.py -q
 
   playground:
     runs-on: ubuntu-latest

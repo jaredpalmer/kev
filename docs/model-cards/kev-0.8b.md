@@ -93,9 +93,9 @@ It is still a sub-1B model. On the development splits it trails Jev everywhere i
   - Confirmation then required the documents-v1 test and the pooled hard-v1 + devtools-v1 tests to have lower bounds above zero (skills tests pooled +21.7 pp [+19.5, +24.0]), and one locked read (accuracy ≥ parent − 1 pp, served Brier ≤ parent + 0.005). All passed.
   - The in-trial screening gate "held-out pairs ≥ 70 %" fails at this size, as it did for the released parent (0.422 for both), which is why the locked read is named `kev-08b-r15-ungated`.
 
-- Hub: `jaredpalmer/kev-0.8b` (this repo; trial `r15-08b/00-trial-0`; the registration and every read are in `PLAN.md` rounds 9, 11, 12, 13 and 15 on the `research/overnight-r6` branch). The previous version is at tag `night2-du-release`; the pre-delta v7 checkpoint at `v7-base`.
+- Hub: `jaredpalmer/kev-0.8b` (this repo; trial `r15-08b/00-trial-0`; the registration and every read are in `PLAN.md` rounds 9, 11, 12, 13 and 15 at git tag `research-archive-2026-09-24`; specs in `experiments/rounds/`). The previous version is at tag `night2-du-release`; the pre-delta v7 checkpoint at `v7-base`.
 - Demo: [huggingface.co/spaces/jaredpalmer/kev](https://huggingface.co/spaces/jaredpalmer/kev) runs Kev-4B and Kev-0.8B on ZeroGPU with the same encoder and API code as `kev.serve`.
-- Code, suites, results, and the full research log: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — `PLAN.md`, `runs/leaderboard.md`. The numbers below are in `runs/release/kev-08b-r15.json`; JevBench in `runs/jevbench-public/kev-08b-r15/`.
+- Code, suites, results, and the full research log: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — `PLAN.md` (full record at git tag `research-archive-2026-09-24`), `runs/leaderboard.md`. The numbers below are in `runs/release/kev-08b-r15.json`; JevBench in `runs/jevbench-public/kev-08b-r15/`.
 
 ## Results (as served: each checkpoint at its own fitted temperature)
 
@@ -164,7 +164,7 @@ Paired against Kev-0.6B on the same items (record-clustered bootstrap), before t
 ### Known limits
 
 - **Out of domain it is a sub-1B model.** Knowledge (MMLU 0.41) and paraphrase (PAWS 0.59) are near the untrained base; the same recipe reaches 0.79 at 4B and 0.81 at 9B on these items.
-- **Slow on a Mac for its size.** The DeltaNet kernels have no MPS implementation; a five-question request takes ~0.33 s in bf16 on an M5 (Kev-0.6B: 0.12 s). On CUDA with `flash-linear-attention` it is fast.
+- **On a Mac it runs through MLX.** The DeltaNet kernels have no MPS implementation, so on Apple Silicon `kev.serve` runs this checkpoint through MLX (`kev/mlx_model.py`, installed by `uv sync --extra serve`): five questions about a ~270-token text take 149 ms on an M5, or 28 ms when the text repeats. On CUDA with `flash-linear-attention` it is fast.
 - Requires `transformers >= 5.17` and `peft >= 0.21`.
 - Ordinal hedging on date arithmetic (`deadline` 0.38): collapses to the middle level. `KEV_DATE_FACTS=1` (day counts appended to the state) helps the larger models more than this one.
 - Confident-error rate out of domain is 9.9% for the raw logits; the built-in temperature (T = 2.41, fitted on the in-distribution development rows and stored in `head.pt`) brings it to 0.3% and ECE from 0.179 to 0.054 without changing any answer. `KEV_TEMPERATURE=1.0` gives the raw values. Probabilities are usable in-domain; treat them as advisory elsewhere.

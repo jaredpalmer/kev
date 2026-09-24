@@ -18,17 +18,18 @@ client = TypeSafeClient(api_key=KEV_API_KEY, base_url="https://<your-workspace>-
 
 | Model | Set | GPU ($/h while up) | Warm model time, 6 questions (new / repeated state) | First request after idle |
 | --- | --- | --- | --- | --- |
-| Kev-0.8B | `KEV_MODEL=jaredpalmer/kev-0.8b` | L4 (0.80) | 37 / 28 ms | ~40 s |
+| Kev-0.8B | `KEV_MODEL=jaredpalmer/kev-0.8b` | L4 (0.80) | 23 / 16 ms | ~40 s |
 | Kev-4B (default) | nothing | L40S (1.95) | 42 / 28 ms | ~35 s |
 | Kev-9B | `KEV_MODEL=jaredpalmer/kev-9b` | H100 (3.95) | 24 / 17 ms | ~55 s |
+| Kev-27B | `KEV_MODEL=jaredpalmer/kev-27b` | B200 (6.25) | 47 / 32 ms | ~50 s |
 
-Concurrent requests are batched in each container (about 100 requests/s per H100 container for Kev-4B over HTTP), and
-Modal adds containers past 32 concurrent requests each. `KEV_FLASH=1` (with `KEV_REGION`) uses Modal's experimental direct
+Concurrent requests are batched in each container (Kev-4B: about 100 requests/s on an H100 in-process). Through Modal's
+web endpoint one container tops out around 40-50 requests/s, and Modal adds containers past 32 concurrent requests each. `KEV_FLASH=1` (with `KEV_REGION`) uses Modal's experimental direct
 HTTP server: a ~46 ms round trip instead of ~77 ms, one container kept up.
 
 The round trip adds the network and Modal's proxy (about 80-100 ms from the US to a us-east container with a kept-alive
 connection); `KEV_REGION=us` keeps the container near US callers. The very first deploy also downloads the weights and
-compiles kernels (1-2 minutes); later cold starts reuse the cache.
+compiles kernels (1-2 minutes; several minutes for Kev-27B's 55 GB); later cold starts reuse the cache.
 
 `KEV_MIN_CONTAINERS=1` keeps it warm; `modal app stop kev` takes it down. With an agent, `npx skills add
 jaredpalmer/kev@kev-deploy` and ask it to deploy Kev; it follows [SKILL.md](SKILL.md). `modal skills install` adds

@@ -36,6 +36,10 @@ RULES = [
      r"10 \* 1024 \* 1024", {"kev/suite.py"}),
     ("the pinned Qwen3.5 tokenizer suite builders admit records under is kev.suite.ADMISSION_TOKENIZER",
      r"1001bb4d826a52d1f399e183466143f4da7b741b", {"kev/suite.py", "kev/transfer_v9.py"}),   # transfer_v9 pins every Qwen3.5 base it scores
+    ("a trial's served temperature (fitted on its own development rows), clean rows served with unknowable records kept, and "
+     "the registered paired read (2,000 resamples, seed 0, micro) are kev.rounds.temperature / served_clean / paired",
+     r"development/rows\.json\"\), \[\]\)\[0\]|tempered_row\(raw_row\(recorded\(|SAMPLES = 2000|def (boot|knowable)\(|knowable = lambda",
+     {"kev/rounds.py", "kev/metrics.py"}),   # kev.metrics.served_at is the scored-rows form the helpers build on
     ("a state's normalised-text hash (text_sha256) is kev.suite.text_digest",
      r"\.casefold\(\)\.split\(\)\)\.encode\(\)", {"kev/suite.py", "kev/data.py"}),   # kev.suite imports kev.data, so kev.data keeps its inline copy
 ]

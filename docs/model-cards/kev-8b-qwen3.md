@@ -54,7 +54,7 @@ Kev-8B is a **decision model**: one document (the *state*) and a set of typed qu
 **The most accurate Kev.** The best checkpoint of any size under a frozen, checksummed protocol: best in-distribution accuracy, best out-of-domain accuracy (0.796 on transfer-v4 dev, six points from Jev), best held-out rule reasoning of any Kev at 8B. Same recipe at two seeds: 0.796 / 0.774; this checkpoint is the seed selected on the development partition.
 
 - Hub: `jaredpalmer/kev-8b` (this repo; trial `v7-final/00-trial-0`)
-- Code, suites, every trial with hashes and paired bootstraps: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — `PLAN.md`, `runs/leaderboard.md`
+- Code, suites, every trial with hashes and paired bootstraps: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — `PLAN.md` (full record at git tag `research-archive-2026-09-24`), `runs/leaderboard.md`
 
 ## Results (same frozen items for every row)
 
@@ -93,7 +93,7 @@ Frozen suite `evals/v6/decision-v6` (development/test bytes identical to v4): 13
 
 ## Evaluation protocol
 
-Development partitions select models; the locked test partition is read at most once per candidate. Every number carries suite hash, code hashes, and git commit in `result.json`. See `PLAN.md` for the corrections we made to our own earlier claims.
+Development partitions select models; the locked test partition is read at most once per candidate. Every number carries suite hash, code hashes, and git commit in `result.json`. See `PLAN.md` at git tag `research-archive-2026-09-24` ("Evidence and corrections") for the corrections we made to our own earlier claims.
 
 ## Use
 

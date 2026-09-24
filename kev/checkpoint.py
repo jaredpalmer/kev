@@ -87,7 +87,9 @@ class LoadOptions:
                  Identical because the Qwen bases are stored in bf16; a base stored in fp32 would be rounded twice.
                  Exact in fp32; in bf16 it is faster (~15%) and closer to the fp32 numbers than the unmerged adapter
                  (kev-4b, 24 dev records: max |dp| 0.017 vs 0.029, 0 vs 1 argmax flips). Ignored for adapters that carry
-                 trained token embeddings.
+                 trained token embeddings. A checkpoint trained on a bf16 backbone (--weights_dtype bf16: Kev-27B) keeps
+                 its adapter unmerged, as it was trained, unless `fused` is asked for (serving); then it is folded the same
+                 way (Kev-27B served against unmerged: max |dp| 0.009, 0 flips in 280 questions, runs/fused-27b-h200).
     attn         attention backend; None = the model default (SDPA on CUDA, eager elsewhere). "sdpa" on MPS measured
                  parity with eager and is a few percent faster.
     lora_scale   WiSE-FT-style interpolation between base (0) and fine-tuned weights (1), at inference.
@@ -222,9 +224,10 @@ class Checkpoint:
         meta = self.meta
         dtype, merge = opts.dtype or torch.float32, opts.merge
         if meta.weights_dtype == "bf16":
-            # trained with a bf16 backbone (--weights_dtype bf16, e.g. the 35B-A3B MoE whose fused experts need bf16): load it
-            # the same way and keep the fp32 adapter unmerged rather than folding it into bf16 weights.
-            dtype, merge = torch.bfloat16, False
+            # trained with a bf16 backbone (--weights_dtype bf16: Kev-27B, the 35B-A3B MoE whose fused experts need bf16):
+            # load it the same way. The exact path keeps the fp32 adapter unmerged; the fused serving path folds it in
+            # (one rounding of W + delta, as for every served Kev; parity in runs/serving-27b-*).
+            dtype, merge = torch.bfloat16, merge and bool(opts.fused)
         merge = merge and not self.adapter_config().get("trainable_token_indices")   # token-trained adapters stay unmerged
         m = DecisionModel(meta.base, tok, device, lora=None, revision=meta.base_revision, head_dim=meta.head_dim,
                           option_isolation=meta.option_isolation, dtype=dtype, attn=opts.attn)

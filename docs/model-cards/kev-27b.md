@@ -53,10 +53,10 @@ Kev-27B is a **decision model**: one document (the *state*) and a set of typed q
 
 **Read this first.**
 - **The base is post-trained, not a base model.** Every other Kev starts from a `-Base` checkpoint. `Qwen/Qwen3.8-27B` is Qwen's instruction-tuned release; what it was post-trained on (including any distillation from other models) is Qwen's and is not known to us. Comparisons with Jev or with the smaller Kevs are therefore not controlled comparisons of the method.
-- **One registered gate was overridden.** Before training, the untrained base had to reach MMLU-Pro ≥ 0.65 on `transfer-v9`; it scored 0.635 and the project owner overrode the gate (recorded in `PLAN_27b.md`, A2). The trained model's own MMLU-Pro is 0.665.
-- **It needs a data-centre GPU.** bf16 weights are 55 GB resident; one H100 80 GB or H200. There is no Mac path.
+- **One registered gate was overridden.** Before training, the untrained base had to reach MMLU-Pro ≥ 0.65 on `transfer-v9`; it scored 0.635 and the project owner overrode the gate (recorded in `PLAN_27b.md`, A2, at git tag `research-archive-2026-09-24`). The trained model's own MMLU-Pro is 0.665.
+- **It needs a data-centre GPU.** bf16 weights are 55 GB resident (about 66 GB with the serving buffers); one B200, H200 or H100 80 GB. There is no Mac path.
 
-- Hub: `jaredpalmer/kev-27b` (trial `r6-27b-v2/01-trial-1`; registration and every read in `PLAN_27b.md`, "B1 v2", on the `research/overnight-r6` branch). Numbers below: `runs/release/kev-27b-v2.json`.
+- Hub: `jaredpalmer/kev-27b` (trial `r6-27b-v2/01-trial-1`; registration and every read in `PLAN_27b.md`, "B1 v2", at git tag `research-archive-2026-09-24`). Numbers below: `runs/release/kev-27b-v2.json`.
 
 ## Results (as served: each checkpoint at its own fitted temperature)
 
@@ -79,20 +79,23 @@ Kev-27B is a **decision model**: one document (the *state*) and a set of typed q
 
 Paired against Kev-9B (record-clustered bootstrap, 95 %): transfer-r6 test +2.1 pp [+0.3, +3.8]; longstate-v3 buried questions +27.7 [+23.1, +32.5]; SemIf +6.2 [+2.8, +10.4]; scienthoon +4.1 [+1.9, +6.3]; real documents +2.9 [+0.7, +5.3]; WANLI-v2 +0.5 [−1.6, +2.6].
 
-How it was selected: two seeds were trained under a rule registered before any training (`PLAN_27b.md`, B1 v2): development criteria (transfer-v4 ≥ 0.842, MMLU-Pro ≥ 0.65, unknowable share ≤ 0.05, held-out pairs ≥ 0.75, long states ≥ Kev-9B + 10 pp, pooled externals ≥ Kev-9B), then one read of two fresh panels against Kev-9B, then one locked read (≥ 0.862, Brier ≤ 0.237). Seed 1 missed MMLU-Pro (0.630); seed 2 passed every step and is this checkpoint. Three earlier 27B trials (round 6) had missed the development rule by less than a point; their record is in `PLAN.md`.
+How it was selected: two seeds were trained under a rule registered before any training (`PLAN_27b.md`, B1 v2, at tag `research-archive-2026-09-24`): development criteria (transfer-v4 ≥ 0.842, MMLU-Pro ≥ 0.65, unknowable share ≤ 0.05, held-out pairs ≥ 0.75, long states ≥ Kev-9B + 10 pp, pooled externals ≥ Kev-9B), then one read of two fresh panels against Kev-9B, then one locked read (≥ 0.862, Brier ≤ 0.237). Seed 1 missed MMLU-Pro (0.630); seed 2 passed every step and is this checkpoint. Three earlier 27B trials (round 6) had missed the development rule by less than a point; their record is in `PLAN.md` at tag `research-archive-2026-09-24` ("Round 6").
 
 ## Serving (bf16)
 
-Measured on one H200 with `scripts/serving_bench.py` (`runs/serving-27b-h200`, `runs/serving-27b-h200-iso`; 200 decision-v7 development records, 280 questions), the precision the API serves (bf16 weights, CUDA graphs):
+Served with the adapter folded into the bf16 weights (one rounding of W + delta), fused Qwen3.5 kernels, CUDA graphs and batching across concurrent requests (`kev.serve` on CUDA). Measured with `scripts/serving_bench.py` on 200 decision-v7 development records (280 questions): `runs/fused-27b-h200`, `runs/fused-27b-h200-iso`, `runs/fused-27b-b200`, and `runs/fused-27b-h100` / `runs/fused-27b-b300` / `runs/fused-27b-rtx6000` for the other GPUs tried. The release measurement, with the adapter unmerged and no batching, is `runs/serving-27b-h200`.
 
 | | Kev-27B | Kev-9B (H100, reference) |
 |---|---|---|
-| bf16 served vs the fp32 evaluation path, max / mean \|Δp\| | 0.018 / 0.0013, 0 answer flips | – |
-| isolation: question alone vs the full request, max \|Δp\| | 0.005, 0 flips | 0.005, 0 flips |
-| isolation: question alone vs next to an unrelated probe question, max \|Δp\| | 0.009, 0 flips | 0.023, 0 flips |
-| model time, new state (2 questions short / 5 questions on 2,200 tokens) | 72 / 386 ms | – |
-| model time, cached state | 39-85 ms | – |
-| GPU memory resident / load time | 55 GB / 24 s | – |
+| served vs the evaluation path (bf16 backbone, fp32 adapter unmerged), max / mean \|Δp\| | 0.0087 / 0.0012, 0 answer flips (B200: 0.0163, 1 flip) | – |
+| isolation: question alone vs the full request, max \|Δp\| | 0.0040, 0 flips | 0.005, 0 flips |
+| isolation: question alone vs next to an unrelated probe question, max \|Δp\| | 0.0038, 0 flips | 0.023, 0 flips |
+| model time, new state (2 questions short / 6 questions short / 5 questions on 2,200 tokens) | H200 39.6 / 65.5 / 267.9 ms; B200 31.8 / 46.5 / 178.0 ms | – |
+| model time, cached state (same requests) | H200 22.3-71.9 ms; B200 17.4-52.1 ms | – |
+| requests/s, decision-v7 development records at 1 / 8 / 32 / 64 concurrent clients | H200 21.6 / 31.7 / 36.4 / 39.7; B200 27.7 / 43.9 / 51.2 / 57.3 | – |
+| GPU memory resident (weights + batching buffers) / load time | 65.5 GB / 19.2 s (H200, cached weights) | – |
+
+Under load the model is compute-bound: a B200 serves 57.3 requests/s at 64 concurrent clients for about the H200's cost per request, with lower latency. An H100 80 GB serves 35.9 requests/s at 64 clients, also at about the same cost per request (`runs/fused-27b-h100`); an RTX PRO 6000 serves it slower and at a higher cost per request (`runs/fused-27b-rtx6000`). On the H100, B200, B300 and RTX PRO 6000 one answer in 280 changed against the evaluation path, within the release tolerance below.
 
 Isolation (a question's answer must not depend on which other questions are asked with it) is exact in fp32 arithmetic for every Kev; in bf16 it holds to the precision band above. The release tolerance was registered before this measurement: max \|Δp\| ≤ 0.03 and at most one flip in 280 questions for both comparisons.
 
@@ -115,7 +118,7 @@ Isolation (a question's answer must not depend on which other questions are aske
 uv run --extra serve python -m kev.serve --run jaredpalmer/kev-27b --port 8008      # CUDA, bf16 + CUDA graphs by default; ~55 GB
 ```
 
-Or deploy your own endpoint with the `kev-deploy` skill (`KEV_MODEL=jaredpalmer/kev-27b KEV_GPU=H200 modal deploy kev_serve.py`). Any TypeSafe-compatible client works: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8008", model="kev-latest")`.
+Or deploy your own endpoint with the `kev-deploy` skill (`KEV_MODEL=jaredpalmer/kev-27b modal deploy kev_serve.py`; B200, falling back to H200 and H100). Any TypeSafe-compatible client works: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8008", model="kev-latest")`.
 
 ## License
 
