@@ -1,10 +1,13 @@
 import argparse
 import copy
+import fcntl
 import hashlib
 import json
+import os
 import random
 import shutil
 from collections import Counter
+from contextlib import contextmanager
 from pathlib import Path
 
 from kev.composition import DEV_SHAPES, HELD_OUT_KEYS, TEST_SHAPES, TRAIN_SHAPES
@@ -69,8 +72,25 @@ def read_json(path):
     return json.loads(Path(path).read_text(encoding=ENCODING))
 
 
-def write_json(path, value):
-    Path(path).write_text(json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding=ENCODING)
+def write_json(path, value, atomic=False):
+    """atomic: write a sibling temp file and os.replace it over `path`, so a reader (or a restart after a crash mid-write)
+    sees the old file or the new one, never a torn one. For state files rewritten in place (kev.rounds' watcher)."""
+    text = json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+    if not atomic:
+        Path(path).write_text(text, encoding=ENCODING); return
+    tmp = Path(path).with_name(f".{Path(path).name}.tmp")
+    tmp.write_text(text, encoding=ENCODING)
+    os.replace(tmp, path)
+
+
+@contextmanager
+def file_lock(path):
+    """Hold an exclusive advisory lock on `path` (created if absent) for the block; a second holder waits. Local
+    orchestration only: one pull of a study (modal_app.pull_lock), one launch of an arm's reads (kev.rounds)."""
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with Path(path).open("a", encoding=ENCODING) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
 
 
 def read_jsonl(path):

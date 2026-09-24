@@ -16,28 +16,20 @@ the local git commit (KEV_GIT_COMMIT), the suite hash, and the hashes of the kev
 Volumes: kev-hf-cache (base weights, downloaded once), kev-runs (trial outputs). Secrets: none required; set
 KEV_HF_SECRET=<modal secret name> to attach a Secret carrying HF_TOKEN for gated bases.
 """
-import fcntl
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
-from contextlib import contextmanager
 from pathlib import Path
 from typing import NamedTuple
 
 import modal
 
+from kev.budget import TRIAL_CPU, TRIAL_MEMORY, compute_bound   # run_trial's resources and the admission bound (admit_study)
+
 APP_NAME = os.environ.get("KEV_APP_NAME", "kev-research")
-TRIAL_CPU, TRIAL_MEMORY = 4, (65536, 196608)
-GPU_HOURLY = {"H100": 3.95, "H200": 4.54, "B200": 6.25, "T4": 0.59}
-
-
-def compute_bound(gpu, timeout, trials):
-    if gpu not in GPU_HOURLY or timeout <= 0 or trials < 1:
-        raise ValueError("invalid GPU, timeout, or trial count")
-    return (GPU_HOURLY[gpu] + TRIAL_CPU * 0.04730 + TRIAL_MEMORY[1] / 1024 * 0.008) * timeout / 3600 * trials
 
 ROOT = Path(__file__).resolve().parent
 RUNS_MOUNT, HF_MOUNT = "/runs", "/hf"
@@ -421,14 +413,11 @@ def launch(suite, plan_path, name, gpu, existing=(), transfer=None, budget=20.0,
         raise SystemExit(1)
 
 
-@contextmanager
 def pull_lock(study):
     """One pull of a study at a time: two concurrent pulls (a watcher launching reads for two trials that finished together)
     deleted and re-fetched each other's trial directories. A second pull waits for the first, then refreshes."""
-    (ROOT / "runs").mkdir(exist_ok=True)
-    with (ROOT / "runs" / f".pull-{study}.lock").open("a", encoding="utf-8") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        yield
+    from kev.suite import file_lock
+    return file_lock(ROOT / "runs" / f".pull-{study}.lock")
 
 
 def pull_study(study):
