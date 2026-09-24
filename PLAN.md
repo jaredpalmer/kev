@@ -98,6 +98,18 @@ Reported, never gating:
 
 **Next (to be registered, not read):** the 9B recipe minus the MNLI soft targets (keep them hard) isolates the WANLI question. It needs fresh panels (both round-5 panels have now been read by these candidates) and a WANLI panel disjoint from the 256 items, large enough that a 1 pp point threshold is not three questions. The external gates in this round were point estimates on 89–256 questions; the next registration should use paired intervals with a margin sized to the suite.
 
+## Round 9 result (2026-09-24; `runs/r9-readout/round9.json`) — no candidate
+
+| arm | documents-v1 dev | vs Jev | short-state acc | pooled externals | failed on |
+|---|---|---|---|---|---|
+| 9B (a) replay 6000, lr 2e-5 | 0.833 → 0.898 (+6.5 [+4.3, +8.8]) | +2.9 [+1.1, +4.8] | −0.8 [−2.4, +0.9] | +0.5 [−0.3, +1.3] | short-state lower bound (by 0.4 pp) |
+| 9B (b) replay 2000, lr 1e-5 | 0.901 (+6.8 [+4.5, +9.1]) | +3.3 [+1.2, +5.3] | +0.3 [−1.1, +1.5] | −0.9 [−1.6, −0.2] | WANLI-v2, scienthoon, pooled lower bounds |
+| 9B (c) replay 6000, lr 1e-5 | 0.899 (+6.6 [+4.2, +9.0]) | +3.0 [+1.0, +5.2] | −0.9 [−2.6, +0.6] | +0.3 [−0.4, +1.0] | short-state lower bound (by 0.6 pp) |
+| 0.8B (d) replay 6000, lr 4e-5 | 0.633 → 0.852 (+22.0) | −1.6 | −2.0 [−4.9, +1.1] | −0.2 | short state, Brier, WANLI-v2 |
+| 0.8B (e) replay 6000, lr 2e-5 | 0.840 (+20.8) | −2.8 | −0.8 [−3.2, +1.7] | −0.4 | short state, Brier, WANLI-v2 |
+
+**Reading.** At 9B, 6,000 replayed records remove the external cost that 2,000 left (round 7: pooled −0.8 / −0.4; here +0.5 / +0.3); the short-state cost shrinks from −2.3 / −1.7 to −0.8 / −0.9 but the 656-question panel cannot bound it above −2 pp (half-width ~1.7 pp). A smaller step alone (b) protects short states and moves the damage to the externals. At 0.8B neither remedy works. Five tries, no pass; the documents gain is stable across every arm (+6.5 to +6.8 at 9B, about 3 pp above Jev). The registration-appropriate next step is a fresh-seed replication of recipe (a) judged on a short-state panel large enough to resolve a 1 pp cost (round 11), not a re-reading of these arms.
+
 ## Round 10 - skills delta: hard-v1 + devtools-v1 (registered 2026-09-24T03:13Z, before its data is built or any training or read)
 
 **Why.** Two new suites measure what the released models are worst at. `evals/hard-v1` (programmatic, exact labels; seven families: long policy documents, trade-offs, probability, multi-hop, temporal/numeric, judging a proposed answer, missing-fact abstention; templates held out per split; JevBench overlap screen clean) is Target B of the JevBench section; `evals/devtools-v1` (six licence-checked developer-tooling sources) is the developer workload. Baseline on devtools-v1 development (1,074 questions, served): Kev-0.8B 0.488, Kev-4B 0.606, Kev-9B 0.631, Kev-27B 0.703, Jev 0.713.
