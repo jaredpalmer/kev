@@ -1,0 +1,85 @@
+{
+  "run": "jaredpalmer/kev-9b",
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "records": 200,
+  "load_seconds": 26.0,
+  "resident_gb": 17.5,
+  "latency_graphs": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 640.0,
+      "new_ms": 27.6,
+      "cached_ms": 14.7
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 247.2,
+      "new_ms": 36.8,
+      "cached_ms": 25.2
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 241.0,
+      "new_ms": 60.1,
+      "cached_ms": 23.6
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 216.5,
+      "new_ms": 125.5,
+      "cached_ms": 27.2
+    }
+  },
+  "questions": 280,
+  "graphs_miss_vs_eager_bf16": {
+    "max_dp": 0.020023301243782043,
+    "mean_dp": 0.0015651108771895191,
+    "argmax_flips": 0
+  },
+  "graphs_hit_vs_eager_bf16": {
+    "max_dp": 0.020023301243782043,
+    "mean_dp": 0.0015651108771895191,
+    "argmax_flips": 0
+  },
+  "isolation_served": {
+    "packed": {
+      "questions": 280,
+      "max_dp": 0.005282580852508545,
+      "mean_dp": 0.0003169376319939537,
+      "argmax_flips": 0
+    },
+    "sibling": {
+      "questions": 280,
+      "max_dp": 0.02314889430999756,
+      "mean_dp": 0.00040943977822150503,
+      "argmax_flips": 0
+    }
+  },
+  "graphs_captured": 55,
+  "latency_eager": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 115.0,
+      "new_ms": 109.2,
+      "cached_ms": 54.0
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 69.2,
+      "new_ms": 115.7,
+      "cached_ms": 58.5
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 117.6,
+      "new_ms": 120.8,
+      "cached_ms": 57.2
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 149.8,
+      "new_ms": 146.9,
+      "cached_ms": 57.3
+    }
+  }
+}

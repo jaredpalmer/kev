@@ -1,0 +1,86 @@
+{
+  "run": "/runs/release/kev-27b-v2/checkpoint",
+  "gpu": "NVIDIA H200",
+  "records": 200,
+  "load_seconds": 23.7,
+  "resident_gb": 55.0,
+  "latency_graphs": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 546.8,
+      "new_ms": 72.44999999999999,
+      "cached_ms": 38.6
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 261.5,
+      "new_ms": 111.65,
+      "cached_ms": 78.2
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 543.2,
+      "new_ms": 139.8,
+      "cached_ms": 75.0
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 560.4,
+      "new_ms": 385.9,
+      "cached_ms": 85.1
+    }
+  },
+  "questions": 280,
+  "graphs_miss_vs_eager_bf16": {
+    "max_dp": 0.023158550262451172,
+    "mean_dp": 0.001204498582800235,
+    "argmax_flips": 1
+  },
+  "graphs_hit_vs_eager_bf16": {
+    "max_dp": 0.023158550262451172,
+    "mean_dp": 0.001204498582800235,
+    "argmax_flips": 1
+  },
+  "eager_vs_fp32": {
+    "max_dp": 0.018249034881591797,
+    "mean_dp": 0.0012852408378551314,
+    "argmax_flips": 0
+  },
+  "graphs_miss_vs_fp32": {
+    "max_dp": 0.014429926872253418,
+    "mean_dp": 0.0011519443044692578,
+    "argmax_flips": 1
+  },
+  "graphs_hit_vs_fp32": {
+    "max_dp": 0.014429926872253418,
+    "mean_dp": 0.0011519443044692578,
+    "argmax_flips": 1
+  },
+  "graphs_captured": 55,
+  "latency_eager": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 482.5,
+      "new_ms": 453.2,
+      "cached_ms": 235.25
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 262.5,
+      "new_ms": 466.75,
+      "cached_ms": 239.6
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 494.1,
+      "new_ms": 467.04999999999995,
+      "cached_ms": 232.55
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 575.4,
+      "new_ms": 540.1,
+      "cached_ms": 235.65
+    }
+  }
+}
