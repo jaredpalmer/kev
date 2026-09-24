@@ -31,10 +31,13 @@ PARENTS.update({
 ROUNDS = {10: {"4b-skills": ("runs/r10-skills/00-trial-0", "4b"), "4b-hard": ("runs/r10-skills/01-trial-1", "4b"), "4b-devtools": ("runs/r10-skills/02-trial-2", "4b"),
                "27b-skills": ("runs/r10-skills-27b/00-trial-0", "27b")},
           12: {"9b-s1": ("runs/r12-skills/00-trial-0", "9b"), "9b-s2": ("runs/r12-skills/01-trial-1", "9b"), "08b-s1": ("runs/r12-skills/02-trial-2", "08b")},
-          13: {"08b-s1": ("runs/r13-08b/00-trial-0", "08b-r11"), "08b-s2": ("runs/r13-08b/01-trial-1", "08b-r11")}}
+          13: {"08b-s1": ("runs/r13-08b/00-trial-0", "08b-r11"), "08b-s2": ("runs/r13-08b/01-trial-1", "08b-r11")},
+          14: {"4b-lr1e5": ("runs/r14-4b/00-trial-0", "4b-r10"), "4b-lr2e5": ("runs/r14-4b/01-trial-1", "4b-r10")}}
+PARENTS["4b-r10"] = ("runs/r10-skills/00-trial-0", {"hard": "runs/r10-4b-skills-hard", "devtools": "runs/r10-4b-skills-devtools", "docs": "runs/r10-4b-skills-docs",
+                                                    "v9": "runs/r10-4b-skills-v9", "r3test": "runs/r14-P4r10-r3test", **{s: f"runs/r10-4b-skills-{s}" for s in EXTERNALS}})
 PARENTS["08b-r11"] = ("runs/r11-docs/03-trial-3", {"hard": "runs/r13-P08r11-hard", "devtools": "runs/r13-P08r11-devtools", "docs": "runs/r11-08b-s5-docs",
                                                    "v9": "runs/r11-08b-s5-v9", "r3test": "runs/r11-08b-s5-r3test", **{s: f"runs/r11-08b-s5-{s}" for s in EXTERNALS}})
-POOLED_SHORT = {12, 13}   # rounds whose short-state guard pools transfer-v4 dev with transfer-r3 test (round 11)
+POOLED_SHORT = {12, 13, 14}   # rounds whose short-state guard pools transfer-v4 dev with transfer-r3 test (round 11)
 
 
 # devtools-v1 development has one record id used by two different records (a builder bug found at the first read;
