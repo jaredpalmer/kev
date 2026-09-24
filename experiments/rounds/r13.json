@@ -1,0 +1,80 @@
+{
+  "round": 13,
+  "registered": "PLAN.md > Night 3 > Round 13 - 0.8B skills on top of the 0.8B documents candidate (registered 2026-09-24T05:46Z)",
+  "gpu": "H200",
+  "app": "kev-round6",
+  "studies": {
+    "r13-08b": {
+      "plan": "experiments/round13/skills.json",
+      "suite": "evals/v7/decision-v7",
+      "transfer": "evals/v4/transfer-v4",
+      "gpu": "H200",
+      "timeout": 12600,
+      "budget": 45
+    }
+  },
+  "reads": {
+    "devtest": {"suite": "evals/devtools-v1", "flags": "--allow-test"},
+    "devtools": {"suite": "evals/devtools-v1"},
+    "docs": {"suite": "evals/documents-v1"},
+    "docs1test": {"suite": "evals/documents-v1", "flags": "--allow-test"},
+    "hard": {"suite": "evals/hard-v1"},
+    "hardtest": {"suite": "evals/hard-v1", "flags": "--allow-test"},
+    "locked": {"entrypoint": "locked_test", "decision": "evals/v7/decision-v7"},
+    "r3test": {"suite": "evals/round3/transfer-r3", "flags": "--allow-test"},
+    "scienthoon": {"suite": "evals/external/scienthoon-v1"},
+    "semif": {"suite": "evals/external/semif-v1"},
+    "typesafe": {"suite": "evals/external/typesafe-v1"},
+    "v9": {"suite": "evals/v9/transfer-v9"},
+    "wanli2": {"suite": "evals/external/wanli-v2"}
+  },
+  "drop_ids": ["codereviewer/cls-test/13657", "codereviewer/cls-test/19245"],
+  "parents": {
+    "08b-r11": {
+      "trial": "runs/r11-docs/03-trial-3",
+      "reads": {"hard": "runs/r13-P08r11-hard", "devtools": "runs/r13-P08r11-devtools", "docs": "runs/r11-08b-s5-docs", "v9": "runs/r11-08b-s5-v9", "r3test": "runs/r11-08b-s5-r3test", "semif": "runs/r11-08b-s5-semif", "scienthoon": "runs/r11-08b-s5-scienthoon", "wanli2": "runs/r11-08b-s5-wanli2", "typesafe": "runs/r11-08b-s5-typesafe", "locked": "runs/locked/kev-08b-r11-ungated/transfer"}
+    }
+  },
+  "arms": {"08b-s1": {"trial": "runs/r13-08b/00-trial-0", "parent": "08b-r11"}, "08b-s2": {"trial": "runs/r13-08b/01-trial-1", "parent": "08b-r11"}},
+  "rule": {
+    "panels": {
+      "primary": {"reads": ["hard", "devtools"], "metrics": ["acc"]},
+      "hard": {"reads": ["hard"], "metrics": ["acc", "ece"]},
+      "devtools": {"reads": ["devtools"], "metrics": ["acc"]},
+      "docs": {"reads": ["docs"], "metrics": ["acc"]},
+      "short": {"reads": ["transfer", "r3test"], "metrics": ["acc", "brier", "confident_error_rate"]},
+      "semif": {"reads": ["semif"], "metrics": ["acc"]},
+      "scienthoon": {"reads": ["scienthoon"], "metrics": ["acc"]},
+      "wanli2": {"reads": ["wanli2"], "metrics": ["acc"]},
+      "typesafe": {"reads": ["typesafe"], "metrics": ["acc"]},
+      "pooled_external": {"reads": ["semif", "scienthoon", "wanli2", "typesafe"], "metrics": ["acc"]}
+    },
+    "unknowable": "v9",
+    "criteria": {
+      "1_primary_lower_above_0": {"left": "primary.acc.lower", "op": ">", "right": 0},
+      "2_short_acc_lower_at_least_minus_2pp": {"left": "short.acc.lower", "op": ">=", "right": -0.02},
+      "2_short_brier_upper_at_most_0.01": {"left": "short.brier.upper", "op": "<=", "right": 0.01},
+      "2_short_confident_errors_upper_at_most_1pp": {"left": "short.confident_error_rate.upper", "op": "<=", "right": 0.01},
+      "2_docs_lower_at_least_minus_2pp": {"left": "docs.acc.lower", "op": ">=", "right": -0.02},
+      "2_wanli2_lower_at_least_minus_2pp": {"left": "wanli2.acc.lower", "op": ">=", "right": -0.02},
+      "2_scienthoon_lower_at_least_minus_2pp": {"left": "scienthoon.acc.lower", "op": ">=", "right": -0.02},
+      "2_pooled_lower_at_least_minus_1.5pp": {"left": "pooled_external.acc.lower", "op": ">=", "right": -0.015},
+      "2_unknowable_at_most_0.05": {"left": "unknowable.candidate", "op": "<=", "right": 0.05},
+      "3_hard_ece_at_most_parent_plus_0.01": {"left": "hard.ece.candidate", "op": "<=", "right": "hard.ece.parent", "plus": 0.01}
+    },
+    "rank": [{"by": "primary.acc.delta", "order": "desc"}]
+  },
+  "confirm": {
+    "tests": {
+      "candidate_reads": "runs/r13c-{size}-cand-{tag}",
+      "parent_reads": "runs/r13c-{size}-parent-{tag}",
+      "panels": {"pooled": {"reads": ["hardtest", "devtest"], "metrics": ["acc"]}, "hardtest": {"reads": ["hardtest"], "metrics": ["acc"], "report": ["ece"]}, "devtest": {"reads": ["devtest"], "metrics": ["acc"]}, "docs1test": {"reads": ["docs1test"], "metrics": ["acc"]}},
+      "criteria": {"pooled_lower_above_0": {"left": "pooled.acc.lower", "op": ">", "right": 0}, "docs1test_lower_at_least_-0.02": {"left": "docs1test.acc.lower", "op": ">=", "right": -0.02}}
+    },
+    "locked": {
+      "candidate_reads": {"locked": "runs/locked/kev-{size}-r13-ungated/transfer"},
+      "panels": {"locked": {"reads": ["locked"], "metrics": ["acc", "brier"]}},
+      "criteria": {"locked_acc_at_least_parent_minus_1pp": {"left": "locked.acc.candidate", "op": ">=", "right": "locked.acc.parent", "plus": -0.01}, "served_brier_at_most_parent_plus_0.005": {"left": "locked.brier.candidate", "op": "<=", "right": "locked.brier.parent", "plus": 0.005}}
+    }
+  }
+}

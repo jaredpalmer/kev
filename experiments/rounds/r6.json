@@ -1,0 +1,149 @@
+{
+  "round": 6,
+  "registered": "PLAN.md > Round 6 - overnight autoresearch (registered 2026-09-23T02:12Z)",
+  "gpu": "H200",
+  "app": "kev-round6",
+  "studies": {
+    "r6-9b": {
+      "plan": "experiments/round6/9b.json",
+      "suite": "evals/v7/decision-v7",
+      "transfer": "evals/v4/transfer-v4",
+      "gpu": "H200",
+      "timeout": 12600,
+      "budget": 154
+    },
+    "r6-9b-r2": {
+      "plan": "experiments/round6/9b-r2.json",
+      "suite": "evals/v7/decision-v7",
+      "transfer": "evals/v4/transfer-v4",
+      "gpu": "H200",
+      "timeout": 12600,
+      "budget": 67
+    },
+    "r6-4b": {
+      "plan": "experiments/round6/4b.json",
+      "suite": "evals/v7/decision-v7",
+      "transfer": "evals/v4/transfer-v4",
+      "gpu": "H200",
+      "timeout": 10800,
+      "budget": 114
+    },
+    "r6-4b-r2": {
+      "plan": "experiments/round6/4b-r2.json",
+      "suite": "evals/v7/decision-v7",
+      "transfer": "evals/v4/transfer-v4",
+      "gpu": "H200",
+      "timeout": 10800,
+      "budget": 57
+    },
+    "r6-08b": {
+      "plan": "experiments/round6/08b.json",
+      "suite": "evals/v7/decision-v7",
+      "transfer": "evals/v4/transfer-v4",
+      "gpu": "H200",
+      "timeout": 7200,
+      "budget": 26
+    },
+    "r6-08b-r2": {
+      "plan": "experiments/round6/08b-r2.json",
+      "suite": "evals/v7/decision-v7",
+      "transfer": "evals/v4/transfer-v4",
+      "gpu": "H200",
+      "timeout": 7200,
+      "budget": 14
+    }
+  },
+  "reads": {
+    "locked": {"entrypoint": "locked_test", "decision": "evals/v7/decision-v7"},
+    "long": {"suite": "evals/round5/longstate-v2"},
+    "long3": {"suite": "evals/round6/longstate-v3"},
+    "r6test": {"suite": "evals/round6/transfer-r6", "flags": "--allow-test"},
+    "scienthoon": {"suite": "evals/external/scienthoon-v1"},
+    "semif": {"suite": "evals/external/semif-v1"},
+    "typesafe": {"suite": "evals/external/typesafe-v1"},
+    "v9": {"suite": "evals/v9/transfer-v9"},
+    "wanli2": {"suite": "evals/external/wanli-v2"}
+  },
+  "read_timeout": {"9b": 7200},
+  "parents": {
+    "P9": {
+      "trial": "runs/night2-9b-du/00-trial-0",
+      "reads": {"long": "runs/r5r-P9-long", "semif": "runs/r5r-P9-semif", "scienthoon": "runs/r5r-P9-scienthoon", "wanli2": "runs/r6-P9-wanli2", "typesafe": "runs/r5r-P9-typesafe", "locked": "runs/locked/kev-9b-night2-du-ungated/transfer"}
+    },
+    "P4": {
+      "trial": "runs/night2-4b-du/00-trial-0",
+      "reads": {"long": "runs/r5r-P4-long", "semif": "runs/r5r-P4-semif", "scienthoon": "runs/r5r-P4-scienthoon", "wanli2": "runs/r6-P4-wanli2", "typesafe": "runs/r5r-P4-typesafe", "locked": "runs/locked/kev-4b-night2-du-ungated/transfer"}
+    },
+    "P08": {
+      "trial": "runs/night2-08b-du2/00-trial-0",
+      "reads": {"long": "runs/r5r-P08-long", "semif": "runs/r5r-P08-semif", "scienthoon": "runs/r5r-P08-scienthoon", "wanli2": "runs/r6-P08-wanli2", "typesafe": "runs/r5r-P08-typesafe", "locked": "runs/locked/kev-08b-night2-du-ungated/transfer"}
+    }
+  },
+  "arms": {
+    "9b-C9": {"trial": "runs/r5-combined/00-trial-0", "parent": "P9", "reads": "runs/r5r-C9-{tag}"},
+    "9b-soft-nomnli": {"trial": "runs/r6-9b/00-trial-0", "parent": "P9"},
+    "9b-soft-lam03": {"trial": "runs/r6-9b/01-trial-1", "parent": "P9"},
+    "9b-soft-thr08": {"trial": "runs/r6-9b/02-trial-2", "parent": "P9"},
+    "9b-soft-du": {"trial": "runs/r6-9b/03-trial-3", "parent": "P9"},
+    "9b-soft-longmix3": {"trial": "runs/r6-9b/04-trial-4", "parent": "P9"},
+    "9b-combined-replay6000": {"trial": "runs/r6-9b/05-trial-5", "parent": "P9"},
+    "9b-combined-lr1e-05": {"trial": "runs/r6-9b/06-trial-6", "parent": "P9"},
+    "9b-soft-nomnli-thr08": {"trial": "runs/r6-9b-r2/00-trial-0", "parent": "P9"},
+    "9b-soft-nomnli-seed2": {"trial": "runs/r6-9b-r2/01-trial-1", "parent": "P9"},
+    "9b-soft-nomnli-thr08-seed2": {"trial": "runs/r6-9b-r2/02-trial-2", "parent": "P9"},
+    "4b-C4": {"trial": "runs/r5-combined/03-trial-3", "parent": "P4", "reads": "runs/r5r-C4-{tag}"},
+    "4b-soft-half": {"trial": "runs/r6-4b/00-trial-0", "parent": "P4"},
+    "4b-soft-nomnli": {"trial": "runs/r6-4b/01-trial-1", "parent": "P4"},
+    "4b-soft-du": {"trial": "runs/r6-4b/02-trial-2", "parent": "P4"},
+    "4b-soft-longmix3": {"trial": "runs/r6-4b/03-trial-3", "parent": "P4"},
+    "4b-combined-replay6000": {"trial": "runs/r6-4b/04-trial-4", "parent": "P4"},
+    "4b-combined-lr1e-05": {"trial": "runs/r6-4b/05-trial-5", "parent": "P4"},
+    "4b-soft-half-nomnli": {"trial": "runs/r6-4b-r2/00-trial-0", "parent": "P4"},
+    "4b-soft-half-seed2": {"trial": "runs/r6-4b-r2/01-trial-1", "parent": "P4"},
+    "4b-soft-nomnli-thr08": {"trial": "runs/r6-4b-r2/02-trial-2", "parent": "P4"},
+    "08b-C08": {"trial": "runs/r5-combined/05-trial-5", "parent": "P08", "reads": "runs/r5r-C08-{tag}"},
+    "08b-combined": {"trial": "runs/r6-08b/00-trial-0", "parent": "P08"},
+    "08b-combined-replay6000": {"trial": "runs/r6-08b/01-trial-1", "parent": "P08"},
+    "08b-soft-half-nomnli": {"trial": "runs/r6-08b-r2/00-trial-0", "parent": "P08"}
+  },
+  "rule": {
+    "panels": {
+      "short": {"reads": ["transfer"], "metrics": ["acc", "brier", "confident_error_rate"], "report": ["coverage_at_5pct_error"]},
+      "long": {"reads": ["long"], "source": "longstate", "metrics": ["acc"]},
+      "semif": {"reads": ["semif"], "metrics": ["acc"]},
+      "scienthoon": {"reads": ["scienthoon"], "metrics": ["acc"]},
+      "wanli2": {"reads": ["wanli2"], "metrics": ["acc"]},
+      "typesafe": {"reads": ["typesafe"], "metrics": ["acc"]},
+      "pooled_external": {"reads": ["semif", "scienthoon", "wanli2", "typesafe"], "metrics": ["acc"]}
+    },
+    "unknowable": "v9",
+    "criteria": {
+      "1_long_lower_above_0": {"left": "long.acc.lower", "op": ">", "right": 0},
+      "1_long_point_at_least_5pp": {"left": "long.acc.delta", "op": ">=", "right": 0.05},
+      "2_short_acc_lower_at_least_minus_1pp": {"left": "short.acc.lower", "op": ">=", "right": -0.01},
+      "2_short_brier_upper_at_most_0.01": {"left": "short.brier.upper", "op": "<=", "right": 0.01},
+      "2_short_confident_errors_upper_at_most_1pp": {"left": "short.confident_error_rate.upper", "op": "<=", "right": 0.01},
+      "3_semif_lower_at_least_margin": {"left": "semif.acc.lower", "op": ">=", "right": -0.03},
+      "3_scienthoon_lower_at_least_margin": {"left": "scienthoon.acc.lower", "op": ">=", "right": -0.02},
+      "3_wanli2_lower_at_least_margin": {"left": "wanli2.acc.lower", "op": ">=", "right": -0.02},
+      "3_typesafe_lower_at_least_margin": {"left": "typesafe.acc.lower", "op": ">=", "right": -0.03},
+      "3_pooled_point_at_least_0": {"left": "pooled_external.acc.delta", "op": ">=", "right": 0},
+      "3_pooled_lower_at_least_minus_1pp": {"left": "pooled_external.acc.lower", "op": ">=", "right": -0.01},
+      "3_unknowable_share_at_most_0.05": {"left": "unknowable.candidate", "op": "<=", "right": 0.05}
+    },
+    "rank": [{"by": "long.acc.delta", "order": "desc"}, {"by": "short.brier.delta", "order": "asc"}, {"by": "pooled_external.acc.delta", "order": "desc"}]
+  },
+  "confirm": {
+    "fresh": {
+      "candidate_reads": "runs/r6c-{size}-cand-{tag}",
+      "parent_reads": "runs/r6c-{size}-parent-{tag}",
+      "panels": {"long3": {"reads": ["long3"], "source": "longstate", "metrics": ["acc"]}, "r6test": {"reads": ["r6test"], "metrics": ["acc", "brier", "confident_error_rate", "coverage_at_5pct_error", "aurc"], "report": ["ece"]}, "wanli2": {"reads": ["wanli2"], "metrics": ["acc"]}},
+      "criteria": {"1_long_lower_above_0": {"left": "long3.acc.lower", "op": ">", "right": 0}, "1_long_point_at_least_5pp": {"left": "long3.acc.delta", "op": ">=", "right": 0.05}, "2_short_acc_lower_at_least_minus_1pp": {"left": "r6test.acc.lower", "op": ">=", "right": -0.01}, "2_short_brier_upper_at_most_0.01": {"left": "r6test.brier.upper", "op": "<=", "right": 0.01}, "2_short_confident_errors_upper_at_most_1pp": {"left": "r6test.confident_error_rate.upper", "op": "<=", "right": 0.01}}
+    },
+    "locked": {
+      "candidate_reads": {"locked": "runs/locked/kev-{size}-r6-ungated/transfer"},
+      "panels": {"locked": {"reads": ["locked"], "metrics": ["acc", "brier"]}},
+      "criteria": {"locked_acc_at_least_parent_minus_1pp": {"left": "locked.acc.candidate", "op": ">=", "right": "locked.acc.parent", "plus": -0.01}, "served_brier_at_most_parent_plus_0.005": {"left": "locked.brier.candidate", "op": "<=", "right": "locked.brier.parent", "plus": 0.005}}
+    }
+  }
+}
