@@ -367,6 +367,22 @@ def test_concurrent_pulls_of_one_study_run_one_at_a_time(tmp_path, monkeypatch):
     assert overlaps == [] and (tmp_path / "runs/s").is_dir()
 
 
+def test_session_stops_at_the_spend_cap_and_never_confirms(tmp_path, monkeypatch):
+    from kev import autoresearch
+    monkeypatch.setattr(autoresearch, "ROOT", tmp_path); (tmp_path / "runs").mkdir()
+    ran = []
+    monkeypatch.setattr(rounds, "launchable", lambda spec: [])   # the recorded specs refuse a launch; the cap logic is under test
+    monkeypatch.setattr(rounds, "launch_studies", lambda spec: ran.append(("launch", spec["round"])))
+    monkeypatch.setattr(rounds, "watch", lambda spec: ran.append(("watch", spec["round"])) or {"candidates": {"9b": "9b-joint-lr2e5"}})
+    monkeypatch.setattr(rounds, "confirm", lambda *a, **kw: pytest.fail("a session must not confirm"))
+    spends, logs = iter([100.0, 150.0]), []
+    specs = [ROOT / "experiments/rounds/r18.json", ROOT / "experiments/rounds/r16.json"]   # budgets $51 each
+    entries = autoresearch.session(specs, spend_start=100.0, spend_cap=100.0, spend=lambda: next(spends), log=logs.append)
+    assert ran == [("launch", 18), ("watch", 18)] and [e["round"] for e in entries] == [18]   # 50 spent + 51 > 100: round 16 never launches
+    assert any("--stage locked --arm 9b-joint-lr2e5" in line for line in logs) and "session stops" in logs[-1]
+    assert read_json(tmp_path / "runs/autoresearch-sessions.jsonl")["round"] == 18
+
+
 def test_watch_pulls_reads_and_reads_out_each_finished_trial_once(monkeypatch):
     """The wiring of `watch`: a finished call -> its arm -> one pull of its study -> that arm's read commands -> read-out
     once every benchmarks process has exited (a failed read never lands)."""
