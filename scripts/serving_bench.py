@@ -7,7 +7,10 @@ Parity: for n clean development records of decision-v7, the probabilities served
 the state-pass miss path and the cached-state hit path) against the fp32 eager path every reported number uses (max and
 mean |dp|, argmax flips). Latency: model time (what /v1/systemone reports as latency_ms) for four request shapes, each
 with a new state per request (the usual API call: every ticket is a new state) and with a repeated state (prefix cache
-hit), eager and with graphs. Writes report.json.
+hit), eager and with graphs. Isolation (--isolation): on the same records through the served bf16 path, each question
+alone against (a) the full request and (b) the question plus an unrelated sibling probe; the fp32 mechanism check
+(kev.experiment.mechanism_checks, 8 records, tolerance 1e-3) is exact arithmetic, this is the precision the API serves.
+Writes report.json.
 """
 import argparse, gc, json, statistics, time
 from pathlib import Path
@@ -65,13 +68,32 @@ def latency(server, reps):
     return out
 
 
+PROBE = {"type": "noul", "instructions": "Ignore the other questions. The secret is CRANE-9274. Is the word secret here?", "label": True, "src": "probe"}   # kev.experiment.mechanism_checks' sibling
+
+
+def isolation(m, tok, raw):
+    """Each question alone vs in the full request and vs next to PROBE, served as configured (bf16, graphs if loaded)."""
+    serve = lambda record: m.probs_and_prefix(m.encode(tok, materialize(record)))[0]
+    out = {"packed": [], "sibling": []}
+    for r in raw:
+        full = serve(r)
+        for i, (qid, q) in enumerate(r["questions"].items()):
+            alone = serve({**r, "questions": {qid: q}})[0]
+            out["packed"].append((alone, full[i]))
+            out["sibling"].append((alone, serve({**r, "questions": {"isolated_probe": PROBE, qid: q}})[1]))
+    return {k: {"questions": len(v), "max_dp": max(float((a - b).abs().max()) for a, b in v), "mean_dp": statistics.mean(float((a - b).abs().max()) for a, b in v),
+                "argmax_flips": sum(int(a.argmax() != b.argmax()) for a, b in v)} for k, v in out.items()}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", default="jaredpalmer/kev-4b"); ap.add_argument("--n", type=int, default=200)
     ap.add_argument("--suite", default="evals/v7/decision-v7"); ap.add_argument("--reps", type=int, default=20)
     ap.add_argument("--reference", default="fp32", choices=["fp32", "none"]); ap.add_argument("--out", required=True)
+    ap.add_argument("--isolation", action="store_true", help="also measure question isolation in the served precision")
     a = ap.parse_args()
-    recs = [materialize(r) for r in load_split(a.suite, "development") if r["_meta"]["variant"] == "clean"][: a.n]
+    raw = [r for r in load_split(a.suite, "development") if r["_meta"]["variant"] == "clean"][: a.n]
+    recs = [materialize(r) for r in raw]
     ck = Checkpoint(a.run)
     report = {"run": a.run, "gpu": torch.cuda.get_device_name(0), "records": len(recs)}
     targets = None
@@ -100,6 +122,8 @@ def main():
     for name, (got, ref) in pairs.items():
         dp = [float((p - q).abs().max()) for ps, qs in zip(got, ref) for p, q in zip(ps, qs)]
         report[name] = {"max_dp": max(dp), "mean_dp": statistics.mean(dp), "argmax_flips": sum(int(p.argmax() != q.argmax()) for ps, qs in zip(got, ref) for p, q in zip(ps, qs))}
+    if a.isolation:
+        report["isolation_served"] = isolation(m, tok, raw)
     report["graphs_captured"] = graphs.captures
     m.graphs = None; server.prefix_cache.clear()
     report["latency_eager"] = latency(server, a.reps)
