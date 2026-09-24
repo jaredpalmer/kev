@@ -360,3 +360,20 @@ def test_session_stops_at_the_spend_cap_and_never_confirms(tmp_path, monkeypatch
     assert ran == [("launch", 18), ("watch", 18)] and [e["round"] for e in entries] == [18]   # 50 spent + 51 > 100: round 16 never launches
     assert any("--stage locked --arm 9b-joint-lr2e5" in line for line in logs) and "session stops" in logs[-1]
     assert read_json(tmp_path / "runs/autoresearch-sessions.jsonl")["round"] == 18
+
+
+def test_watch_pulls_reads_and_reads_out_each_finished_trial_once(monkeypatch):
+    """The wiring of `watch`: a finished call -> its arm -> one pull of its study -> that arm's read commands -> read-out
+    once every benchmarks process has exited (a failed read never lands)."""
+    spec = rounds.load(ROOT / "experiments/rounds/r16.json")
+    events = []
+    monkeypatch.setattr(rounds, "watch_studies", lambda studies, on_done, **kw: [on_done("r16-9b", label) for label in ("trial-1", "trial-0")])
+    monkeypatch.setattr(rounds, "pull", lambda study, spec: events.append(("pull", study)))
+    monkeypatch.setattr(rounds, "read_commands", lambda spec, arm: [["modal", "run", arm]])
+    class Done:
+        def poll(self): return 0
+    monkeypatch.setattr(rounds, "launch_commands", lambda commands, spec, stem, stagger: events.append(("reads", commands[0][2])) or [Done()])
+    monkeypatch.setattr(rounds, "write_readout", lambda spec: events.append(("readout", spec["round"])) or {"candidates": {}})
+    monkeypatch.setattr(rounds.time, "sleep", lambda s: None)
+    rounds.watch(spec, stagger=0)
+    assert events == [("pull", "r16-9b"), ("reads", "9b-r10k-lr2e5"), ("pull", "r16-9b"), ("reads", "9b-r10k-lr1e5"), ("readout", 16)]

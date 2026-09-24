@@ -372,13 +372,15 @@ def modal_env(spec):
 
 
 def launch_commands(commands, spec, log_stem, stagger=STAGGER, run=subprocess.Popen, sleep=time.sleep):
-    """Start each command in the background (log under runs/), `stagger` seconds apart."""
+    """Start each command in the background (log under runs/), `stagger` seconds apart; returns the processes."""
+    procs = []
     for i, cmd in enumerate(commands):
         if i: sleep(stagger)
         log = ROOT / "runs" / f"{log_stem}-{i}.log"
         print("launch:", " ".join(cmd[:4]), "->", log.relative_to(ROOT), flush=True)
         with log.open("w", encoding="utf-8") as f:
-            run([sys.executable, "-m", *cmd], stdout=f, stderr=subprocess.STDOUT, cwd=ROOT, env=modal_env(spec))
+            procs.append(run([sys.executable, "-m", *cmd], stdout=f, stderr=subprocess.STDOUT, cwd=ROOT, env=modal_env(spec)))
+    return procs
 
 
 def pull(study, spec):
@@ -457,19 +459,22 @@ def arm_of(spec, study, label):
 
 def watch(spec, interval=120, stagger=STAGGER, reads_timeout=6 * 3600):
     """The round from spawned trials to read-out: when a trial finishes, pull its study and launch that arm's reads
-    (`stagger` apart); once every trial is settled, wait for the reads to land (up to reads_timeout) and write the read-out."""
-    last, launched = [0.0], []
+    (`stagger` apart); once every trial is settled, wait for the reads to land and write the read-out. The wait ends when
+    every read is there, when every benchmarks process this watcher started has exited (a failed read never lands), or
+    after reads_timeout (a restarted watcher has no processes to follow)."""
+    last, procs = [0.0], []
     def on_done(study, label):
         arm = arm_of(spec, study, label)
         if arm is None: print(f"{study}/{label}: no arm in the spec; not read"); return
         pull(study, spec)
         time.sleep(max(0.0, last[0] + stagger - time.time()))
-        launch_commands(read_commands(spec, arm), spec, f"r{spec['round']}-reads-{arm}", stagger)
-        last[0] = time.time(); launched.append(arm)
+        procs.extend(launch_commands(read_commands(spec, arm), spec, f"r{spec['round']}-reads-{arm}", stagger))
+        last[0] = time.time()
     watch_studies(list(spec.get("studies", {})), on_done, interval=interval)
     deadline = time.time() + reads_timeout
     finished = [a for a, x in spec["arms"].items() if (ROOT / x["trial"] / "result.json").exists()]
     while (waiting := [a for a in finished if not all(arm_side(spec, a).has(t) for t in rule_tags(spec["rule"]))]) and time.time() < deadline:
+        if procs and all(p.poll() is not None for p in procs): break
         print(f"waiting for the reads of {waiting}", flush=True); time.sleep(interval)
     return write_readout(spec)
 
