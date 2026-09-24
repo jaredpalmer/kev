@@ -1,0 +1,1518 @@
+{
+  "version": "breadth-v1",
+  "seed": "breadth-v1",
+  "eval_only": true,
+  "partitions": [
+    "development",
+    "test"
+  ],
+  "locked": [
+    "test"
+  ],
+  "files": {
+    "development.jsonl": {
+      "sha256": "9aad8f4a7374988b2768d31135d5690137df3a3d6cbc1e771db4ee95ca515a94",
+      "records": 1990,
+      "questions": 3075,
+      "bytes": 5032194,
+      "in_git": true,
+      "by_source": {
+        "apibank": 150,
+        "bfcl": 150,
+        "bright": 150,
+        "cfcolor": 150,
+        "chessbench": 150,
+        "clinc150": 150,
+        "contractnli": 40,
+        "hellaswag": 150,
+        "humicroedit": 150,
+        "musr": 150,
+        "routerbench": 150,
+        "sata_bench": 150,
+        "sgd": 150,
+        "toolret": 150
+      }
+    },
+    "test.jsonl": {
+      "sha256": "91a64f0a9448dcaece421c051a4b3fd079c15b84ea6cb9cfa8155237d8d1fa18",
+      "records": 1990,
+      "questions": 3089,
+      "bytes": 5127662,
+      "in_git": true,
+      "by_source": {
+        "apibank": 150,
+        "bfcl": 150,
+        "bright": 150,
+        "cfcolor": 150,
+        "chessbench": 150,
+        "clinc150": 150,
+        "contractnli": 40,
+        "hellaswag": 150,
+        "humicroedit": 150,
+        "musr": 150,
+        "routerbench": 150,
+        "sata_bench": 150,
+        "sgd": 150,
+        "toolret": 150
+      }
+    }
+  },
+  "mirror": {
+    "dataset": "jaredpalmer/kev-private-evals",
+    "revision": "aeaaed0f7532509608a23140130e389baac94f91"
+  },
+  "mirror_note": "Added after the freeze (2026-09-24): the same frozen breadth-v1 content, not a new version. The partitions are byte-identical (sha256 in `files`) and live only in this private mirror because several sources do not allow public redistribution (SATA-Bench CC-BY-NC-4.0, SGD CC-BY-SA-4.0, Humicroedit with no licence, cfcolor with a code-only notice). Only this manifest is in git; scripts/build_breadth_v1.py rebuilds the partitions byte for byte and the manifest without this entry.",
+  "trainable_sources": [],
+  "eval_only_sources": [
+    "musr",
+    "sata_bench",
+    "chessbench",
+    "contractnli",
+    "hellaswag",
+    "clinc150",
+    "sgd",
+    "bright",
+    "bfcl",
+    "toolret",
+    "apibank",
+    "routerbench",
+    "humicroedit",
+    "cfcolor"
+  ],
+  "holdout_sources": [],
+  "areas": {
+    "knowledge": {
+      "label": "Knowledge & Reasoning",
+      "datasets": [
+        "musr",
+        "sata_bench",
+        "chessbench"
+      ]
+    },
+    "language": {
+      "label": "Language Understanding",
+      "datasets": [
+        "contractnli",
+        "hellaswag"
+      ]
+    },
+    "retrieval": {
+      "label": "Retrieval & Classification",
+      "datasets": [
+        "clinc150",
+        "sgd",
+        "bright"
+      ]
+    },
+    "tools": {
+      "label": "Tools & Automation",
+      "datasets": [
+        "bfcl",
+        "toolret",
+        "apibank",
+        "routerbench"
+      ]
+    },
+    "arts": {
+      "label": "Arts & Human Taste",
+      "datasets": [
+        "humicroedit",
+        "cfcolor"
+      ]
+    }
+  },
+  "datasets": {
+    "musr": {
+      "area": "knowledge",
+      "di": [
+        32,
+        "MuSR"
+      ],
+      "metric": "accuracy",
+      "licence": "CC-BY-4.0 (dataset card); code MIT",
+      "licence_url": "https://huggingface.co/datasets/TAUR-Lab/MuSR",
+      "attribution": "Sprague et al., MuSR: Testing the Limits of Chain-of-thought with Multistep Soft Reasoning (ICLR 2024)",
+      "label_provenance": "by construction (the story generator's ground truth), published answer_index",
+      "native_splits": "one 756-item set; split into halves by item",
+      "mapping": "state = the narrative; one choice over the published options in published order (keys opt_1..), instructions = the published question; strata = the three subsets (murder mystery, object placements, team allocation)",
+      "pins": {
+        "hf": "TAUR-Lab/MuSR@7c365b439a222150f317764d4f16ae6c96d7d94a",
+        "files": {
+          "murder_mystery.csv": "ce19b6dc0b953f698e79528c72705804bc97e772a4303734808971f63ce233a7",
+          "object_placements.csv": "98cd17d2c9ea53664e274365e901c90dfcaa40d17547dfbd369f1cd26fd2a81c",
+          "team_allocation.csv": "ddbef3bb61857a7cc3b73db62fac4605679e1b7ff4357d57fdfcf91f7caaa1f8"
+        }
+      },
+      "chance": {
+        "development": 0.391667,
+        "test": 0.385222
+      }
+    },
+    "sata_bench": {
+      "area": "knowledge",
+      "di": [
+        33,
+        "SATA-Bench"
+      ],
+      "metric": "case_exact",
+      "licence": "CC-BY-NC-4.0 (dataset card; the GitHub repo is MIT): the derived records inherit the non-commercial term",
+      "licence_url": "https://huggingface.co/datasets/sata-bench/sata-bench",
+      "attribution": "Xu et al., SATA-Bench: Select All That Apply Benchmark for Multiple Choice Questions (2025)",
+      "label_provenance": "source answer groups (human-labelled multi-answer items pooled by the authors)",
+      "native_splits": "one 1,604-item set; split into halves by item",
+      "mapping": "state = passage + question (HTML tags removed); one noul per candidate answer ('Is \"X\" a correct answer?'), answers and distractors in a seeded order; scored case-exact (every noul right), as the Index does; items with more than 10 candidates or a candidate that is both answer and distractor are dropped",
+      "pins": {
+        "hf": "sata-bench/sata-bench@ba43a7ab537adfa3498e3a160a6d1eafbefc95c1",
+        "files": {
+          "data_main.json": "d9809889057a6f37bf0dd35b371a4cf3f3a23ff431f9fc69201220598e950112"
+        }
+      },
+      "chance": {
+        "development": 0.01901,
+        "test": 0.017917
+      }
+    },
+    "chessbench": {
+      "area": "knowledge",
+      "di": [
+        31,
+        "ChessBench"
+      ],
+      "metric": "accuracy",
+      "licence": "Apache-2.0 (code and data release); positions from lichess.org (CC0)",
+      "licence_url": "https://github.com/google-deepmind/searchless_chess",
+      "attribution": "Ruoss et al., Amortized Planning with Large-Scale Transformers: A Case Study on Chess (NeurIPS 2024)",
+      "label_provenance": "engine: Stockfish 16 win probability of every legal move (the test action-value file)",
+      "native_splits": "test action-value file only; split into halves by position",
+      "mapping": "state = FEN, side to move and an ASCII board; one choice over up to 10 legal moves (UCI keys, described as piece, from-to, capture, promotion): the best move plus up to 9 others drawn in a seeded order, leaving out any move within 0.01 win probability of the best so the reference answer is unique; strata = game phase by piece count",
+      "pins": {
+        "url": "https://storage.googleapis.com/searchless_chess/data/test/action_value_data.bag",
+        "sha256": "5f73aac8f60e31734cdbf276ba3fca8d5ba5cb6171ba600e31af4f36327986b0",
+        "code": "google-deepmind/searchless_chess@90ae0e6b121673fc3079aaeffa047580bb600c0a"
+      },
+      "chance": {
+        "development": 0.128934,
+        "test": 0.127579
+      }
+    },
+    "contractnli": {
+      "area": "language",
+      "di": [
+        11,
+        "ContractNLI"
+      ],
+      "metric": "accuracy",
+      "licence": "CC-BY-4.0 (Hitachi America terms of use grant CC BY 4.0)",
+      "licence_url": "https://stanfordnlp.github.io/contract-nli/",
+      "attribution": "Koreeda and Manning, ContractNLI: A Dataset for Document-level Natural Language Inference for Contracts (Findings of EMNLP 2021)",
+      "label_provenance": "human (expert annotation of each hypothesis on each NDA)",
+      "native_splits": "development partition from dev.json, test from test.json",
+      "mapping": "state = the full NDA text (no truncation; longer documents are not admitted); up to 4 of the 17 fixed hypotheses per document, drawn round-robin over the three labels, each a choice entailment / contradiction / not_mentioned",
+      "pins": {
+        "url": "https://stanfordnlp.github.io/contract-nli/resources/contract-nli.zip",
+        "sha256": "e03fc77bbf8b53e2976a250e81d8a294bc3d5e5fb014521e477dee9340d6287b"
+      },
+      "chance": {
+        "development": 0.333333,
+        "test": 0.333333
+      }
+    },
+    "hellaswag": {
+      "area": "language",
+      "di": [
+        29,
+        "HellaSwag"
+      ],
+      "metric": "accuracy",
+      "licence": "MIT (code/data release); ActivityNet Captions contexts only",
+      "licence_url": "https://huggingface.co/datasets/Rowan/hellaswag",
+      "attribution": "Zellers et al., HellaSwag: Can a Machine Really Finish Your Sentence? (ACL 2019)",
+      "label_provenance": "adversarial filtering + human validation (published label)",
+      "native_splits": "validation only (test labels are hidden); split into halves by source video",
+      "mapping": "ActivityNet-derived items only (source_id activitynet~...): the WikiHow-derived half is left out because wikiHow's 2026-09-14 DMCA notice took down the HellaSwag GitHub repository (github/dmca 2026-09-14-wikihow.md); state = activity label + context; one choice over the four endings in published order; strata = in-domain / zero-shot",
+      "pins": {
+        "hf": "Rowan/hellaswag@218ec52e09a7e7462a5400043bb9a69a41d06b76",
+        "files": {
+          "data/validation-00000-of-00001.parquet": "899813071e1e95efafec90f856e1987d2150fa4d020fc005df6962c259f660cd"
+        }
+      },
+      "chance": {
+        "development": 0.25,
+        "test": 0.25
+      }
+    },
+    "clinc150": {
+      "area": "retrieval",
+      "di": [
+        5,
+        "CLINC150+OOS"
+      ],
+      "metric": "accuracy",
+      "licence": "CC-BY-3.0",
+      "licence_url": "https://huggingface.co/datasets/clinc/clinc_oos",
+      "attribution": "Larson et al., An Evaluation Dataset for Intent Classification and Out-of-Scope Prediction (EMNLP 2019)",
+      "label_provenance": "crowdsourced utterances written for each intent (published label)",
+      "native_splits": "plus config: development from validation, test from test",
+      "mapping": "state = the utterance; one choice over 10 options: an in-scope utterance gets its intent plus 8 other intents of the same domain (clinc/oos-eval domains.json) plus out_of_scope; an out-of-scope utterance gets 9 intents of one seeded domain plus out_of_scope (always last); strata = the 10 domains and out-of-scope",
+      "pins": {
+        "hf": "clinc/clinc_oos@155b9c710419136e17307b80d0a13e68cd46b4ec",
+        "files": {
+          "plus/test-00000-of-00001.parquet": "3e60e45b25bf86543aa5df8ba4fcc674114164e6184f0197690648c2908d0102",
+          "plus/validation-00000-of-00001.parquet": "fbd545b46c611c4a7ba4b48cae6c7f09bb5b59f33ff56206ad1cd366c85cdfaa",
+          "README.md": "e28704a3c04f6b05c286ca2a8891bbf32c69c000dedfc5825d6e1713369b7a89"
+        },
+        "domains": {
+          "url": "https://raw.githubusercontent.com/clinc/oos-eval/828f8093932c8fe6ca7936c3d2e52903b1c523de/data/domains.json",
+          "sha256": "b947b579d3b8e74b06f93b01083d8efaff2888b43a3e362533bd88a6e1211b3a"
+        }
+      },
+      "chance": {
+        "development": 0.1,
+        "test": 0.1
+      }
+    },
+    "sgd": {
+      "area": "retrieval",
+      "di": [
+        10,
+        "SGD/SGD-X"
+      ],
+      "metric": "accuracy",
+      "licence": "CC-BY-SA-4.0: the derived records inherit the share-alike term",
+      "licence_url": "https://github.com/google-research-datasets/dstc8-schema-guided-dialogue",
+      "attribution": "Rastogi et al., Towards Scalable Multi-domain Conversational Agents: The Schema-Guided Dialogue Dataset (AAAI 2020); Lee et al., SGD-X (AAAI 2022)",
+      "label_provenance": "human-annotated dialogue state (active_intent of the user turn's frame)",
+      "native_splits": "development from dev dialogues, test from test dialogues",
+      "mapping": "one user turn per dialogue: state = the service description and the dialogue up to and including that turn; one choice over the service's intents (name: description) plus NONE; the schema wording is the original or one of the five SGD-X paraphrase variants, chosen per dialogue by hash; strata = NONE / intent changed / intent unchanged since the previous user turn; turns with more than one frame are skipped",
+      "pins": {
+        "url": "https://codeload.github.com/google-research-datasets/dstc8-schema-guided-dialogue/tar.gz/e852981ae34990f4358979625854259302feaa78",
+        "sha256": "ff97a9ab52b4cc9f25e1a093c96431512465e8377f9a1f57dc710a10484d2188",
+        "commit": "e852981ae34990f4358979625854259302feaa78"
+      },
+      "chance": {
+        "development": 0.365556,
+        "test": 0.352222
+      }
+    },
+    "bright": {
+      "area": "retrieval",
+      "di": [
+        36,
+        "BRIGHT"
+      ],
+      "metric": "accuracy",
+      "licence": "CC-BY-4.0",
+      "licence_url": "https://huggingface.co/datasets/xlangai/BRIGHT",
+      "attribution": "Su et al., BRIGHT: A Realistic and Challenging Benchmark for Reasoning-Intensive Retrieval (ICLR 2025)",
+      "label_provenance": "human (StackExchange answers' cited documents, annotated gold chunks)",
+      "native_splits": "examples only; split into halves by query",
+      "mapping": "StackExchange domains only (biology, earth_science, economics, psychology, robotics, stackoverflow, sustainable_living); state = the post; one choice over 5 document chunks: one gold chunk and the 4 highest-BM25 chunks of the same domain that are not gold, not excluded and not from a gold document's page, every option 150-1,500 characters, in a seeded order; strata = domain",
+      "pins": {
+        "hf": "xlangai/BRIGHT@3066d29c9651a576c8aba4832d249807b181ecae",
+        "files": {
+          "examples/biology-00000-of-00001.parquet": "6e105c4f09d9a70b8a20ed6a4d0e386823a5545151df41b3f0e64eb5c5987829",
+          "documents/biology-00000-of-00001.parquet": "8516d0c233f9c34e9eb6922b56e8a1698e5a6f6e504a9499fcd511cdd5741670",
+          "examples/earth_science-00000-of-00001.parquet": "5d29f108701111984eb91c93d3e340a784a99df47dc11f43783d1b994010a91d",
+          "documents/earth_science-00000-of-00001.parquet": "abcb2cd130d7d333b364bf5c89b7ff3829e0f88eb6a2de8232c3df1173eeb8a2",
+          "examples/economics-00000-of-00001.parquet": "2a79f0f3a881c7c03a258cf8ef8ac2db1ca9080963252d9a020bb45a264aa037",
+          "documents/economics-00000-of-00001.parquet": "f3ba8a0fbc9a9aed07b4970cc686e32cfefcd06d6922402587adf871f006394c",
+          "examples/psychology-00000-of-00001.parquet": "404e7dff2a4528419df0bdc162541e92138e35b78918d82d3a04ade5b8f7876b",
+          "documents/psychology-00000-of-00001.parquet": "085d381739cb24b4227dfaf577f39d0adcad8b7b1ae74be028ac239d37be3c1d",
+          "examples/robotics-00000-of-00001.parquet": "621484c87c9ebae12f81e32a0a8c5d085af4b95cbe1b575ab40ae4b659adb53a",
+          "documents/robotics-00000-of-00001.parquet": "2c83f286006a3b2e11a677abe88f382009c5ee79f97c1f43f6a571f3f94e6d15",
+          "examples/stackoverflow-00000-of-00001.parquet": "97d417ba449ef70c9c9ae2937e9df106654a2554ce1533b090cb64b998a077e1",
+          "documents/stackoverflow-00000-of-00001.parquet": "d54559692f925666c3c6b1d33a696a64ef324cf5aaeff9d6f4d11fba5cd5ac8b",
+          "examples/sustainable_living-00000-of-00001.parquet": "61f97837a16b47a0d9953039cf0b6a53d0fc5deae96a34f839b7cb5e798eb117",
+          "documents/sustainable_living-00000-of-00001.parquet": "474628623cf9de252bd80a7d1b667aa5070e21b87e1dd33f6723db4d24121fdf"
+        }
+      },
+      "chance": {
+        "development": 0.2,
+        "test": 0.2
+      }
+    },
+    "bfcl": {
+      "area": "tools",
+      "di": [
+        1,
+        "BFCL"
+      ],
+      "metric": "case_exact",
+      "licence": "Apache-2.0",
+      "licence_url": "https://huggingface.co/datasets/gorilla-llm/Berkeley-Function-Calling-Leaderboard",
+      "attribution": "Patil et al., The Berkeley Function Calling Leaderboard (BFCL) (ICML 2025)",
+      "label_provenance": "human-verified ground-truth calls (possible_answer); irrelevance categories call nothing",
+      "native_splits": "one set per category; split into halves by item",
+      "mapping": "state = the conversation and every supplied function (name, description, JSON parameters); one noul per function 'Should the assistant call `name`?' (true when the ground truth calls it), at most 10 functions; scored case-exact, as the Index does; strata = the ten single-turn AST categories (simple, multiple, parallel, parallel_multiple, irrelevance and their live_ versions)",
+      "pins": {
+        "hf": "gorilla-llm/Berkeley-Function-Calling-Leaderboard@61fc0608cfd831fcfbbaa676ebdfef0ed963eeda",
+        "files": {
+          "BFCL_v3_simple.json": "fbc37b2ad252bf9af985582e0e07b456173fe627d957491472ea9cef5fb83158",
+          "BFCL_v3_multiple.json": "aef168155ebd74b7ac2401198b201343bc7d16d7a3d7e0d4e6d8ee82c6969b2a",
+          "BFCL_v3_parallel.json": "fad375d68295776efb63e5aa331dd884f8635e7bb50e05908113c74f14281c3c",
+          "BFCL_v3_parallel_multiple.json": "8863ea8433239f55c5f016154cf0830853c89f693c6ea270396a2fa121960579",
+          "BFCL_v3_irrelevance.json": "975f51c51f688649fd190078efd87081241e0a326f9114a2ea3c1ca2440d8690",
+          "BFCL_v3_live_simple.json": "b398743e6c0dfd2a87cee97a3bc1b9b90b81edc228c3153a820a93b51186fc00",
+          "BFCL_v3_live_multiple.json": "af2520ac5bb0b05aa9b8abe14a79b87198e5a3137a707d4f5633c792330f0cee",
+          "BFCL_v3_live_parallel.json": "6c26e9fdc3350cf596e6d1ea9c179cbff834761bccf562f4141ed29a839ca421",
+          "BFCL_v3_live_parallel_multiple.json": "21d4b9319c1faac431e22757b367ea28917fe467364c3a4b17f16ec06d4f6e79",
+          "BFCL_v3_live_irrelevance.json": "0d259e1c3ab6ba06c2a51911e2f49ecaa2eac3723a4a14f183a7687955e61338",
+          "possible_answer/BFCL_v3_simple.json": "2911a2bc00df82c4f999ffa64fedb0164cb88e96212ffa5972087eb91fd496ee",
+          "possible_answer/BFCL_v3_multiple.json": "244e00ce9395df948bcafc7bee64e8f9c87ef70887587d83cae45b13699f3047",
+          "possible_answer/BFCL_v3_parallel.json": "3af54bf04e5b7640b03a9b6a82440f52474feb24b398f94435fd2b155c7727de",
+          "possible_answer/BFCL_v3_parallel_multiple.json": "df4d2c16238c1465dc04697c273cf3ab4a450075fcd274e3dc86ad5bf0049b75",
+          "possible_answer/BFCL_v3_live_simple.json": "4a1988780cdd8a723967587614cb84a9f53aa5d6fd37f83c78a0dd7acc2f3d15",
+          "possible_answer/BFCL_v3_live_multiple.json": "97e90d59c5bd76c55a2920ce93e5566e9046307d3f558578f085f9d3a56c3084",
+          "possible_answer/BFCL_v3_live_parallel.json": "5e3d26c9103dd25912003d3c5f681f30efc6fd2b5f8ba474450f2df21fdf6fcb",
+          "possible_answer/BFCL_v3_live_parallel_multiple.json": "f5b5f360556c5feb51db46fb9f56ee4b304f4b45b161599bbb14161c98a2873f"
+        }
+      },
+      "chance": {
+        "development": 0.338698,
+        "test": 0.336094
+      }
+    },
+    "toolret": {
+      "area": "tools",
+      "di": [
+        2,
+        "ToolRet"
+      ],
+      "metric": "accuracy",
+      "licence": "Apache-2.0 (ToolRet release); queries and tools re-published from its source benchmarks",
+      "licence_url": "https://github.com/mangopy/tool-retrieval-benchmark",
+      "attribution": "Shi et al., Retrieval Models Aren't Tool-Savvy: Benchmarking Tool Retrieval for Large Language Models (Findings of ACL 2025)",
+      "label_provenance": "source benchmarks' target tools (published labels)",
+      "native_splits": "queries only; split into halves by query",
+      "mapping": "subsets except apibank (API-Bank is its own dataset in this panel), apigen (Salesforce xLAM-60k, whose card carries a research-only statement); state = the query; one choice over 5 tools (name: description, description cut to 400 characters): one labelled tool and the 4 highest-BM25 unlabelled tools of the same tool corpus (web / code / customized), in a seeded order; strata = subset",
+      "pins": {
+        "queries": {
+          "hf": "mangopy/ToolRet-Queries@b8c76ad3349ff17497b6bdb28bb5b8f61a0f6445",
+          "files": {
+            "appbench/queries-00000-of-00001.parquet": "e7efff5e12a7676df46ded343abfdd44cc3c4fbeacee3d6b89edec8a9022b5d7",
+            "autotools-food/queries-00000-of-00001.parquet": "a780caf11c358db91552c6c75a7c8fe6312c73dcead3413543b9ccb1ffef6419",
+            "autotools-music/queries-00000-of-00001.parquet": "aff4630b7e8828b262df047b2db1172cf24b57c15e454261359f6e64e028487d",
+            "autotools-weather/queries-00000-of-00001.parquet": "80203c8ee6070ca102b08eb90b134f9602e4d085ba2f4da4f89288e1edd5f68f",
+            "craft-math-algebra/queries-00000-of-00001.parquet": "70993dcb4bc2b55f42994bed7f08b785d6af6baad941ee6973db26e2700b5df6",
+            "craft-tabmwp/queries-00000-of-00001.parquet": "c86458e41e26ac631aea4223fb9e24803d1b8117e31c28265824c10d221cfdf5",
+            "craft-vqa/queries-00000-of-00001.parquet": "014a4d68f6f55f74820139ea6008cbce91c609d8e0965aac94ac1599683d8d9b",
+            "gorilla-huggingface/queries-00000-of-00001.parquet": "ed64800b722bc8e2b8520feb3e5defc3988b0cc858929396ffc930625e71f703",
+            "gorilla-pytorch/queries-00000-of-00001.parquet": "b6423e142bab08ac0d7f9cdc1851a8e85a915970936139c795f697188b137ae0",
+            "gorilla-tensor/queries-00000-of-00001.parquet": "5b037823ac75e503df7abb08c51dcf7843f86ffb8ff45a625a09f1589b8f1fc7",
+            "gpt4tools/queries-00000-of-00001.parquet": "7171ba30b7930b76e3562d38c0cf74c2c778fbc429e2087234f8bef577ed7576",
+            "gta/queries-00000-of-00001.parquet": "757560b5e587993e8fb05c9d3ad146016cdefa21b938bd50b78ad6045067bb08",
+            "metatool/queries-00000-of-00001.parquet": "f4839301cd345a6b5eef1ebfd1710dfb209e5c9b6812a31ed8d7152979393ca0",
+            "mnms/queries-00000-of-00001.parquet": "d591f2cf3974abe21c6c0462a935b53b807246b95ed4d7439d5d05e0e97973ca",
+            "restgpt-spotify/queries-00000-of-00001.parquet": "a2dcd32971d6e807c437f09f3c09f84a2bc53a805468b98307ea41116c35e0a4",
+            "restgpt-tmdb/queries-00000-of-00001.parquet": "aa8a256d7100b005f6258f60229b5c0350967be3b8b8d6e6b58dfa79a8059193",
+            "reversechain/queries-00000-of-00001.parquet": "d4da51689cfc10f045e37bce6ffeb665e43a67faa9d71834abc84106603ad854",
+            "rotbench/queries-00000-of-00001.parquet": "2f75a1caf9c105560b5da02bd17e733e7d4d7e57ed6e0696728ffc36dae00159",
+            "t-eval-dialog/queries-00000-of-00001.parquet": "da566b97d930ce44b89bca85c2e7fa6acac6809110f76bb2e354a77a978ed97e",
+            "t-eval-step/queries-00000-of-00001.parquet": "eddd81571593a320e09b96d3807350d81f5c2778087489844d73551fca14c899",
+            "taskbench-daily/queries-00000-of-00001.parquet": "7357298960afafd3afcff91559cc14e95486e729798ef1b39af044e494cb8d15",
+            "taskbench-huggingface/queries-00000-of-00001.parquet": "c94f6ca056dd0906fb0f0d2cd9abe4f98a077c368fc52af9dee14325ee60d58a",
+            "taskbench-multimedia/queries-00000-of-00001.parquet": "0cebfcd50a061c48c043785f80db4ec48fbaa82f764db29f20b83f82b7e6d7e4",
+            "tool-be-honest/queries-00000-of-00001.parquet": "e936b9dde7b3e7256662464a118b952c3873ea0b6086d0a328a568b7b35678cb",
+            "toolace/queries-00000-of-00001.parquet": "49f7c861cec1799430680cea1df6cb98a10b33227f6cb183ac32375f396fcd5a",
+            "toolalpaca/queries-00000-of-00001.parquet": "627659a13d1b30a76e94d91ea27b14b4bc3be30e3fd6cd727f58ca1665bb1fe2",
+            "toolbench-sam/queries-00000-of-00001.parquet": "36075db0985db103afac9ad959f7974e79eb267c7d47fd31a6de4813e3a3802f",
+            "toolbench/queries-00000-of-00001.parquet": "2bb32ea009d6ece37b1b785330247aacac037a20dd4522632cb3359809c8837d",
+            "toolemu/queries-00000-of-00001.parquet": "f11491359b61bfb4a6f4d9bed2c45baab547938986e749e9eee555c667887020",
+            "tooleyes/queries-00000-of-00001.parquet": "c28280ed0a3cb119cc22f3f6678610bd2b7d4f9acbe7b800f0452b9a8d8a5d09",
+            "toolink/queries-00000-of-00001.parquet": "6ff2d524e1e79b8af96518e9d880ddf00cb8371e1bf58475011551b74d9d4a91",
+            "toollens/queries-00000-of-00001.parquet": "344e08a552508c77cb58e87dc93f7090f5c4eedba771095e5cdf6c1b12243a79",
+            "ultratool/queries-00000-of-00001.parquet": "5fc5fd59cab9e9a6852817ccb4645f81d47bf4394da232404d798c1be33d36b8"
+          }
+        },
+        "tools": {
+          "hf": "mangopy/ToolRet-Tools@e06c38c75612b6536bd959e08cdd345894aba6a7",
+          "files": {
+            "web/tools-00000-of-00001.parquet": "57faceebd778b2cb74571dca0e71e8bc8078c11ba05dce0efc562e818d3950e6",
+            "code/tools-00000-of-00001.parquet": "a5b1a8111a40128b1429fe53a490e627fd2832ebe2e641db5eeb695ecb4f0d9a",
+            "customized/tools-00000-of-00001.parquet": "e3d0cf64f5d5321751401677c820c5e8c7df79bfd67a85c01e275fe573cbde41"
+          }
+        }
+      },
+      "chance": {
+        "development": 0.2,
+        "test": 0.2
+      }
+    },
+    "apibank": {
+      "area": "tools",
+      "di": [
+        3,
+        "API-Bank"
+      ],
+      "metric": "accuracy",
+      "licence": "MIT",
+      "licence_url": "https://huggingface.co/datasets/liminghao1630/API-Bank",
+      "attribution": "Li et al., API-Bank: A Comprehensive Benchmark for Tool-Augmented LLMs (EMNLP 2023)",
+      "label_provenance": "human-annotated API call (expected_output)",
+      "native_splits": "level-1 test only; split into halves by dialogue file",
+      "mapping": "state = the dialogue so far; one choice over up to 8 APIs (name: description): the APIs the level-1 item itself describes plus the highest-BM25 others from the level-1 catalog, in a seeded order; strata = the reference API",
+      "pins": {
+        "hf": "liminghao1630/API-Bank@12e8158b7628c168f07e8f31fbbe3445e99f44cf",
+        "files": {
+          "test-data/level-1-api.json": "0d3155c5495399836b5b1f1cc4eb6d5d50efa16b2734af50a016a158e9dd79bb"
+        }
+      },
+      "chance": {
+        "development": 0.125,
+        "test": 0.125119
+      }
+    },
+    "routerbench": {
+      "area": "tools",
+      "di": [
+        6,
+        "RouterBench"
+      ],
+      "metric": "accuracy",
+      "licence": "MIT",
+      "licence_url": "https://github.com/withmartian/routerbench",
+      "attribution": "Hu et al., RouterBench: A Benchmark for Multi-LLM Routing System (2024), Martian",
+      "label_provenance": "recorded correctness of each model's answer (0/1 exact scoring by the RouterBench harness)",
+      "native_splits": "0-shot file only; split into halves by sample",
+      "mapping": "MMLU, Winogrande and MBPP prompts whose 11 scores are all 0/1 (GSM8K is left out because its scores in this file are fractional, HellaSwag for the wikiHow notice, ARC because ARC is in Kev's training data); state = the prompt; one choice 'which of these models answered correctly' over one correct model and up to 9 incorrect ones (drawn in a seeded order), so the answer is unique; strata = source benchmark",
+      "pins": {
+        "hf": "withmartian/routerbench@784021482c3f320c6619ed4b3bb3b41a21424fcb",
+        "files": {
+          "routerbench_0shot.pkl": "ba4f77f19517610a707c374e99322d7750c30fc4ae7ff5527888595a1e65d36d"
+        }
+      },
+      "chance": {
+        "development": 0.212944,
+        "test": 0.206918
+      }
+    },
+    "humicroedit": {
+      "area": "arts",
+      "di": [
+        21,
+        "Humicroedit"
+      ],
+      "metric": "accuracy",
+      "licence": "none stated (SemEval-2020 Task 7 research release; the README asks users to cite the task paper)",
+      "licence_url": "https://cs.rochester.edu/u/nhossain/humicroedit.html",
+      "attribution": "Hossain et al., SemEval-2020 Task 7: Assessing Humor in Edited News Headlines (SemEval 2020)",
+      "label_provenance": "human (crowd funniness grades; label = the edit with the higher mean grade)",
+      "native_splits": "subtask-2 dev.csv -> development, test.csv -> test",
+      "mapping": "state = the original headline; one choice between the two edited headlines (a / b), ties dropped; one pair per headline; strata = label",
+      "pins": {
+        "url": "https://cs.rochester.edu/u/nhossain/semeval-2020-task-7-dataset.zip",
+        "sha256": "12a6cbf28c8b698ad80be42a65ac867b57e4c71662eedab607805e167ba791ab"
+      },
+      "chance": {
+        "development": 0.5,
+        "test": 0.5
+      }
+    },
+    "cfcolor": {
+      "area": "arts",
+      "di": [
+        23,
+        "cfcolor"
+      ],
+      "metric": "accuracy",
+      "licence": "release notice: 'Permission is granted for anyone to copy, use, modify, or distribute this program and accompanying programs and documents for any purpose' (runPrediction.m), no separate data licence",
+      "licence_url": "https://www.dgp.toronto.edu/~donovan/cfcolor/",
+      "attribution": "O'Donovan, Agarwala and Hertzmann, Collaborative Filtering of Color Aesthetics (CAe 2014)",
+      "label_provenance": "human (Mechanical Turk 1-5 ratings of 5-colour themes)",
+      "native_splits": "one rating set; split into halves by user",
+      "mapping": "one record per user: state = 12 of the user's training-set ratings (five hex colours and a 1-5 rating each); one choice between two palettes from the user's test-set ratings with different ratings, which did this person rate higher (a / b); strata = label",
+      "pins": {
+        "url": "https://www.dgp.toronto.edu/~donovan/cfcolor/cfcolor.zip",
+        "sha256": "47c07095642cfab3c2eeab366a5d152b07783cbb5af390cbfda7d7c13db4b54c"
+      },
+      "chance": {
+        "development": 0.5,
+        "test": 0.5
+      }
+    }
+  },
+  "skipped": {
+    "gpqa_diamond": {
+      "area": "knowledge",
+      "di": [
+        25,
+        "GPQA Diamond"
+      ],
+      "reason": "gated on the Hub (Idavidrein/gpqa: accepting the dataset's terms is required, and this account has not); not accepted on the owner's behalf. Its terms also ask that examples not be revealed in plain text online, which a public suite would do"
+    }
+  },
+  "decision_index": {
+    "space": "multimodalart/jev-decision-index@28bab1369865c3ca0aa2354564f3ae72e103ef2a",
+    "file": "data/methodology.json",
+    "edition": {
+      "id": "v0.2",
+      "label": "Decision Index 0.2",
+      "date": "2026-09-24",
+      "panel_id": "decision-index-0.2",
+      "jev_version": "jev-1.13.0",
+      "jev_edition": "Full release v1"
+    },
+    "panel_id": "decision-index-0.2",
+    "formula": "per benchmark k = clip((score - chance) / (1 - chance)) on the coverage-adjusted score (unanswered = wrong); area = mean of its benchmarks; index = 100 x mean of the five areas",
+    "datasets": {
+      "musr": {
+        "id": 32,
+        "name": "MuSR",
+        "area": "knowledge",
+        "metric": "accuracy",
+        "chance": 0.371,
+        "subset_rule": "All 756 prepared cases retained."
+      },
+      "sata_bench": {
+        "id": 33,
+        "name": "SATA-Bench",
+        "area": "knowledge",
+        "metric": "case exact accuracy",
+        "chance": 0.0131,
+        "subset_rule": "All 1,650 prepared cases retained."
+      },
+      "chessbench": {
+        "id": 31,
+        "name": "ChessBench",
+        "area": "knowledge",
+        "metric": "accuracy",
+        "chance": 0.0819,
+        "subset_rule": "5,000 of 61,833 prepared cases, deterministic hash sample without replacement (seed 20260919); no outcome-based selection."
+      },
+      "contractnli": {
+        "id": 11,
+        "name": "ContractNLI",
+        "area": "language",
+        "metric": "macro-F1",
+        "chance": 0.3085,
+        "subset_rule": "All 123 prepared cases retained."
+      },
+      "hellaswag": {
+        "id": 29,
+        "name": "HellaSwag",
+        "area": "language",
+        "metric": "accuracy",
+        "chance": 0.25,
+        "subset_rule": "All 10,042 prepared cases retained."
+      },
+      "clinc150": {
+        "id": 5,
+        "name": "CLINC150+OOS",
+        "area": "retrieval",
+        "metric": "macro-F1",
+        "chance": 0.006,
+        "subset_rule": "All 5,500 prepared cases retained."
+      },
+      "sgd": {
+        "id": 10,
+        "name": "SGD/SGD-X",
+        "area": "retrieval",
+        "metric": "macro-F1",
+        "chance": 0.399,
+        "subset_rule": "2,500 of 46,116 prepared cases, deterministic hash sample without replacement (seed 20260919); no outcome-based selection."
+      },
+      "bright": {
+        "id": 36,
+        "name": "BRIGHT",
+        "area": "retrieval",
+        "metric": "nDCG@10",
+        "chance": 0.0448,
+        "subset_rule": "550 of 1,297 scoreable v1 queries kept (637 requests): stratified by source domain, proportional allocation with at least one query per domain (seed 20260922); kept queries keep their complete candidate lists; no outcome-based selection."
+      },
+      "bfcl": {
+        "id": 1,
+        "name": "BFCL",
+        "area": "tools",
+        "metric": "case exact accuracy",
+        "chance": 0.2592,
+        "subset_rule": "All 1,694 prepared cases retained."
+      },
+      "toolret": {
+        "id": 2,
+        "name": "ToolRet",
+        "area": "tools",
+        "metric": "nDCG@10",
+        "chance": 0.0937,
+        "subset_rule": "1,000 of 7,704 scoreable v1 queries kept (1,328 requests): stratified by source domain, proportional allocation with at least one query per domain (seed 20260922); kept queries keep their complete candidate lists; no outcome-based selection."
+      },
+      "apibank": {
+        "id": 3,
+        "name": "API-Bank",
+        "area": "tools",
+        "metric": "accuracy",
+        "chance": 0.0189,
+        "subset_rule": "All 508 prepared cases retained."
+      },
+      "routerbench": {
+        "id": 6,
+        "name": "RouterBench",
+        "area": "tools",
+        "metric": "selected quality (quality objective)",
+        "chance": 0.5735,
+        "subset_rule": "10,000 requests within a 10,000-request cap: 5,001 complete linked case groups of 29,163 prepared; groups kept intact."
+      },
+      "humicroedit": {
+        "id": 21,
+        "name": "Humicroedit",
+        "area": "arts",
+        "metric": "accuracy",
+        "chance": 0.5,
+        "subset_rule": "All 2,628 prepared cases retained."
+      },
+      "cfcolor": {
+        "id": 23,
+        "name": "cfcolor",
+        "area": "arts",
+        "metric": "accuracy",
+        "chance": 0.5,
+        "subset_rule": "5,000 of 11,821 prepared cases, deterministic hash sample without replacement (seed 20260919); no outcome-based selection."
+      },
+      "gpqa_diamond": {
+        "id": 25,
+        "name": "GPQA Diamond",
+        "area": "knowledge",
+        "metric": "accuracy",
+        "chance": 0.25,
+        "subset_rule": "All 198 prepared cases retained."
+      }
+    }
+  },
+  "scoring": {
+    "helper": "scripts/breadth_report.py",
+    "metrics": {
+      "accuracy": "fraction of questions answered right",
+      "case_exact": "fraction of records with every question right"
+    },
+    "chance": "expected score of uniform random answers: mean of 1/K over questions (accuracy), mean over records of the product of 1/K (case_exact)",
+    "skill": "clip((score - chance) / (1 - chance)) with unanswered questions scored wrong; area = mean of its datasets; index = 100 x mean of the five areas",
+    "calibration": "ECE (10 bins) and Brier on the returned probabilities of answered questions, per dataset, area and pooled"
+  },
+  "counts": {
+    "development": {
+      "apibank": 150,
+      "bfcl": 150,
+      "bright": 150,
+      "cfcolor": 150,
+      "chessbench": 150,
+      "clinc150": 150,
+      "contractnli": 40,
+      "hellaswag": 150,
+      "humicroedit": 150,
+      "musr": 150,
+      "routerbench": 150,
+      "sata_bench": 150,
+      "sgd": 150,
+      "toolret": 150
+    },
+    "test": {
+      "apibank": 150,
+      "bfcl": 150,
+      "bright": 150,
+      "cfcolor": 150,
+      "chessbench": 150,
+      "clinc150": 150,
+      "contractnli": 40,
+      "hellaswag": 150,
+      "humicroedit": 150,
+      "musr": 150,
+      "routerbench": 150,
+      "sata_bench": 150,
+      "sgd": 150,
+      "toolret": 150
+    }
+  },
+  "questions": {
+    "development": {
+      "apibank": 150,
+      "bfcl": 306,
+      "bright": 150,
+      "cfcolor": 150,
+      "chessbench": 150,
+      "clinc150": 150,
+      "contractnli": 160,
+      "hellaswag": 150,
+      "humicroedit": 150,
+      "musr": 150,
+      "routerbench": 150,
+      "sata_bench": 959,
+      "sgd": 150,
+      "toolret": 150
+    },
+    "test": {
+      "apibank": 150,
+      "bfcl": 305,
+      "bright": 150,
+      "cfcolor": 150,
+      "chessbench": 150,
+      "clinc150": 150,
+      "contractnli": 160,
+      "hellaswag": 150,
+      "humicroedit": 150,
+      "musr": 150,
+      "routerbench": 150,
+      "sata_bench": 974,
+      "sgd": 150,
+      "toolret": 150
+    }
+  },
+  "strata": {
+    "development": {
+      "apibank": {
+        "AddAgenda": 4,
+        "AddAlarm": 1,
+        "AddMeeting": 1,
+        "AppointmentRegistration": 6,
+        "BookHotel": 2,
+        "Calculator": 5,
+        "CancelRegistration": 4,
+        "CancelTimedSwitch": 4,
+        "DeleteAccount": 5,
+        "DeleteAgenda": 3,
+        "DeleteMeeting": 1,
+        "DeleteReminder": 1,
+        "Dictionary": 4,
+        "DocumentQA": 4,
+        "EmergencyKnowledge": 6,
+        "ForgotPassword": 5,
+        "GetToday": 3,
+        "GetUserToken": 22,
+        "ModifyAgenda": 2,
+        "ModifyAlarm": 4,
+        "ModifyMeeting": 2,
+        "ModifyPassword": 4,
+        "ModifyRegistration": 6,
+        "ModifyReminder": 4,
+        "OpenBankAccount": 4,
+        "PlayMusic": 1,
+        "QueryBalance": 4,
+        "QueryHealthData": 2,
+        "QueryHistoryToday": 3,
+        "QueryMeeting": 1,
+        "QueryRegistration": 5,
+        "QueryReminder": 4,
+        "QueryScene": 3,
+        "QueryStock": 5,
+        "RecordHealthData": 5,
+        "RegisterUser": 3,
+        "SymptomSearch": 3,
+        "TimedSwitch": 1,
+        "Translate": 2,
+        "Wiki": 1
+      },
+      "bfcl": {
+        "irrelevance": 17,
+        "live_irrelevance": 17,
+        "live_multiple": 16,
+        "live_parallel": 8,
+        "live_parallel_multiple": 12,
+        "live_simple": 16,
+        "multiple": 16,
+        "parallel": 16,
+        "parallel_multiple": 16,
+        "simple": 16
+      },
+      "bright": {
+        "biology": 23,
+        "earth_science": 23,
+        "economics": 23,
+        "psychology": 23,
+        "robotics": 23,
+        "stackoverflow": 12,
+        "sustainable_living": 23
+      },
+      "cfcolor": {
+        "a": 75,
+        "b": 75
+      },
+      "chessbench": {
+        "endgame": 50,
+        "middlegame": 50,
+        "opening": 50
+      },
+      "clinc150": {
+        "auto_and_commute": 14,
+        "banking": 14,
+        "credit_cards": 14,
+        "home": 14,
+        "kitchen_and_dining": 14,
+        "meta": 14,
+        "oos": 14,
+        "small_talk": 13,
+        "travel": 13,
+        "utility": 13,
+        "work": 13
+      },
+      "contractnli": {
+        "search-pdf": 17,
+        "sec-html": 11,
+        "sec-text": 12
+      },
+      "hellaswag": {
+        "indomain": 75,
+        "zeroshot": 75
+      },
+      "humicroedit": {
+        "a": 75,
+        "b": 75
+      },
+      "musr": {
+        "murder_mystery": 61,
+        "object_placements": 29,
+        "team_allocation": 60
+      },
+      "routerbench": {
+        "mbpp": 50,
+        "mmlu": 50,
+        "winogrande": 50
+      },
+      "sata_bench": {
+        "answers_1": 1,
+        "answers_2": 75,
+        "answers_3": 74
+      },
+      "sgd": {
+        "changed": 50,
+        "none": 50,
+        "same": 50
+      },
+      "toolret": {
+        "appbench": 5,
+        "autotools-food": 5,
+        "autotools-music": 5,
+        "autotools-weather": 3,
+        "craft-math-algebra": 5,
+        "craft-tabmwp": 5,
+        "craft-vqa": 5,
+        "gorilla-huggingface": 5,
+        "gorilla-pytorch": 5,
+        "gorilla-tensor": 5,
+        "gpt4tools": 5,
+        "gta": 5,
+        "metatool": 5,
+        "mnms": 5,
+        "restgpt-spotify": 5,
+        "restgpt-tmdb": 5,
+        "reversechain": 5,
+        "rotbench": 5,
+        "t-eval-dialog": 5,
+        "t-eval-step": 5,
+        "taskbench-daily": 4,
+        "taskbench-huggingface": 4,
+        "taskbench-multimedia": 4,
+        "tool-be-honest": 4,
+        "toolace": 4,
+        "toolalpaca": 4,
+        "toolbench": 4,
+        "toolbench-sam": 4,
+        "toolemu": 4,
+        "tooleyes": 4,
+        "toolink": 4,
+        "toollens": 4,
+        "ultratool": 4
+      }
+    },
+    "test": {
+      "apibank": {
+        "AddAgenda": 5,
+        "AddAlarm": 2,
+        "AddMeeting": 1,
+        "AddReminder": 3,
+        "AppointmentRegistration": 5,
+        "BookHotel": 3,
+        "Calculator": 4,
+        "CancelRegistration": 7,
+        "CancelTimedSwitch": 1,
+        "DeleteAccount": 5,
+        "DeleteAgenda": 2,
+        "DeleteAlarm": 4,
+        "DeleteScene": 3,
+        "Dictionary": 1,
+        "DocumentQA": 2,
+        "EmergencyKnowledge": 9,
+        "ForgotPassword": 2,
+        "GetToday": 2,
+        "GetUserToken": 8,
+        "ImageCaption": 1,
+        "ModifyAlarm": 2,
+        "ModifyMeeting": 2,
+        "ModifyPassword": 2,
+        "ModifyRegistration": 7,
+        "ModifyReminder": 4,
+        "OpenBankAccount": 8,
+        "PlayMusic": 2,
+        "QueryAgenda": 1,
+        "QueryAlarm": 1,
+        "QueryBalance": 4,
+        "QueryHealthData": 3,
+        "QueryHistoryToday": 6,
+        "QueryMeeting": 2,
+        "QueryRegistration": 8,
+        "QueryScene": 2,
+        "QueryStock": 7,
+        "RecordHealthData": 7,
+        "RegisterUser": 3,
+        "SearchEngine": 1,
+        "SendEmail": 1,
+        "SpeechRecognition": 1,
+        "SymptomSearch": 2,
+        "TimedSwitch": 2,
+        "Translate": 2
+      },
+      "bfcl": {
+        "irrelevance": 17,
+        "live_irrelevance": 17,
+        "live_multiple": 16,
+        "live_parallel": 8,
+        "live_parallel_multiple": 12,
+        "live_simple": 16,
+        "multiple": 16,
+        "parallel": 16,
+        "parallel_multiple": 16,
+        "simple": 16
+      },
+      "bright": {
+        "biology": 23,
+        "earth_science": 23,
+        "economics": 23,
+        "psychology": 23,
+        "robotics": 22,
+        "stackoverflow": 14,
+        "sustainable_living": 22
+      },
+      "cfcolor": {
+        "a": 75,
+        "b": 75
+      },
+      "chessbench": {
+        "endgame": 50,
+        "middlegame": 50,
+        "opening": 50
+      },
+      "clinc150": {
+        "auto_and_commute": 14,
+        "banking": 14,
+        "credit_cards": 14,
+        "home": 14,
+        "kitchen_and_dining": 14,
+        "meta": 14,
+        "oos": 14,
+        "small_talk": 13,
+        "travel": 13,
+        "utility": 13,
+        "work": 13
+      },
+      "contractnli": {
+        "search-pdf": 14,
+        "sec-html": 13,
+        "sec-text": 13
+      },
+      "hellaswag": {
+        "indomain": 75,
+        "zeroshot": 75
+      },
+      "humicroedit": {
+        "a": 75,
+        "b": 75
+      },
+      "musr": {
+        "murder_mystery": 58,
+        "object_placements": 35,
+        "team_allocation": 57
+      },
+      "routerbench": {
+        "mbpp": 50,
+        "mmlu": 50,
+        "winogrande": 50
+      },
+      "sata_bench": {
+        "answers_2": 75,
+        "answers_3": 75
+      },
+      "sgd": {
+        "changed": 50,
+        "none": 50,
+        "same": 50
+      },
+      "toolret": {
+        "appbench": 5,
+        "autotools-food": 5,
+        "autotools-music": 5,
+        "autotools-weather": 5,
+        "craft-math-algebra": 5,
+        "craft-tabmwp": 5,
+        "craft-vqa": 5,
+        "gorilla-huggingface": 5,
+        "gorilla-pytorch": 5,
+        "gorilla-tensor": 5,
+        "gpt4tools": 5,
+        "gta": 5,
+        "metatool": 5,
+        "mnms": 5,
+        "restgpt-spotify": 5,
+        "restgpt-tmdb": 5,
+        "reversechain": 5,
+        "rotbench": 5,
+        "t-eval-dialog": 4,
+        "t-eval-step": 4,
+        "taskbench-daily": 4,
+        "taskbench-huggingface": 4,
+        "taskbench-multimedia": 4,
+        "tool-be-honest": 4,
+        "toolace": 4,
+        "toolalpaca": 4,
+        "toolbench": 4,
+        "toolbench-sam": 4,
+        "toolemu": 4,
+        "tooleyes": 4,
+        "toolink": 4,
+        "toollens": 4,
+        "ultratool": 4
+      }
+    }
+  },
+  "state_tokens": {
+    "development": {
+      "apibank": {
+        "min": 11,
+        "median": 140,
+        "p95": 412,
+        "max": 685
+      },
+      "bfcl": {
+        "min": 111,
+        "median": 270,
+        "p95": 1021,
+        "max": 2289
+      },
+      "bright": {
+        "min": 26,
+        "median": 119,
+        "p95": 447,
+        "max": 3525
+      },
+      "cfcolor": {
+        "min": 459,
+        "median": 549,
+        "p95": 565,
+        "max": 572
+      },
+      "chessbench": {
+        "min": 129,
+        "median": 148,
+        "p95": 155,
+        "max": 159
+      },
+      "clinc150": {
+        "min": 3,
+        "median": 9,
+        "p95": 20,
+        "max": 28
+      },
+      "contractnli": {
+        "min": 453,
+        "median": 2287,
+        "p95": 4668,
+        "max": 6015
+      },
+      "hellaswag": {
+        "min": 17,
+        "median": 34,
+        "p95": 53,
+        "max": 58
+      },
+      "humicroedit": {
+        "min": 12,
+        "median": 19,
+        "p95": 28,
+        "max": 34
+      },
+      "musr": {
+        "min": 478,
+        "median": 922,
+        "p95": 1291,
+        "max": 1463
+      },
+      "routerbench": {
+        "min": 9,
+        "median": 49,
+        "p95": 208,
+        "max": 589
+      },
+      "sata_bench": {
+        "min": 67,
+        "median": 253,
+        "p95": 809,
+        "max": 1476
+      },
+      "sgd": {
+        "min": 23,
+        "median": 233,
+        "p95": 473,
+        "max": 705
+      },
+      "toolret": {
+        "min": 8,
+        "median": 34,
+        "p95": 107,
+        "max": 504
+      }
+    },
+    "test": {
+      "apibank": {
+        "min": 20,
+        "median": 122,
+        "p95": 385,
+        "max": 721
+      },
+      "bfcl": {
+        "min": 95,
+        "median": 295,
+        "p95": 1143,
+        "max": 1609
+      },
+      "bright": {
+        "min": 30,
+        "median": 143,
+        "p95": 612,
+        "max": 2521
+      },
+      "cfcolor": {
+        "min": 417,
+        "median": 549,
+        "p95": 562,
+        "max": 570
+      },
+      "chessbench": {
+        "min": 130,
+        "median": 147,
+        "p95": 156,
+        "max": 159
+      },
+      "clinc150": {
+        "min": 3,
+        "median": 9,
+        "p95": 17,
+        "max": 23
+      },
+      "contractnli": {
+        "min": 738,
+        "median": 2191,
+        "p95": 4766,
+        "max": 5595
+      },
+      "hellaswag": {
+        "min": 19,
+        "median": 33,
+        "p95": 51,
+        "max": 66
+      },
+      "humicroedit": {
+        "min": 11,
+        "median": 19,
+        "p95": 27,
+        "max": 35
+      },
+      "musr": {
+        "min": 460,
+        "median": 988,
+        "p95": 1317,
+        "max": 1478
+      },
+      "routerbench": {
+        "min": 11,
+        "median": 51,
+        "p95": 178,
+        "max": 497
+      },
+      "sata_bench": {
+        "min": 42,
+        "median": 290,
+        "p95": 1002,
+        "max": 1509
+      },
+      "sgd": {
+        "min": 24,
+        "median": 254,
+        "p95": 614,
+        "max": 793
+      },
+      "toolret": {
+        "min": 2,
+        "median": 35,
+        "p95": 102,
+        "max": 680
+      }
+    }
+  },
+  "tokenizer": {
+    "model": "Qwen/Qwen3.5-4B-Base",
+    "revision": "1001bb4d826a52d1f399e183466143f4da7b741b"
+  },
+  "base_revisions": {
+    "Qwen/Qwen3.5-4B-Base": "1001bb4d826a52d1f399e183466143f4da7b741b"
+  },
+  "context": {
+    "max_state": 8192,
+    "max_branch": 8192,
+    "max_packed": 16384,
+    "truncate": false,
+    "admission": {
+      "max_state": 7168,
+      "max_branch": 7680,
+      "max_packed": 16384
+    },
+    "note": "records are admitted at `admission` under the tokenizer above (row = state + one question <= 7,680 tokens) and scored in the serving context; far longer than Kev's 384 / 1,024 training context"
+  },
+  "selection": "development and test 150 records per dataset (40 documents for contractnli); native dev/test splits kept where they exist, otherwise groups dealt to halves in a seeded hash order; round-robin over each dataset's strata in a seeded order; normalised-text state dedupe across all datasets and both partitions (test first); no group spans the partitions",
+  "label_protocol": "no LLM labels: every label is the source dataset's own (human, engine, recorded execution or by construction); candidate subsets always contain the reference answer",
+  "build_report": {
+    "musr": {
+      "candidates": 756,
+      "pool": {
+        "development": 281,
+        "test": 283
+      }
+    },
+    "sata_bench": {
+      "rows": 1604,
+      "dropped_options": 577,
+      "candidates": 1027,
+      "pool": {
+        "development": 513,
+        "test": 514
+      }
+    },
+    "chessbench": {
+      "positions": 62561,
+      "pool": {
+        "development": 1930,
+        "test": 1930
+      },
+      "candidates": 3860
+    },
+    "contractnli": {
+      "candidates": 184,
+      "pool": {
+        "development": 61,
+        "test": 122
+      }
+    },
+    "hellaswag": {
+      "rows": 10042,
+      "activitynet": 3243,
+      "wikihow_left_out": 6799,
+      "pool": {
+        "development": 1623,
+        "test": 1620
+      }
+    },
+    "clinc150": {
+      "candidates": 8600,
+      "pool": {
+        "development": 3100,
+        "test": 5500
+      }
+    },
+    "sgd": {
+      "candidates": 61127,
+      "turns_by_stratum": {
+        "development/changed": 4879,
+        "development/none": 1531,
+        "development/same": 16239,
+        "test/changed": 7962,
+        "test/none": 2674,
+        "test/same": 27842
+      },
+      "pool": {
+        "development": 22603,
+        "test": 38348
+      }
+    },
+    "bright": {
+      "candidates": 436,
+      "by_domain": {
+        "biology": {
+          "documents": 57359,
+          "candidates": 74
+        },
+        "earth_science": {
+          "documents": 121249,
+          "candidates": 49
+        },
+        "economics": {
+          "documents": 50220,
+          "candidates": 63
+        },
+        "psychology": {
+          "documents": 52835,
+          "candidates": 61
+        },
+        "robotics": {
+          "documents": 61961,
+          "candidates": 74
+        },
+        "stackoverflow": {
+          "documents": 107081,
+          "candidates": 26
+        },
+        "sustainable_living": {
+          "documents": 60792,
+          "candidates": 89
+        }
+      },
+      "pool": {
+        "development": 218,
+        "test": 218
+      }
+    },
+    "bfcl": {
+      "candidates": 3462,
+      "by_category": {
+        "simple": {
+          "items": 400,
+          "without_answer": 0,
+          "candidates": 399
+        },
+        "multiple": {
+          "items": 200,
+          "without_answer": 0,
+          "candidates": 200
+        },
+        "parallel": {
+          "items": 200,
+          "without_answer": 0,
+          "candidates": 200
+        },
+        "parallel_multiple": {
+          "items": 200,
+          "without_answer": 0,
+          "candidates": 200
+        },
+        "irrelevance": {
+          "items": 240,
+          "without_answer": 0,
+          "candidates": 240
+        },
+        "live_simple": {
+          "items": 258,
+          "without_answer": 0,
+          "candidates": 258
+        },
+        "live_multiple": {
+          "items": 1053,
+          "without_answer": 1,
+          "candidates": 1050
+        },
+        "live_parallel": {
+          "items": 16,
+          "without_answer": 0,
+          "candidates": 16
+        },
+        "live_parallel_multiple": {
+          "items": 24,
+          "without_answer": 0,
+          "candidates": 24
+        },
+        "live_irrelevance": {
+          "items": 882,
+          "without_answer": 0,
+          "candidates": 875
+        }
+      },
+      "pool": {
+        "development": 1728,
+        "test": 1728
+      }
+    },
+    "toolret": {
+      "candidates": 6822,
+      "by_subset": {
+        "appbench": 32,
+        "autotools-food": 22,
+        "autotools-music": 32,
+        "autotools-weather": 11,
+        "craft-math-algebra": 278,
+        "craft-tabmwp": 171,
+        "craft-vqa": 192,
+        "gorilla-huggingface": 500,
+        "gorilla-pytorch": 43,
+        "gorilla-tensor": 55,
+        "gpt4tools": 32,
+        "gta": 14,
+        "metatool": 197,
+        "mnms": 32,
+        "restgpt-spotify": 40,
+        "restgpt-tmdb": 54,
+        "reversechain": 200,
+        "rotbench": 550,
+        "t-eval-dialog": 50,
+        "t-eval-step": 50,
+        "taskbench-daily": 40,
+        "taskbench-huggingface": 23,
+        "taskbench-multimedia": 40,
+        "tool-be-honest": 350,
+        "toolace": 1000,
+        "toolalpaca": 93,
+        "toolbench-sam": 181,
+        "toolbench": 1100,
+        "toolemu": 38,
+        "tooleyes": 95,
+        "toolink": 493,
+        "toollens": 314,
+        "ultratool": 500
+      },
+      "excluded_subsets": {
+        "apibank": "API-Bank is its own dataset in this panel",
+        "apigen": "Salesforce xLAM-60k, whose card carries a research-only statement"
+      },
+      "pool": {
+        "development": 3165,
+        "test": 3173
+      }
+    },
+    "apibank": {
+      "rows": 399,
+      "dropped": 0,
+      "catalog": 49,
+      "candidates": 399,
+      "pool": {
+        "development": 192,
+        "test": 197
+      }
+    },
+    "routerbench": {
+      "eval_left_out": 13311,
+      "non_binary": 7450,
+      "all_same": 740,
+      "rows": 36497,
+      "candidates": 14996,
+      "pool": {
+        "development": 7495,
+        "test": 7494
+      }
+    },
+    "humicroedit": {
+      "tie_or_identical": 594,
+      "candidates": 4721,
+      "pool": {
+        "development": 815,
+        "test": 1009
+      }
+    },
+    "cfcolor": {
+      "users": 1137,
+      "candidates": 1107,
+      "pool": {
+        "development": 553,
+        "test": 554
+      }
+    },
+    "rejected": {
+      "apibank/group_limit": 45,
+      "contractnli/context": 1,
+      "sgd/group_limit": 7
+    }
+  },
+  "code_sha256": "41ac55982500d39868534456a45fbadaae56f695fbb6c6b9c5db79e4a5c6b54b",
+  "large_partitions": "partitions with in_git false are gitignored; upload them to the Hub mirror (kev.suite.SUITES_DATASET) and bump SUITES_REVISION before load_split can fetch them elsewhere"
+}

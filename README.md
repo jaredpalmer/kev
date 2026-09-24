@@ -396,7 +396,7 @@ The server runs in bf16 on GPUs and Macs. Its probabilities differ from the fp32
 
 ```bash
 uv run --extra serve python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py \
-    tests/test_documents_tools.py tests/test_hard_v1.py tests/test_devtools_v1.py tests/test_rounds.py -q   # no weights, no server; what CI runs
+    tests/test_documents_tools.py tests/test_hard_v1.py tests/test_devtools_v1.py tests/test_breadth_v1.py tests/test_rounds.py -q   # no weights, no server; what CI runs
 KEV_BASE_URL=http://127.0.0.1:8009 uv run --extra serve python -m pytest tests/test_api.py -q   # against a running server
 cd playground && npm run lint && npx next typegen && npx tsc --noEmit -p .
 ```

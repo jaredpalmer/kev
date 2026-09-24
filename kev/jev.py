@@ -31,8 +31,9 @@ def main():
     ap.add_argument("--budget", type=float, default=0.1)
     ap.add_argument("--max-calls", type=int, default=700)
     a = ap.parse_args()
-    if not 0 < a.budget <= 1 or not 1 <= a.max_calls <= 2000:
-        ap.error("budget must be in (0, 1] and max-calls in [1, 2000]")
+    # a provisioned key carries a $1 limit of its own; a caller's key may run a larger panel (breadth-v1 dev: ~2,000 records)
+    if not 0 < a.budget <= 5 or not 1 <= a.max_calls <= 5000:
+        ap.error("budget must be in (0, 5] and max-calls in [1, 5000]")
     if Path(a.out).exists():
         ap.error("output directory already exists")
     records = load_split(a.suite, "development")
