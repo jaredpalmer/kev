@@ -130,6 +130,21 @@ Jev on the same development splits: hard-v1 0.777, devtools-v1 0.713. **Confirma
 
 From the released Kev-0.8B: hard-v1 development 0.350 → 0.651 (+30.1 [+26.8, +33.5]), devtools-v1 0.487 → 0.616 (+12.9 [+10.2, +15.8]), documents +1.1 [−0.8, +2.9], short state (pooled panel) +0.2 [−1.2, +1.7], pooled externals **+2.1 [+0.6, +3.7]**, hard ECE 0.140 → 0.122: passes rules 1-3. **Confirmation:** hard-v1 test 0.396 → **0.689** (+29.3 [+25.7, +32.8]), devtools-v1 test 0.472 → **0.641** (+16.8 [+13.7, +19.6]), pooled +23.1 [+20.8, +25.4]; locked `transfer-v4` 0.685 → 0.683 (−0.15 [−2.9, +2.7]), served Brier 0.412 → 0.396 (`kev-08b-r12-ungated`). **Passes every registered criterion.** 0.8B now has two confirmed single deltas (documents, round 11; skills, round 12); round 13 tests them stacked. The 9B arms of this round are still training.
 
+## Round 12 result, 9B (2026-09-24) — no 9B candidate
+
+| 9B arm (replay 6000, lr 2e-5) | primary | hard-v1 dev | devtools-v1 dev | documents | short (pooled) | pooled externals | failed on |
+|---|---|---|---|---|---|---|---|
+| seed 1 | +18.2 [+16.2, +20.3] | 0.574 → **0.802** | 0.631 → **0.767** | −1.3 [−2.8, +0.1] | +0.2 [−0.9, +1.3] | −2.1 [−3.2, −1.0] | documents, WANLI-v2, scienthoon, pooled |
+| seed 2 | +19.3 [+17.4, +21.2] | 0.811 | 0.779 | −1.2 [−2.7, +0.3] | +0.1 [−1.1, +1.2] | −3.5 [−4.7, −2.2] | + short Brier |
+
+Both 9B seeds beat Jev on hard-v1 (0.777) and devtools-v1 (0.713) development, and both pay on the external suites; this is the 9B pattern of rounds 7, 9 and 11 again (the delta is learnt; the 9B gives up NLI and ticket routing for it). Round 16 tests more replay at a smaller step.
+
+## Round 16 - 9B skills with more replay and a smaller step (registered 2026-09-24T07:30Z, before any training or read)
+
+**Arms** (study `r16-9b`, `experiments/round16/skills.json`): from `jaredpalmer/kev-9b`, one epoch on `evals/round10/skills/train.jsonl`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seed 1, H200, timeout 14,400 s: (a) `replay 10000, lr 1e-5`, (b) `replay 10000, lr 2e-5`. Reads as round 12.
+
+**Rule:** round 12's rule unchanged (against the released Kev-9B; pooled short-state panel). Candidate: the passing arm with the larger primary; confirmation as round 12.
+
 ## Round 13 result (2026-09-24; `runs/r13-readout/round13.json`) — no candidate
 
 Skills on top of the round-11 0.8B documents candidate: seed 1 primary +20.6 [+18.5, +23.0] (hard-v1 0.355 → 0.640, devtools 0.485 → 0.612) but documents −0.5 [−2.0, +1.0] (lower bound just under −2) and scienthoon below its bound; seed 2 +19.9 with short state −1.6 [−3.2, 0.0] and documents −1.1 [−2.4, +0.3]. Stacking a second delta on the 0.8B erodes the first.

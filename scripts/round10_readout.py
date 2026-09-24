@@ -38,7 +38,8 @@ PARENTS["4b-r10"] = ("runs/r10-skills/00-trial-0", {"hard": "runs/r10-4b-skills-
 PARENTS["08b-r11"] = ("runs/r11-docs/03-trial-3", {"hard": "runs/r13-P08r11-hard", "devtools": "runs/r13-P08r11-devtools", "docs": "runs/r11-08b-s5-docs",
                                                    "v9": "runs/r11-08b-s5-v9", "r3test": "runs/r11-08b-s5-r3test", **{s: f"runs/r11-08b-s5-{s}" for s in EXTERNALS}})
 ROUNDS[15] = {"08b-a": ("runs/r15-08b/00-trial-0", "08b"), "08b-b": ("runs/r15-08b/01-trial-1", "08b"), "08b-c": ("runs/r15-08b/02-trial-2", "08b")}
-POOLED_SHORT = {12, 13, 14, 15}
+ROUNDS[16] = {"9b-r10k-lr1e5": ("runs/r16-9b/00-trial-0", "9b"), "9b-r10k-lr2e5": ("runs/r16-9b/01-trial-1", "9b")}
+POOLED_SHORT = {12, 13, 14, 15, 16}
 JOINT = {15}   # documents and skills trained together: both primaries must hold (PLAN.md round 15)   # rounds whose short-state guard pools transfer-v4 dev with transfer-r3 test (round 11)
 
 
