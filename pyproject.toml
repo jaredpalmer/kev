@@ -10,7 +10,7 @@ readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Jared Palmer" }]
-requires-python = ">=3.12,<3.14"
+requires-python = ">=3.14"
 keywords = ["decision-model", "calibration", "lora", "typesafe", "transformers"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -25,7 +25,7 @@ dependencies = [
     "peft>=0.21",
     "pydantic>=2.9",
     "scikit-learn>=1.9.1",
-    "torch>=2.6,<2.9",
+    "torch>=2.14",
     "transformers>=5.17,<6",
 ]
 
@@ -39,19 +39,15 @@ serve = [
     "fastapi>=0.115",
     "typesafe-sdk>=0.6.0",
     "uvicorn>=0.30",
-    "mlx-lm>=0.31.3,<0.32; sys_platform == 'darwin' and platform_machine == 'arm64'",   # the Apple Silicon backend (kev.mlx_model); a no-op elsewhere
+    "mlx-lm>=0.31.3,<0.32; sys_platform == 'darwin' and platform_machine == 'arm64'", # the Apple Silicon backend (kev.mlx_model); a no-op elsewhere
+    "flash-linear-attention==0.5.2; sys_platform == 'linux'",   # CUDA serving: kev.fused_qwen35 is built on (and patches) exactly this fla
 ]
 mlx = [
     "mlx-lm>=0.31.3,<0.32; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 [dependency-groups]
-dev = [
-    "httpx>=0.28.1",
-    "matplotlib>=3.9",
-    "modal==1.5.5",
-    "pytest>=9.1.1",
-]
+dev = ["httpx>=0.28.1", "matplotlib>=3.9", "modal==1.5.5", "pytest>=9.1.1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
