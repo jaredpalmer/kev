@@ -93,12 +93,12 @@ Per-source out-of-domain accuracy (Kev-9B / Jev): QNLI 0.93 / 0.93, SciQ 0.96 / 
 
 ## Known limits
 
-- **Slow on a Mac.** The DeltaNet kernels have no MPS implementation; PyTorch falls back to reference code. A five-question request that takes 0.3 s on Kev-8B takes about 2 s here in bf16 on an M5. On CUDA with `flash-linear-attention` installed it is fast. Use Kev-8B (Qwen3, `jaredpalmer/kev-8b`) for low latency on Apple Silicon until an MLX path exists.
+- **Slower on a Mac than on a GPU.** The DeltaNet kernels have no MPS implementation, so on Apple Silicon `kev.serve` runs this checkpoint through MLX (`kev/mlx_model.py`, installed by `uv sync --extra serve`); plain PyTorch on MPS takes about 2 s for five questions on an M5. On CUDA with `flash-linear-attention` it answers in tens of milliseconds.
 - Requires `transformers >= 5.17` (the `qwen3_5` architecture) and `peft >= 0.21`.
 - Knowledge (MMLU 0.74 vs Jev 0.90; MMLU-Pro 0.515 vs 0.840) is the remaining gap and is set by the base: the untrained Qwen3.5-9B scores the same, and a Kev on the 35B-A3B MoE did not move MMLU-Pro either (`PLAN.md` at tag `research-archive-2026-09-24`, night-2 results).
 - Date arithmetic without the preprocessor: `deadline` 0.80 (Jev 0.93). With `KEV_DATE_FACTS=1`: 0.90.
 - The raw logits are over-confident out of domain; the built-in temperature (T = 2.30) fixes most of it without changing any answer. `KEV_TEMPERATURE=1.0` gives the raw values. Coverage at a 5% error budget is 0.47–0.62 against Jev's 0.70.
-- 9B bf16 needs ~19 GB of GPU memory for serving; training took 91 min on one H100 (peak 39.5 GB).
+- 9B bf16 needs ~19 GB of GPU memory for its weights and ~22 GB with the server's batching buffers; training took 91 min on one H100 (peak 39.5 GB).
 
 ## Training
 

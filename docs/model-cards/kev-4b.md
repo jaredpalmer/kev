@@ -185,12 +185,12 @@ Per-source out-of-domain accuracy (Kev-4B / Jev): QNLI 0.91 / 0.93, SciQ 0.97 / 
 
 - Use [Kev-9B](kev-9b.md) when accuracy and calibration matter more than memory: 0.852 vs 0.837 out of domain on the locked test, Brier 0.237 vs 0.255.
 
-- **Slow on a Mac.** The DeltaNet kernels have no MPS implementation; PyTorch falls back to reference code. A five-question request that takes 0.17 s on the Qwen3 Kev-4B takes 0.78 s here in bf16 on an M5. On CUDA with `flash-linear-attention` installed it is fast. Use `jaredpalmer/kev-4b@qwen3` for low latency on Apple Silicon until an MLX path exists.
+- **Slower on a Mac than on a GPU.** The DeltaNet kernels have no MPS implementation, so on Apple Silicon `kev.serve` runs this checkpoint through MLX (`kev/mlx_model.py`, installed by `uv sync --extra serve`): five questions about a ~270-token text take 721 ms on an M5, or 136 ms when the text repeats. On CUDA with `flash-linear-attention` it answers in tens of milliseconds.
 - Requires `transformers >= 5.17` (the `qwen3_5` architecture) and `peft >= 0.21`.
 - Knowledge (MMLU 0.70 vs Jev 0.90; MMLU-Pro 0.490 vs 0.840), TweetEval (0.74 vs 0.81) and noisy-label Emotion (0.56 vs 0.59) are the remaining gap; knowledge is set by the base (the untrained Qwen3.5-4B scores the same).
 - Date arithmetic without the preprocessor: `deadline` 0.60 (Jev 0.93). With `KEV_DATE_FACTS=1`: 0.85.
 - The raw logits are over-confident out of domain; the built-in temperature (T = 2.14) fixes most of it without changing any answer. `KEV_TEMPERATURE=1.0` gives the raw values. Coverage at a 5% error budget is 0.54–0.68 against Jev's 0.70.
-- 4B bf16 needs ~9 GB of GPU memory for serving; training took 56 min on one H100 (peak 24.6 GB).
+- 4B bf16 needs ~9 GB of GPU memory for its weights and ~14 GB with the server's batching buffers; training took 56 min on one H100 (peak 24.6 GB).
 
 ### Training
 
