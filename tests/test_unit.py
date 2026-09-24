@@ -154,11 +154,13 @@ def test_checkpoint_meta_round_trip_and_defaults(tmp_path):
     from kev.checkpoint import LoadOptions, Meta, read_meta, write_meta
     old = {"head": {"w": torch.zeros(1)}, "base": "Qwen/Qwen2.5-0.5B", "lora": 16, "args": {"lr": 1}, "suite_sha256": "abc"}
     m = Meta.from_dict(old)
-    assert (m.head_dim, m.option_isolation, m.temperature, m.holdout, m.weights_dtype) == (256, False, 1.0, [], "fp32")
+    assert (m.head_dim, m.option_isolation, m.temperature, m.holdout, m.weights_dtype, m.quantization) == (256, False, 1.0, [], "fp32", None)
     assert m.extra == {"args": {"lr": 1}, "suite_sha256": "abc"}
     m.temperature = 2.3; m.extra["temperature_fit"] = {"n": 10}
     write_meta(tmp_path, m); back = read_meta(tmp_path)
     assert back.temperature == 2.3 and back.extra["args"] == {"lr": 1} and back.extra["temperature_fit"] == {"n": 10} and back.lora == 16
+    m.quantization = "awq"
+    write_meta(tmp_path, m); assert read_meta(tmp_path).quantization == "awq"
     assert LoadOptions.from_env({}) == LoadOptions()
     opts = LoadOptions.from_env({"KEV_DTYPE": "bf16", "KEV_MERGE": "0", "KEV_ATTN": "sdpa", "KEV_TEMPERATURE": "1.0", "KEV_LORA_SCALE": "0.5"})
     assert opts == LoadOptions(dtype=torch.bfloat16, merge=False, attn="sdpa", lora_scale=0.5, temperature=1.0)
@@ -168,6 +170,16 @@ def test_checkpoint_meta_round_trip_and_defaults(tmp_path):
     assert [LoadOptions.from_env(e).fused for e in ({}, {"KEV_FUSED": "0"}, {"KEV_FUSED": "1"})] == [None, False, True]
     with pytest.raises(ValueError, match="KEV_BACKEND"):
         LoadOptions.from_env({"KEV_BACKEND": "metal"})
+
+
+def test_quantized_checkpoint_needs_cuda():
+    """A quantized base's kernels (e.g. AutoAWQ) are CUDA-only; loading refuses a non-CUDA device before touching any
+    files (no adapter/tokenizer access happens for this check, so it needs no weights or network)."""
+    from kev.checkpoint import Checkpoint, LoadOptions, Meta
+    ck = Checkpoint.__new__(Checkpoint)
+    ck.meta = Meta(base="fake/base", quantization="awq")
+    with pytest.raises(ValueError, match="CUDA"):
+        ck._load_torch(None, "cpu", LoadOptions())
 
 
 def test_head_temperature_scales_logits_at_eval_only():

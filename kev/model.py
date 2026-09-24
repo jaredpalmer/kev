@@ -211,8 +211,11 @@ class DecisionModel(nn.Module):
         # backbone only (no vocab head): we never generate text.
         # eager on MPS/CPU (known-good with our float 4D mask); SDPA on CUDA (accepts arbitrary additive masks).
         attn = attn or ("sdpa" if str(device).startswith("cuda") else "eager")
-        # dtype: fp32 for training and exact evaluation; bf16 is a serving option for large backbones (8B on a 32 GB Mac)
-        self.lm = AutoModelForCausalLM.from_pretrained(name, revision=revision, dtype=dtype, attn_implementation=attn).model
+        # dtype: fp32 for training and exact evaluation; bf16 is a serving option for large backbones (8B on a 32 GB Mac).
+        # dtype=None means "don't override": a quantized checkpoint's own quantization_config decides storage and
+        # compute dtype (kev.checkpoint._load_torch passes None for those).
+        dtype_kwargs = {} if dtype is None else {"dtype": dtype}
+        self.lm = AutoModelForCausalLM.from_pretrained(name, revision=revision, attn_implementation=attn, **dtype_kwargs).model
         self.pad_id = pad_id(tok)
         # hybrid backbones (Qwen3.5: Gated DeltaNet layers, recurrent) cannot honour the block-causal mask, so every
         # question runs as its own causal row continuing from the state (rows_of). Attention-only backbones keep the

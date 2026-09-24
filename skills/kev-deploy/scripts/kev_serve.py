@@ -8,8 +8,8 @@ GET /v1/models), so existing Jev / TypeSafe clients only change their base URL.
     curl -L --max-time 900 https://<workspace>--kev-api.modal.run/v1/models -H "authorization: Bearer $KEV_API_KEY"   # wait for the cold start
     modal app stop kev                                                 # take it down
 
-Settings are read when you deploy: KEV_MODEL (jaredpalmer/kev-0.8b, kev-4b or kev-9b, optionally `@revision`; default
-kev-4b), KEV_GPU (override the GPU list, comma-separated), KEV_API_KEY (bearer auth; without it the URL is the only
+Settings are read when you deploy: KEV_MODEL (jaredpalmer/kev-0.8b, kev-4b, kev-9b or kev-9b-awq, optionally
+`@revision`; default kev-4b), KEV_GPU (override the GPU list, comma-separated), KEV_API_KEY (bearer auth; without it the URL is the only
 secret), HF_TOKEN (only for a private checkpoint; if it is set in your shell it is uploaded as a Modal secret),
 KEV_MIN_CONTAINERS (1 keeps one container warm; default 0 scales to zero after 5 idle minutes), KEV_REGION (e.g. "us" or
 "us-east"; default anywhere with capacity, which can be another continent: Modal charges 1.15-1.75x for a pinned region),
@@ -31,7 +31,9 @@ KEV_REF = "60c8d3956fb9adc67d64bfdd3cf145e62114dd79"   # github.com/jaredpalmer/
 # GPU preference lists (Modal takes the first with capacity), from runs/serving-*/report.json in the repo. An L4 is enough
 # for the 0.8B but runs out of compute on the 4B; the L40S is the cheapest GPU that answers the 4B in tens of milliseconds,
 # the H100 the fastest for the 4B and 9B. The A100 is slower than the L40S here and costs more.
-GPU_FOR = {"jaredpalmer/kev-0.8b": ["L4", "L40S"], "jaredpalmer/kev-4b": ["L40S", "H100"], "jaredpalmer/kev-9b": ["H100", "H200", "L40S"]}
+GPU_FOR = {"jaredpalmer/kev-0.8b": ["L4", "L40S"], "jaredpalmer/kev-4b": ["L40S", "H100"], "jaredpalmer/kev-9b": ["H100", "H200", "L40S"],
+           # int4 needs a fraction of kev-9b's ~19 GB bf16 footprint; placeholder tier until scripts/serving_bench.py has real numbers (TODO)
+           "jaredpalmer/kev-9b-awq": ["L4", "L40S", "H100"]}
 
 # Deploy-time settings travel in the image env, so the container evaluates this file with the same values.
 SETTINGS = {"KEV_MODEL": "jaredpalmer/kev-4b", "KEV_APP_NAME": "kev", "KEV_MIN_CONTAINERS": "0", "KEV_GPU": "", "KEV_REGION": "", "KEV_FLASH": "0"}
@@ -49,10 +51,11 @@ MIN_CONTAINERS = max(int(SETTINGS["KEV_MIN_CONTAINERS"]), 1 if FLASH else 0)
 SECRET = {k: os.environ[k] for k in ("KEV_API_KEY", "HF_TOKEN") if os.environ.get(k)}
 
 app = modal.App(SETTINGS["KEV_APP_NAME"])
+EXTRAS = "serve,awq" if MODEL.split("@")[0].endswith("-awq") else "serve"   # AutoAWQ's kernels only, and only for a quantized checkpoint
 image = (
     modal.Image.debian_slim(python_version="3.13")
     .apt_install("git")
-    .uv_pip_install(f"kev[serve] @ git+https://github.com/jaredpalmer/kev.git@{KEV_REF}")
+    .uv_pip_install(f"kev[{EXTRAS}] @ git+https://github.com/jaredpalmer/kev.git@{KEV_REF}")
     .uv_pip_install("flash-linear-attention==0.5.2", "triton>=3.7.1")   # the fused Qwen3.5 kernels are built on this fla (it needs triton >= 3.7.1 on Hopper)
     .env({"HF_HOME": "/hf", "HF_HUB_DISABLE_PROGRESS_BARS": "1", "TOKENIZERS_PARALLELISM": "false", "PYTHONUNBUFFERED": "1",
           "TRITON_CACHE_DIR": "/hf/triton-cache", **SETTINGS})

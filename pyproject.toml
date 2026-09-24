@@ -44,6 +44,9 @@ serve = [
 mlx = [
     "mlx-lm>=0.31.3,<0.32; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
+awq = [
+    "autoawq>=0.2.9; sys_platform == 'linux'",   # quantizing (scripts/quantize_awq.py) and serving an AWQ checkpoint; CUDA/Linux wheels only
+]
 
 [dependency-groups]
 dev = [

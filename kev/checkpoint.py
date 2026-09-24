@@ -50,11 +50,12 @@ class Meta:
     option_isolation: bool = False
     special_embeddings: bool = False
     weights_dtype: str = "fp32"
+    quantization: str | None = None
     temperature: float = 1.0
     holdout: list = field(default_factory=list)
     extra: dict = field(default_factory=dict)
 
-    KNOWN = ("base", "head", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings", "weights_dtype", "temperature", "holdout")
+    KNOWN = ("base", "head", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings", "weights_dtype", "quantization", "temperature", "holdout")
 
     @classmethod
     def from_dict(cls, d):
@@ -206,6 +207,13 @@ class Checkpoint:
             # trained with a bf16 backbone (--weights_dtype bf16, e.g. the 35B-A3B MoE whose fused experts need bf16): load it
             # the same way and keep the fp32 adapter unmerged rather than folding it into bf16 weights.
             dtype, merge = torch.bfloat16, False
+        if meta.quantization:
+            # the base is quantized (e.g. AWQ int4): its quantization_config, not our dtype, decides how weights are
+            # stored and computed, and a LoRA delta cannot be folded into packed int4 weights, so the adapter always
+            # stays unmerged. Quantized kernels (AutoAWQ) are CUDA-only.
+            if not str(device).startswith("cuda"):
+                raise ValueError(f"{meta.quantization} checkpoints need a CUDA device, got {device!r}")
+            dtype, merge = None, False
         merge = merge and not self.adapter_config().get("trainable_token_indices")   # token-trained adapters stay unmerged
         m = DecisionModel(meta.base, tok, device, lora=None, revision=meta.base_revision, head_dim=meta.head_dim,
                           option_isolation=meta.option_isolation, dtype=dtype, attn=opts.attn)
@@ -216,7 +224,7 @@ class Checkpoint:
                     for k in module.scaling: module.scaling[k] *= opts.lora_scale
             m.lora_scale = opts.lora_scale
         if merge: m.lm = m.lm.merge_and_unload()     # W += delta: fp32 math, one rounding (see LoadOptions.merge)
-        if dtype != torch.float32: m.lm = m.lm.to(dtype)
+        if dtype is not None and dtype != torch.float32: m.lm = m.lm.to(dtype)
         serving = str(device).startswith("cuda") and m.hybrid
         if opts.fused and serving and merge:   # fused projections need the adapter folded in
             from .fused_qwen35 import fuse
