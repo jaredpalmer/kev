@@ -98,6 +98,14 @@ Reported, never gating:
 
 **Next (to be registered, not read):** the 9B recipe minus the MNLI soft targets (keep them hard) isolates the WANLI question. It needs fresh panels (both round-5 panels have now been read by these candidates) and a WANLI panel disjoint from the 256 items, large enough that a 1 pp point threshold is not three questions. The external gates in this round were point estimates on 89–256 questions; the next registration should use paired intervals with a margin sized to the suite.
 
+## Round 9 - documents delta at 9B / 0.8B that keeps short states (registered 2026-09-24T03:55Z, before any training or read)
+
+**Why.** Round 7/8: the documents delta gains +7.0 pp (9B) and +22.5 / +22.7 pp (0.8B) on `documents-v1` development, but costs short-state accuracy: 9B −2.3 [−4.0, −0.8] and −1.7 [−3.7, +0.2] (two seeds), 0.8B −0.9 and −1.2 (lower bounds −3.2, −3.7). Kev-4B passed and was released (round 8). The standard remedies for forgetting in a delta are more replay of the original training data and a smaller step; this round tests both at 9B and more replay at 0.8B.
+
+**Arms** (study `r9-docs`, `experiments/round9/docs.json`; round 7's recipe otherwise: one epoch, `data evals/documents-v1/train.jsonl`, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seed 3, H200, timeout 12,600 s): 9B from `jaredpalmer/kev-9b` with (a) `replay 6000, lr 2e-5`, (b) `replay 2000, lr 1e-5`, (c) `replay 6000, lr 1e-5`; 0.8B from `jaredpalmer/kev-0.8b` with (d) `replay 6000, lr 4e-5`, (e) `replay 6000, lr 2e-5`. Reads `runs/r9-<arm>-{docs,semif,scienthoon,wanli2,typesafe,v9}`; read-out `scripts/round8_readout.py --round 9`, confirmation `scripts/round8_confirm.py --round 9`.
+
+**Rule:** round 8's rule 1-3 unchanged (documents development lower bound > 0; short-state accuracy lower bound ≥ −2 pp, Brier upper bound ≤ +0.01, confident errors upper bound ≤ +1 pp; WANLI-v2 and scienthoon lower bounds ≥ −2 pp, pooled external lower bound ≥ −1.5 pp, unknowable ≤ 0.05; SemIf / TypeSafe reported). Per size, the passing arm with the largest documents point estimate is the candidate; rule 4 (confirmation) as round 8: `documents-v1` test lower bound > 0 against the parent, then locked `transfer-v4` (accuracy ≥ parent − 1 pp, served Brier ≤ parent + 0.005), `documents-v2` reported. Five arms, so a pass on one is also reported as one of five tries.
+
 ## JevBench (public items) and the next targets (2026-09-24; measured, not registered)
 
 **Measurement.** JevBench (Benchmark Heaven, `fstandhartinger/jevbench@2fa63fa`, MIT) ranks our superseded Qwen3 previews (commit `20fa626`; kev 4B #24, score 36.1; sealed accuracy 22 %, below its 29.3 % chance line). Its unchanged harness (`typesafe` adapter) against the released Qwen3.5 family served by `skills/kev-deploy` on Modal, all 231 public items, 0 failures (`runs/jevbench-public/`):

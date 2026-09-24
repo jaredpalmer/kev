@@ -17,19 +17,22 @@ from kev.metrics import metrics, served  # noqa: E402
 from kev.suite import read_json, write_json  # noqa: E402
 from round6_readout import boot, knowable, serve  # noqa: E402
 
-ARMS = {"4b": ("runs/r8-small/00-trial-0", "runs/night2-4b-du/00-trial-0", "runs/locked/kev-4b-night2-du-ungated"),
-        "08b": ("runs/r8-small/01-trial-1", "runs/night2-08b-du2/00-trial-0", "runs/locked/kev-08b-night2-du-ungated")}
+PARENTS = {"9b": ("runs/night2-9b-du/00-trial-0", "runs/locked/kev-9b-night2-du-ungated"), "4b": ("runs/night2-4b-du/00-trial-0", "runs/locked/kev-4b-night2-du-ungated"),
+           "08b": ("runs/night2-08b-du2/00-trial-0", "runs/locked/kev-08b-night2-du-ungated")}
+CANDIDATES = {8: {"4b": "runs/r8-small/00-trial-0", "08b": "runs/r8-small/01-trial-1"}}   # round 9+: --candidate names the trial chosen by the read-out
 f = lambda b: f"{100 * b['delta']:+.2f} [{100 * b['ci95'][0]:+.2f}, {100 * b['ci95'][1]:+.2f}]"
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("stage", choices=["docs", "locked", "docs2"]); ap.add_argument("--size", required=True, choices=list(ARMS)); ap.add_argument("--out", required=True)
+    ap = argparse.ArgumentParser(); ap.add_argument("stage", choices=["docs", "locked", "docs2"]); ap.add_argument("--size", required=True, choices=list(PARENTS)); ap.add_argument("--out", required=True)
+    ap.add_argument("--round", type=int, default=8); ap.add_argument("--candidate", help="trial dir (required from round 9)")
     a = ap.parse_args()
-    cand, parent, parent_locked = ARMS[a.size]
+    cand = a.candidate or CANDIDATES[a.round][a.size]
+    (parent, parent_locked), tag = PARENTS[a.size], f"r{a.round}"
     t = {k: served(read_json(Path(x) / "development/rows.json"), [])[0] for k, x in (("cand", cand), ("parent", parent))}
     trial = {"cand": cand, "parent": parent}
     if a.stage == "locked":
-        R = {"cand": f"runs/locked/kev-{a.size}-r8-ungated/transfer/rows.json", "parent": f"{parent_locked}/transfer/rows.json"}
+        R = {"cand": f"runs/locked/kev-{a.size}-{tag}-ungated/transfer/rows.json", "parent": f"{parent_locked}/transfer/rows.json"}
         rows = {k: knowable(serve(trial[k], R[k], t[k])[0]) for k in trial}
         m = {k: metrics(rows[k]) for k in trial}
         rep = {"stage": "locked", "temperature": t, "locked": {k: {"acc": m[k]["acc"], "brier": m[k]["brier"], "n": len(rows[k])} for k in trial},
@@ -38,7 +41,7 @@ def main():
         print(f"locked transfer-v4: acc {m['parent']['acc']:.4f} -> {m['cand']['acc']:.4f} ({f(rep['acc_delta'])}); Brier {m['parent']['brier']:.4f} -> {m['cand']['brier']:.4f}")
     else:
         suite = {"docs": "docs1test", "docs2": "docs2"}[a.stage]
-        rows = {k: knowable(serve(trial[k], f"runs/r8c-{a.size}-{k}-{suite}/rows.json", t[k])[0]) for k in trial}
+        rows = {k: knowable(serve(trial[k], f"runs/{tag}c-{a.size}-{k}-{suite}/rows.json", t[k])[0]) for k in trial}
         rep = {"stage": a.stage, "temperature": t, "acc": {k: metrics(rows[k])["acc"] for k in trial}, "n": len(rows["cand"]),
                "acc_delta": boot(rows["cand"], rows["parent"], "acc"), "brier_delta": boot(rows["cand"], rows["parent"], "brier")}
         rep["criteria"] = {"docs_test_lower_above_0": rep["acc_delta"]["ci95"][0] > 0} if a.stage == "docs" else {}
