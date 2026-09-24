@@ -29,6 +29,19 @@ All GPU work in this repo goes through `modal_app.py`. Never train large models 
 
 Timing (H100, row-batched hybrid): 0.8B ≈ 20 min, 4B ≈ 60 min, 9B ≈ 90 min for the full v7 recipe; deltas (1 epoch over ~1k records + 2k replay) ≈ 10–20 min. Set `--timeout` with ≥ 50 % headroom; a timed-out container loses everything.
 
+## Rounds (registered experiments): `kev.rounds`
+
+A round is a spec, `experiments/rounds/r<N>.json` (copy the closest past round; the schema is `kev/rounds.py`'s docstring):
+studies, arms (`<size>-<label>` = trial + parent), parents (trial + where each of its reads lives), read tags -> suites, the
+rule (panels, criteria on paired bounds, rank) and confirmation stages. Commit it (and the PLAN registration) before training.
+
+1. `uv run python -m kev.rounds validate experiments/rounds/rN.json` (structure, suites, plans against their manifests, budget >= admission bound, parent reads present; `--partitions` also verifies the partitions).
+2. `uv run modal deploy modal_app.py` if `kev/*.py` changed, then `uv run python -m kev.rounds launch experiments/rounds/rN.json` (one `::study` per study, 60 s apart, output in `runs/<study>.log`).
+3. `uv run python -m kev.rounds watch experiments/rounds/rN.json` (run it under `nohup`/`caffeinate`; restartable): polls `runs/<study>.spawn.json`, retries DNS/connection errors, pulls a finished trial's study and launches that arm's reads once (one batched `::benchmarks` per arm, 60 s apart, `read_timeout` per size for a 27B), waits for the reads and writes `runs/rN-readout/roundN.json` + a table. By hand: `launch-reads <spec> [--arms a,b] [--parents] [--dry-run]`, `readout <spec>`.
+4. Confirmation, once per candidate: `launch-reads <spec> --stage <stage> --arm <arm>` (test reads for the candidate and any missing parent read; the locked stage runs `::locked_test`), then `confirm <spec> --stage <stage> --arm <arm>` -> `runs/rN-verdict/<size>-<stage>.json`.
+
+`uv run python -m kev.autoresearch session <spec> [...] --spend-start <metered $> --spend-cap <$>` chains launch + watch over several registered rounds and stops at the cap; it never confirms.
+
 ## Probes, remote benchmarks, fit checks (same file, ephemeral app: no deploy step)
 
 These run attached (`modal run`, not `deploy`): the container mounts this checkout's `kev/`, `evals/` and `scripts/`,
@@ -38,7 +51,7 @@ log; all three skip names that already exist locally / on the volume.
 - **Untrained-base probe** (zero-shot letter logits, same items as every README row; `scripts/base_mmlu_probe.py`):
   `KEV_GPU=H200 uv run modal run --detach modal_app.py::base_probe --bases Qwen/X-Base --revision <sha> [--suite evals/v9/transfer-v9] [--prompt semif] [--split test] [--adapter /runs/.../checkpoint --tag name]`
   Names are derived (`<base>-base[-semif][-<tag>]-<suite>[-<split>]`); output pulled to `runs/probes/<name>/report.json`. Use H200 for >= 30B bf16.
-- **Benchmark any checkpoint on any suite or `--data` JSONL** (`run@suite@name[@flags]` entries; flags are extra `kev.benchmark` switches):
+- **Benchmark any checkpoint on any suite or `--data` JSONL** (`run@suite@name[@flags]` entries, parsed from the right by `modal_app.parse_jobs`, so a pinned `repo@sha` run is safe; flags are extra `kev.benchmark` switches and start with `--`; every suite must exist in the checkout):
   `uv run modal run --detach modal_app.py::benchmarks --jobs "jaredpalmer/kev-9b@evals/external/semif-v1@kev-9b-semif,/runs/X/00-trial-0/checkpoint@evals/v9/transfer-v9@x-v9@--date_facts"`
   Output pulled to `runs/<name>/report.json`. This is how the external evals (SemIf, MMLU-Pro sample) and delta benches were scored.
   Each job gets its suite's timeout (`modal_app.READ_TIMEOUTS`: long-state panels 7,200 s, documents 5,400 s, transfer-v9 3,600 s, else 1,800 s); `--timeout N` sets one for every job (a 27B's fp32 reads run about three times longer than a 9B's).
@@ -54,7 +67,8 @@ log; all three skip names that already exist locally / on the volume.
 - `--gpu H200` on `study` only works if the deployed app was deployed with `KEV_GPU=H200` (the GPU is fixed at deploy time); deploy H200, launch, then redeploy H100 for the small jobs.
 - Symptom "config=... printed, then nothing, and `Modal Client → Modal Worker Heartbeat attempt failed`" = the container is thrashing host memory (checkpoint staging). Check `run_trial`'s `memory=` against the checkpoint size (bf16 bytes ≈ 2 × params); big bases need ≥ weights + 20 GB.
 - Training progress is only visible via `modal container logs <ta-id>` (`modal container list` to find it); `modal app logs` shows the last ~50 lines across containers, and the volume's train.log is committed at the end.
-- Modal rate-limits app creation: launching more than ~3 detached `modal run`s within a minute fails with "App create rate limit exceeded" (the log shows it; nothing runs). Space launches ≥ 30 s apart or batch jobs into one `benchmarks` call.
+- Modal rate-limits app creation: launching more than ~3 detached `modal run`s within a minute fails with "App create rate limit exceeded" (the log shows it; nothing runs). Space launches ≥ 30 s apart or batch jobs into one `benchmarks` call (`kev.rounds` does both: one call per arm, 60 s apart).
+- Two pulls of the same study used to delete each other's trial directories; `pull_study` now takes a per-study lock (`runs/.pull-<study>.lock`), so a second pull waits and then refreshes.
 - A failed `benchmarks`/`base_probe` job leaves its output directory on the volume; relaunch under a new name (`-2`, or `--tag`) or the next run fails with FileExistsError.
 - `RuntimeError: aclose(): asynchronous generator is already running` at the end of a detached run is noise; the result line follows it.
 - Report dicts must not gain top-level keys that collide with benchmark blocks (`unknowable`, `clean`, `tasks`).

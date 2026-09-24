@@ -12,8 +12,13 @@ the harness below for anything that touches the model, the loader, the trainer, 
 ## 1. Fast suites (also CI)
 
 ```bash
-uv run --extra serve python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py tests/test_documents_tools.py tests/test_hard_v1.py tests/test_devtools_v1.py -q
+uv run --extra serve python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py tests/test_documents_tools.py tests/test_hard_v1.py tests/test_devtools_v1.py tests/test_rounds.py -q
 ```
+
+`test_rounds.py` recomputes the committed read-outs of rounds 5-18 and their verdicts from saved rows and compares every
+number exactly; only rounds 5 and 8 have their trial rows in git, so after touching `kev/rounds.py`, `kev/metrics.py` or a
+round spec also run it against the checkout that holds the gitignored trial rows:
+`KEV_ROUNDS_ROOT=/path/to/kev uv run --extra serve python -m pytest tests/test_rounds.py -q` (0 skips, 0 differences).
 
 `test_conventions.py` fails when a rule that has a canonical home is re-derived elsewhere (head.pt access, KEV_* env
 reads, option keys, the context literal, device selection). Do not add an allowlist entry to make it pass; call the
