@@ -110,7 +110,7 @@ Reported, never gating:
 
 **Reading.** At 9B, 6,000 replayed records remove the external cost that 2,000 left (round 7: pooled −0.8 / −0.4; here +0.5 / +0.3); the short-state cost shrinks from −2.3 / −1.7 to −0.8 / −0.9 but the 656-question panel cannot bound it above −2 pp (half-width ~1.7 pp). A smaller step alone (b) protects short states and moves the damage to the externals. At 0.8B neither remedy works. Five tries, no pass; the documents gain is stable across every arm (+6.5 to +6.8 at 9B, about 3 pp above Jev). The registration-appropriate next step is a fresh-seed replication of recipe (a) judged on a short-state panel large enough to resolve a 1 pp cost (round 11), not a re-reading of these arms.
 
-## Round 12 - skills delta at 9B and 0.8B (registered 2026-09-24T05:02Z, before any training or read)
+## Round 12 - skills delta at 9B and 0.8B (registered 2026-09-24T04:56Z, before any training or read)
 
 **Why.** Round 10's 4B skills arm passed rules 1-3 (hard-v1 development 0.503 → 0.786, devtools-v1 0.605 → 0.739, every guard flat, hard-set ECE 0.137 → 0.095); its confirmation is running. This round applies the same data at 9B with round 9's lesson (replay 6,000 removes the 9B external cost) and at 0.8B.
 
