@@ -27,15 +27,9 @@ from typing import NamedTuple
 
 import modal
 
+from kev.budget import TRIAL_CPU, TRIAL_MEMORY, compute_bound   # run_trial's resources and the admission bound (admit_study)
+
 APP_NAME = os.environ.get("KEV_APP_NAME", "kev-research")
-TRIAL_CPU, TRIAL_MEMORY = 4, (65536, 196608)
-GPU_HOURLY = {"H100": 3.95, "H200": 4.54, "B200": 6.25, "T4": 0.59}
-
-
-def compute_bound(gpu, timeout, trials):
-    if gpu not in GPU_HOURLY or timeout <= 0 or trials < 1:
-        raise ValueError("invalid GPU, timeout, or trial count")
-    return (GPU_HOURLY[gpu] + TRIAL_CPU * 0.04730 + TRIAL_MEMORY[1] / 1024 * 0.008) * timeout / 3600 * trials
 
 ROOT = Path(__file__).resolve().parent
 RUNS_MOUNT, HF_MOUNT = "/runs", "/hf"
@@ -87,7 +81,7 @@ def remote_source_hashes():
     return source_hashes()
 
 
-@app.function(image=image, gpu=GPU, cpu=TRIAL_CPU, memory=TRIAL_MEMORY, max_containers=8, retries=0, timeout=14400,   # a 35B-A3B bf16 checkpoint (70 GB) is staged through host memory while loading; the old 48 GB cap stalled the container
+@app.function(image=image, gpu=GPU, cpu=TRIAL_CPU, memory=TRIAL_MEMORY, max_containers=24, retries=0, timeout=28800,   # a 35B-A3B bf16 checkpoint (70 GB) is staged through host memory while loading; the old 48 GB cap stalled the container
               volumes={RUNS_MOUNT: runs_volume, HF_MOUNT: hf_cache}, secrets=secrets)
 def run_trial(study, index, label, config, suite, expected_sources, git_commit, existing=None, transfer=None):
     """One trial in one container. `existing` is a checkpoint path on the runs volume or a Hub id (legacy scoring)."""
@@ -296,14 +290,38 @@ def read_timeout(suite):
     return next((t for key, t in READ_TIMEOUTS if key in suite), DEFAULT_READ_TIMEOUT)
 
 
+class BenchJob(NamedTuple):
+    run: str      # Hub id[@revision] or a /runs path
+    suite: str    # suite directory or .jsonl under the checkout
+    name: str     # output: /runs/bench/<name>, pulled to runs/<name>
+    flags: str    # extra kev.benchmark switches, each starting with --
+
+
+def parse_jobs(jobs):
+    """run@suite@name[@flags] entries, comma-separated. Parsed from the right: flags (when present) start with '--', then
+    the name and the suite, and everything before them is the run, so a pinned Hub revision (repo@sha) stays in the run
+    (split from the left, it shifted every field and round 10's parent test reads failed before scoring anything)."""
+    out = []
+    for job in jobs.split(","):
+        parts = job.split("@")
+        flags = parts.pop() if parts[-1].startswith("--") else ""
+        if len(parts) not in (3, 4) or not all(parts):
+            raise ValueError(f"benchmark job {job!r} is not run@suite@name[@flags] (flags start with --)")
+        *run, suite, name = parts
+        out.append(BenchJob("@".join(run), suite, name, flags))
+    return out
+
+
 @app.local_entrypoint()
 def benchmarks(jobs: str, gpu: str = GPU, timeout: int = 0):
-    """Score checkpoints on suites or --data .jsonl files: comma-separated run@suite@name[@flags] entries, e.g.
+    """Score checkpoints on suites or --data .jsonl files: comma-separated run@suite@name[@flags] entries (parse_jobs), e.g.
     "jaredpalmer/kev-9b@evals/external/semif-v1@kev-9b-semif,/runs/X/00-trial-0/checkpoint@evals/v9/transfer-v9@x-v9@--date_facts".
     Results are pulled to runs/<name>. Each job gets its suite's timeout (READ_TIMEOUTS); --timeout N sets one for all
     of them (raise it for a 27B, whose fp32 reads run about three times longer than a 9B's)."""
-    entries = [(j.split("@") + [""])[:4] for j in jobs.split(",")]
-    calls = [run_bench.with_options(gpu=gpu, timeout=timeout or read_timeout(suite)).spawn(*e) for e, suite in zip(entries, (e[1] for e in entries))]
+    entries = parse_jobs(jobs)
+    missing = sorted({e.suite for e in entries if not (ROOT / e.suite).exists()})
+    if missing: raise SystemExit(f"no such suite or data file in this checkout: {missing}")
+    calls = [run_bench.with_options(gpu=gpu, timeout=timeout or read_timeout(e.suite)).spawn(*e) for e in entries]
     for (run, suite, name, _), call in zip(entries, calls):
         try: result = call.get()
         except Exception as e: print(f"{name}: FAILED {type(e).__name__}: {str(e)[:300]}"); continue
@@ -338,8 +356,8 @@ def admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout
         raise ValueError("study name must be a simple unique identifier")
     if (ROOT / "runs" / name).exists():
         raise FileExistsError("choose a new study name; existing results are immutable")
-    if not 60 <= timeout <= 14400 or not 0 < budget <= 250:   # overnight authorization: $500 total, tracked in PLAN.md
-        raise ValueError("timeout must be 60..14400 seconds and study budget <= $250")
+    if not 60 <= timeout <= 28800 or not 0 < budget <= 250:   # 8 h: a 2-epoch 27B on H200 takes ~4 h; budgets tracked in PLAN.md
+        raise ValueError("timeout must be 60..28800 seconds and study budget <= $250")
     trials = load_plan(ROOT / suite, ROOT / plan_path) if plan_path else []
     upper = compute_bound(gpu, timeout, len(trials) + len(existing))
     if upper > budget:
@@ -381,7 +399,7 @@ def launch_detached(suite, plan_path, name, gpu, existing=(), transfer=None, bud
 def launch(suite, plan_path, name, gpu, existing=(), transfer=None, budget=20.0, timeout=1800):
     """Attached variant: run the trials on this app, wait, then pull and rank. Dies with the local client."""
     jobs, _ = admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout)
-    fn = run_trial.with_options(gpu=gpu, timeout=timeout, retries=0, max_containers=8)
+    fn = run_trial.with_options(gpu=gpu, timeout=timeout, retries=0, max_containers=24)
     print(f"launching {len(jobs)} trial(s) on {gpu} for study {name}", flush=True)
     results = list(fn.starmap(jobs, return_exceptions=True))
     for job, result in zip(jobs, results):
@@ -395,11 +413,22 @@ def launch(suite, plan_path, name, gpu, existing=(), transfer=None, budget=20.0,
         raise SystemExit(1)
 
 
+def pull_lock(study):
+    """One pull of a study at a time: two concurrent pulls (a watcher launching reads for two trials that finished together)
+    deleted and re-fetched each other's trial directories. A second pull waits for the first, then refreshes."""
+    from kev.suite import file_lock
+    return file_lock(ROOT / "runs" / f".pull-{study}.lock")
+
+
 def pull_study(study):
     """Download a study directory from the runs volume into runs/<study> and rank it. A study pulled before all its trials
     finished is refreshed: finished trial directories (with result.json) are kept, unfinished ones are fetched again."""
+    with pull_lock(study):
+        return _pull_study(study)
+
+
+def _pull_study(study):
     target = ROOT / "runs" / study
-    target.parent.mkdir(exist_ok=True)
     if not target.exists():
         pull_volume(f"/{study}", target.parent)   # recreates runs/<study>/... locally, checkpoints included (gitignored)
     else:

@@ -41,7 +41,7 @@ RED = {900: oklch_to_hex(0.5499, 0.232, 25.29), 700: oklch_to_hex(0.6256, 0.2524
 BG = "white"
 TEXT, TEXT2, RULE, GRID = GRAY[1000], GRAY[900], GRAY[500], GRAY[400]
 # series roles: the Kev family is one hue stepped by size; the hosted reference is a second hue; untrained bases neutral
-KEV = {"kev-9b": BLUE[1000], "kev-8b": BLUE[1000], "kev-4b": BLUE[900], "kev-0.8b": oklch_to_hex(0.72, 0.13, 256), "kev-0.6b": oklch_to_hex(0.72, 0.13, 256),
+KEV = {"kev-27b": BLUE[1000], "kev-9b": oklch_to_hex(0.40, 0.19, 257), "kev-8b": BLUE[1000], "kev-4b": BLUE[900], "kev-0.8b": oklch_to_hex(0.72, 0.13, 256), "kev-0.6b": oklch_to_hex(0.72, 0.13, 256),
        "kev-0.5b": oklch_to_hex(0.80, 0.09, 252), "kev-8b-qwen3": BLUE[1000], "kev-4b-qwen3": BLUE[900], "kev-0.6b-qwen3": oklch_to_hex(0.72, 0.13, 256)}
 HOLLOW = {"kev-0.5b", "kev-8b-qwen3", "kev-4b-qwen3", "kev-0.6b-qwen3"}   # superseded checkpoints are drawn outlined / hatched so they read as "previous", not as extra sizes
 JEV = AMBER[700]
@@ -50,7 +50,7 @@ NEUTRAL = GRAY[500]
 # dark theme: black background, the gray scale inverted, the Kev hue stepped the other way (largest = brightest) so it stays legible on black
 DARK = {"BG": "#000000", "TEXT": oklch_to_hex(0.93, 0, 0), "TEXT2": oklch_to_hex(0.72, 0, 0), "RULE": oklch_to_hex(0.38, 0, 0), "GRID": oklch_to_hex(0.27, 0, 0),
         "NEUTRAL": oklch_to_hex(0.48, 0, 0),
-        "KEV": {"kev-9b": oklch_to_hex(0.80, 0.12, 250), "kev-8b": oklch_to_hex(0.80, 0.12, 250), "kev-4b": oklch_to_hex(0.62, 0.22, 258), "kev-0.8b": oklch_to_hex(0.50, 0.17, 258),
+        "KEV": {"kev-27b": oklch_to_hex(0.88, 0.07, 248), "kev-9b": oklch_to_hex(0.76, 0.14, 252), "kev-8b": oklch_to_hex(0.80, 0.12, 250), "kev-4b": oklch_to_hex(0.62, 0.22, 258), "kev-0.8b": oklch_to_hex(0.50, 0.17, 258),
                 "kev-0.6b": oklch_to_hex(0.50, 0.17, 258), "kev-0.5b": oklch_to_hex(0.58, 0.10, 256), "kev-8b-qwen3": oklch_to_hex(0.80, 0.12, 250),
                 "kev-4b-qwen3": oklch_to_hex(0.62, 0.22, 258), "kev-0.6b-qwen3": oklch_to_hex(0.50, 0.17, 258)}}
 
@@ -130,6 +130,7 @@ def rule(fig, x0, x1, y):
 
 
 def stat(fig, x, y, label, value, detail=None, color=TEXT, value_size=34):
+    scale = value_size / 34
     body(fig, x, y, label, size=12)
-    fig.text(x, y - 0.075, value, fontsize=value_size, weight="medium", color=color, ha="left", va="baseline")
-    if detail: body(fig, x, y - 0.115, detail, size=11, va="top")
+    fig.text(x, y - 0.075 * scale, value, fontsize=value_size, weight="medium", color=color, ha="left", va="baseline")
+    if detail: body(fig, x, y - 0.115 * scale, detail, size=11, va="top")

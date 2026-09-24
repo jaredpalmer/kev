@@ -1,245 +1,94 @@
 {
- "models": {
-  "kev-0.5b": {
-   "path": "runs/kev-05b-transfer-v4/report.json",
-   "transfer_acc": 0.5609756097560976,
-   "transfer_brier": 0.533826849184614,
-   "tasks": {
-    "composition_held_and_or": 0.625,
-    "composition_held_conditional": 0.40625,
-    "composition_held_or_not": 0.4375,
-    "contrastive_authorization": 0.65,
-    "contrastive_deadline": 0.275,
-    "emotion": 0.475,
-    "mmlu": 0.4,
-    "paws": 0.5,
-    "qnli": 0.7625,
-    "sciq": 0.8875,
-    "tweet_offensive": 0.525
-   }
+  "models": {
+    "kev-0.8b": {
+      "path": "runs/r15-08b/00-trial-0/result.json",
+      "transfer_acc": 0.6478658536585366,
+      "transfer_brier": 0.48125328370231507,
+      "tasks": {
+        "composition_held_and_or": 0.65625,
+        "composition_held_conditional": 0.65625,
+        "composition_held_or_not": 0.5625,
+        "contrastive_authorization": 0.95,
+        "contrastive_deadline": 0.35,
+        "emotion": 0.5,
+        "mmlu": 0.425,
+        "paws": 0.6,
+        "qnli": 0.8125,
+        "sciq": 0.9,
+        "tweet_offensive": 0.675
+      }
+    },
+    "kev-4b": {
+      "path": "runs/r10-skills/00-trial-0/result.json",
+      "transfer_acc": 0.8170731707317073,
+      "transfer_brier": 0.2690850170373655,
+      "tasks": {
+        "composition_held_and_or": 1.0,
+        "composition_held_conditional": 1.0,
+        "composition_held_or_not": 0.9375,
+        "contrastive_authorization": 1.0,
+        "contrastive_deadline": 0.65,
+        "emotion": 0.55,
+        "mmlu": 0.725,
+        "paws": 0.7875,
+        "qnli": 0.9125,
+        "sciq": 0.975,
+        "tweet_offensive": 0.75
+      }
+    },
+    "kev-9b": {
+      "path": "runs/night2-9b-du/00-trial-0/result.json",
+      "transfer_acc": 0.8216463414634146,
+      "transfer_brier": 0.28559177791910795,
+      "tasks": {
+        "composition_held_and_or": 0.90625,
+        "composition_held_conditional": 0.90625,
+        "composition_held_or_not": 0.875,
+        "contrastive_authorization": 1.0,
+        "contrastive_deadline": 0.8,
+        "emotion": 0.6,
+        "mmlu": 0.7375,
+        "paws": 0.7625,
+        "qnli": 0.925,
+        "sciq": 0.9625,
+        "tweet_offensive": 0.775
+      }
+    },
+    "kev-27b": {
+      "path": "runs/release/kev-27b-v2/result.json",
+      "transfer_acc": 0.8475609756097561,
+      "transfer_brier": 0.23605235368270622,
+      "tasks": {
+        "composition_held_and_or": 0.90625,
+        "composition_held_conditional": 0.875,
+        "composition_held_or_not": 0.90625,
+        "contrastive_authorization": 1.0,
+        "contrastive_deadline": 0.925,
+        "emotion": 0.5875,
+        "mmlu": 0.8375,
+        "paws": 0.7875,
+        "qnli": 0.9375,
+        "sciq": 0.975,
+        "tweet_offensive": 0.7875
+      }
+    }
   },
-  "kev-8b-qwen3": {
-   "path": "runs/v7-final/00-trial-0/result.json",
-   "transfer_acc": 0.7957317073170732,
-   "transfer_brier": 0.33668244926717933,
-   "tasks": {
-    "composition_held_and_or": 0.96875,
-    "composition_held_conditional": 0.59375,
-    "composition_held_or_not": 0.90625,
-    "contrastive_authorization": 1.0,
-    "contrastive_deadline": 0.6,
-    "emotion": 0.5625,
-    "mmlu": 0.7,
-    "paws": 0.775,
-    "qnli": 0.9125,
-    "sciq": 1.0,
-    "tweet_offensive": 0.7875
-   }
-  },
-  "kev-0.8b": {
-   "path": "runs/night2-08b-du2/00-trial-0/result.json",
-   "transfer_acc": 0.6524390243902439,
-   "transfer_brier": 0.49870669415283536,
-   "tasks": {
-    "composition_held_and_or": 0.65625,
-    "composition_held_conditional": 0.59375,
-    "composition_held_or_not": 0.5625,
-    "contrastive_authorization": 0.975,
-    "contrastive_deadline": 0.375,
-    "emotion": 0.5375,
-    "mmlu": 0.425,
-    "paws": 0.55,
-    "qnli": 0.85,
-    "sciq": 0.9125,
-    "tweet_offensive": 0.675
-   }
-  },
-  "kev-4b": {
-   "path": "runs/night2-4b-du/00-trial-0/result.json",
-   "transfer_acc": 0.7972560975609756,
-   "transfer_brier": 0.29894443692978717,
-   "tasks": {
-    "composition_held_and_or": 0.90625,
-    "composition_held_conditional": 1.0,
-    "composition_held_or_not": 0.875,
-    "contrastive_authorization": 1.0,
-    "contrastive_deadline": 0.6,
-    "emotion": 0.5625,
-    "mmlu": 0.7,
-    "paws": 0.7375,
-    "qnli": 0.9125,
-    "sciq": 0.975,
-    "tweet_offensive": 0.7375
-   }
-  },
-  "kev-9b": {
-   "path": "runs/night2-9b-du/00-trial-0/result.json",
-   "transfer_acc": 0.8216463414634146,
-   "transfer_brier": 0.28559177791910795,
-   "tasks": {
-    "composition_held_and_or": 0.90625,
-    "composition_held_conditional": 0.90625,
-    "composition_held_or_not": 0.875,
-    "contrastive_authorization": 1.0,
-    "contrastive_deadline": 0.8,
-    "emotion": 0.6,
-    "mmlu": 0.7375,
-    "paws": 0.7625,
-    "qnli": 0.925,
-    "sciq": 0.9625,
-    "tweet_offensive": 0.775
-   }
+  "jev": {
+    "path": "runs/jev-transfer-v4/report.json",
+    "transfer_acc": 0.8567073170731707,
+    "transfer_brier": 0.2109920731707317,
+    "tasks": {
+      "composition_held_and_or": 0.90625,
+      "composition_held_conditional": 0.78125,
+      "composition_held_or_not": 0.96875,
+      "contrastive_authorization": 1.0,
+      "contrastive_deadline": 0.925,
+      "emotion": 0.5875,
+      "mmlu": 0.9,
+      "paws": 0.7875,
+      "qnli": 0.925,
+      "sciq": 0.9875,
+      "tweet_offensive": 0.8125
+    }
   }
- },
- "jev": {
-  "path": "runs/jev-transfer-v4/report.json",
-  "transfer_acc": 0.8567073170731707,
-  "transfer_brier": 0.2109920731707317,
-  "tasks": {
-   "composition_held_and_or": 0.90625,
-   "composition_held_conditional": 0.78125,
-   "composition_held_or_not": 0.96875,
-   "contrastive_authorization": 1.0,
-   "contrastive_deadline": 0.925,
-   "emotion": 0.5875,
-   "mmlu": 0.9,
-   "paws": 0.7875,
-   "qnli": 0.925,
-   "sciq": 0.9875,
-   "tweet_offensive": 0.8125
-  }
- },
- "curve": [
-  [
-   0.6,
-   "default recipe",
-   [
-    0.598,
-    0.595,
-    0.605
-   ],
-   "v4-06b-hardened"
-  ],
-  [
-   0.6,
-   "low lr + random rule structures",
-   [
-    0.613,
-    0.605,
-    0.62
-   ],
-   "v7-06b"
-  ],
-  [
-   4.0,
-   "default recipe",
-   [
-    0.704,
-    0.735
-   ],
-   "v4-4b-baseline"
-  ],
-  [
-   4.0,
-   "low lr",
-   [
-    0.759,
-    0.758,
-    0.759
-   ],
-   "lowdrift-4b-v4/01, recipe-4b-v4-s1, recipe-4b-v4-s2"
-  ],
-  [
-   4.0,
-   "low lr + random rule structures",
-   [
-    0.773,
-    0.79,
-    0.77
-   ],
-   "v7-rc3, v7-final/02"
-  ],
-  [
-   8.2,
-   "default recipe",
-   [
-    0.765,
-    0.741
-   ],
-   "v3-8b-s0 (transfer-v3 = same bytes)"
-  ],
-  [
-   8.2,
-   "low lr",
-   [
-    0.774,
-    0.779,
-    0.774
-   ],
-   "recipe-8b-r1/00, recipe-8b-r2/01, recipe-8b-s2"
-  ],
-  [
-   8.2,
-   "low lr + random rule structures",
-   [
-    0.796,
-    0.774
-   ],
-   "v7-final/00, v7-final/01"
-  ],
-  [
-   0.8,
-   "Qwen3.5 base, same recipe",
-   [
-    0.622,
-    0.634,
-    0.643
-   ],
-   "q35-08b"
-  ],
-  [
-   4.0,
-   "Qwen3.5 base, same recipe",
-   [
-    0.788,
-    0.8,
-    0.794,
-    0.77
-   ],
-   "q35-4b, q35-4b-s23"
-  ],
-  [
-   9.7,
-   "Qwen3.5 base, same recipe",
-   [
-    0.802,
-    0.812
-   ],
-   "q35-9b"
-  ],
-  [
-   0.8,
-   "+ dates/unknowable delta",
-   [
-    0.652
-   ],
-   "night2-08b-du2"
-  ],
-  [
-   4.0,
-   "+ dates/unknowable delta",
-   [
-    0.797
-   ],
-   "night2-4b-du"
-  ],
-  [
-   9.7,
-   "+ dates/unknowable delta",
-   [
-    0.822
-   ],
-   "night2-9b-du"
-  ]
- ]
 }

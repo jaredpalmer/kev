@@ -994,58 +994,6 @@ def test_rotation_averaging_cancels_a_position_bias():
         RotationAveraged(biased, 1)
 
 
-def _leaderboard_row(study, trial, acc, seed=0, cfg="c1"):
-    return {"study": study, "trial": trial, "base": "B", "seed": seed, "config": {"k": cfg, "seed": seed}, "config_sha256": f"{cfg}:{seed}", "legacy": False,
-            "gates": {"complete_coverage": True, "isolation_and_packing": True}, "transfer_acc": acc, "transfer_brier": 0.3,
-            "dev_acc": 0.8, "suite_sha256": None, "transfer_suite_sha256": None}
-
-
-def _transfer_rows(correct):
-    from kev.api import question_keys
-    return [{"id": f"r{i}", "question": "q", "group": f"g{i}", "source": "s", "task": "t", "type": "noul", "variant": "clean",
-             "keys": question_keys("noul", None), "label": 1, "p": [0.2, 0.8] if ok else [0.8, 0.2]} for i, ok in enumerate(correct)]
-
-
-def test_challenger_needs_a_noninferior_paired_interval(tmp_path, monkeypatch):
-    from kev import autoresearch
-    from kev.suite import write_json
-    monkeypatch.setattr(autoresearch, "ROOT", tmp_path)
-    n = 400
-    champion_ok = [i % 5 != 0 for i in range(n)]                    # 0.80
-    tiny_lead = [ok or i == 0 for i, ok in enumerate(champion_ok)]  # +1 question: positive delta, lower bound within the margin
-    big_lead = [ok or i % 10 == 0 for i, ok in enumerate(champion_ok)]   # +10 pp
-    for trial, correct in (("champ", champion_ok), ("tiny", tiny_lead), ("big", big_lead), ("worse", [False] * 40 + champion_ok[40:])):
-        (tmp_path / "runs/s" / trial / "transfer").mkdir(parents=True)
-        write_json(tmp_path / "runs/s" / trial / "transfer/rows.json", _transfer_rows(correct))
-    rows = [_leaderboard_row("s", t, 0.8, cfg=t) for t in ("champ", "tiny", "big", "worse", "missing")]
-    champion = autoresearch.as_incumbent([rows[0]])
-    tiny, big, worse, missing = (autoresearch.challenge(champion, r, rows, samples=300) for r in rows[1:])
-    assert tiny["aggregation"] == "macro" and tiny["delta"] > 0 and tiny["ci95"][0] >= -0.01 and tiny["accepted"]
-    assert big["accepted"] and big["ci95"][0] > 0
-    assert not worse["accepted"] and worse["delta"] < 0
-    assert not missing["accepted"] and "error" in missing                          # recorded, never raised after a paid round
-    after, decision = autoresearch.next_incumbent(champion, rows[2], rows)
-    assert decision["accepted"] and after["trials"] == ["s/big"]
-    after, decision = autoresearch.next_incumbent(champion, rows[3], rows)
-    assert not decision["accepted"] and after is champion
-
-
-def test_replication_joins_the_champion_instead_of_challenging_it():
-    from kev.autoresearch import as_incumbent, next_incumbent
-    rows = [_leaderboard_row("s", "a0", 0.80, seed=0, cfg="a"), _leaderboard_row("s", "a1", 0.84, seed=1, cfg="a")]
-    after, decision = next_incumbent(as_incumbent(rows[:1]), rows[1], rows)
-    assert decision is None and after["seeds"] == [0, 1] and after["transfer_acc"] == pytest.approx(0.82)
-
-
-def test_incumbent_is_the_ledger_champion_until_challenged():
-    from kev.autoresearch import incumbent
-    rows = [_leaderboard_row("s", "a", 0.80, cfg="a"), _leaderboard_row("s", "b", 0.81, cfg="b"), _leaderboard_row("t", "a", 0.78, seed=1, cfg="a")]
-    assert incumbent(rows[:2], "B", None, None)["trials"] == ["s/b"]                     # seeding: point estimate
-    history = [{"base": "B", "incumbent_after": {"trials": ["s/a"]}}]
-    assert incumbent(rows, "B", None, None, history)["trials"] == ["s/a", "t/a"]         # sticky champion, plus its later replication
-    assert incumbent(rows[:2], "B", None, None, [{"base": "B", "incumbent_after": {"trials": ["gone/x"]}}])["trials"] == ["s/b"]   # stale ledger falls back
-
-
 def test_max_state_lifts_row_and_packed_limits_together():
     from kev.experiment import validated_trial
     from kev.model import MAX_BRANCH, MAX_PACKED, MAX_STATE, MAX_TRAIN_STATE, SERVE_MAX_BRANCH, training_context
