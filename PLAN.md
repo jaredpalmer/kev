@@ -55,11 +55,15 @@ cards. Previous weights are Hub tags (`kev-4b@r8-documents-release`, `kev-4b@nig
 
 ### Running and pending
 
-- **Round 17** (27B skills delta with replay 10,000, arms lr 2e-5 and lr 1e-5, study `r17-27b`, spec
-  `experiments/rounds/r17.json`): trained on Modal through the afternoon of 2026-09-24; **result pending**. Its reads land
-  in the research checkout (`research/overnight-r6`); read it out there with `uv run python -m kev.rounds readout
-  experiments/rounds/r17.json --root <research checkout>`. Main's harness refuses to launch reads for a recorded round, so a
-  confirmation (hard-v1 + devtools-v1 test, then locked with the 27B `locked_args`) would be launched from that checkout.
+- **Round 17** (27B skills delta from Kev-27B with replay 10,000, study `r17-27b`, spec `experiments/rounds/r17.json`).
+  Arm (a), lr 2e-5, is read out (`runs/r17-readout/round17.json` in the research checkout, not yet committed anywhere) and
+  is **not a candidate**: primary +12.1 [+10.4, +13.9] (hard-v1 dev 0.733 → 0.895, +16.2 [+13.5, +19.0]; devtools-v1 dev
+  0.702 → 0.783, +8.0 [+5.7, +10.4]), short state +0.3 [−0.9, +1.5], pooled externals −0.1 [−1.0, +0.7], hard-set ECE
+  0.047 → 0.018, but documents −1.5 [−2.8, −0.4] fails the ≥ −2 pp lower-bound guard and scienthoon is below its bound.
+  Arm (b), lr 1e-5, is still training or reading; **result pending**. Its reads land in the research checkout
+  (`research/overnight-r6`); read it out there with `uv run python -m kev.rounds readout experiments/rounds/r17.json --root
+  <research checkout>`. Main's harness refuses to launch reads for a recorded round, so a confirmation, if arm (b) passes,
+  would be launched from that checkout.
 - Decisions waiting on Jared: upload the documents-v1 and hard-v1 train partitions to `jaredpalmer/kev-suites` and bump
   `SUITES_REVISION` (see Next); submit Kev-27B (and the new 4B / 0.8B) to the Decision Index.
 - Spend: Modal metered $1,377.01 at 2026-09-24T12:11Z plus round 17's admission bound ($100.24); night 3 used $292 of a
@@ -77,15 +81,18 @@ Each finding names its evidence. Rates are percentage points, intervals are pair
 2. **The cost of such a delta falls on other suites and grows with size.** Free at 4B (rounds 8, 10). About 1 pp of
    short-state accuracy at 0.8B, which only the pooled 1,800-question short panel (transfer-v4 dev + transfer-r3 test) could
    bound (rounds 7-9 failed on the 656-question panel alone; rounds 11 and 15 passed on the pooled one). WANLI-v2,
-   scienthoon or documents at 9B (rounds 7, 9, 11, 12, 16, 18). Scienthoon at 27B (round 10: −1.8 [−3.0, −0.7]).
+   scienthoon or documents at 9B (rounds 7, 9, 11, 12, 16, 18). Scienthoon at 27B (round 10: −1.8 [−3.0, −0.7]), and
+   scienthoon plus documents at 27B with more replay (round 17, arm (a)).
 3. **At 0.8B, stacked deltas erode each other; the same data in one delta passes.** Skills on top of the documents
    candidate lost documents and short-state accuracy (round 13); documents + skills trained together passed everything
    (round 15). At 4B, stacking worked (round 8 → round 10), and more data from the same generators gave diminishing returns
    (round 14: +26 pp for the first 6,000 hard-v1 records, +5 for the next 12,000).
-4. **Replay stops helping at 9B.** Replay 6,000 removed the external cost of the documents delta (round 9) but not of the
+4. **Replay stops helping at 9B, and did not fix the 27B's external cost.** Replay 6,000 removed the external cost of the documents delta (round 9) but not of the
    skills delta (round 12: pooled externals −2.1 / −3.5). Replay 10,000 cut the external cost (round 16: −0.6) but then
    cost documents; training documents and skills together with replay 10,000 fixed documents (+7.0) and still failed
    WANLI-v2 and scienthoon (round 18). Every 9B documents arm of rounds 7, 9 and 11 gained +6.5 to +7.3; what moved between seeds was WANLI-v2.
+   At 27B the skills delta failed scienthoon with replay 4,000 (round 10); with replay 10,000 (round 17, arm (a)) it still
+   failed scienthoon and now also documents (−1.5 [−2.8, −0.4]), though pooled externals were flat (−0.1 [−1.0, +0.7]).
 5. **A temperature fitted on easy in-distribution rows does not transfer to hard or distant workloads.** Served ECE on
    hard-v1 development: Kev-4B 0.137, Kev-9B 0.073, Kev-27B 0.047; one temperature refitted on hard-v1's own rows (group-disjoint,
    out of fold) gives 0.067 / 0.034 / 0.041 (`A:PLAN.md` "Target A, first measurement"). On WANLI a workload temperature
@@ -106,7 +113,7 @@ Each finding names its evidence. Rates are percentage points, intervals are pair
 9. **LoRA training on our format erodes a Base checkpoint's date arithmetic; stating the day count fixes the readout.**
    Qwen3.5-9B `deadline` 0.82 zero-shot → 0.72 trained; the adapted backbone read through the LM head scores the same as the
    pointer (the skill is lost in the representation, `A:PLAN.md` "Qwen3.5 port" §10). A post-trained 9B eroded more (0.70 → 0.47,
-   round 4.8); question-side LoRA did not protect it (A1). With the day count stated, 0.65 → 1.00 (4B) on a fresh diagnostic
+   round 4.8); question-side LoRA did not protect it at 4B / 9B (A1). With the day count stated, 0.65 → 1.00 (4B) on a fresh diagnostic
    (`runs/binding-diagnostic-v1`). The post-trained 27B kept 0.975, yet JevBench's temporal_numeric family is its weakest (0.07).
 10. **Continue training with soft targets, not hard labels.** Ambiguity soft targets (open teacher disagrees with the
     public label at p ≥ 0.6) beat a matched hard-label delta on accuracy and Brier (round 4.9; release confirmation:
@@ -122,7 +129,10 @@ Each finding names its evidence. Rates are percentage points, intervals are pair
     about ±1 pp on short states and ±2 pp on long panels; a one-seed lead of a point is noise.
 13. **Negative results worth remembering** (each tried and recorded; do not repeat without a new reason):
     - calibration losses (label smoothing, CE + Brier, focal) against a matched CE control: no candidate (round 3);
-    - question-side LoRA: −3.4 to −6.0 pp transfer, no date arithmetic kept, at 4B / 9B / 27B (A1);
+    - question-side LoRA (A1): at 4B / 9B −3.4 to −6.0 pp transfer against the same-seed full-placement trial and no date
+      arithmetic kept; at 27B trial C was −0.9 pp against trial A with `deadline` kept (0.97 vs 0.975), but lost MMLU
+      (0.850 vs 0.863), held-out pairs (0.89 vs 0.92), coverage at ≤ 5 % error (0.645 vs 0.720) and the conditional
+      rule task (−21.9 pp vs Kev-9B); placement stays `full`;
     - post-trained Qwen3.5-9B as base (round 4.8), Qwen3.6-35B-A3B (night 2 #8: +1.2 pp, worse calibration, 8× memory),
       DeltaNet-frozen LoRA (night 2 #5);
     - checkpoint averaging (4.5), reliability head (4.10), 9B → 0.8B self-distillation (4.11), `KEV_DATE_FACTS` as default
@@ -192,7 +202,9 @@ Goals and open questions, not registered rounds; each becomes a spec and a PLAN 
      hard-set calibration, not only on easy rows (finding 5).
    - Evaluation: every existing short-state confirmation panel has been read at least once, so the round needs a new frozen
      panel; the AutoJev head-to-head suites are the comparison; JevBench's sealed half stays the external check.
-   - Round 17's verdict decides whether the current 27B LoRA skills arm is the baseline to beat.
+   - The 27B LoRA skills path has now failed the external guards at replay 4,000 (round 10) and 10,000 (round 17, arm (a)),
+     so B1 v2 (the released Kev-27B) remains the 27B baseline, and more replay is not the remedy; breadth of data, which
+     is what this program adds, is. Round 17 arm (b) is reported when it lands.
 2. **A 9B remedy other than replay** (finding 4): a KL term toward the released Kev-9B's own served answers on the replayed
    records (`kev.anchors` today targets the frozen base's zero-shot answers; this needs the released model's distributions as
    the target), or broader replay.
@@ -215,7 +227,7 @@ outcomes.
 | Release confirmation | 09-22 | soft-target Kev-9B (`r4-soft`) on the round-3 final panel | not released (Brier bound, WANLI −1.2) | `A:PLAN.md` "Release confirmation"; `runs/rc-verdict` |
 | Round 5 | 09-22 | long states + soft targets, all sizes | no release; 9B missed WANLI by 3 questions | `r5.json`; `runs/r5-verdict`; `A:PLAN.md` "Round 5" |
 | Round 6 | 09-23 | overnight hill-climb: 22 delta trials (long states, soft-target variants) at 9B / 4B / 0.8B | no candidate; MNLI soft targets cause the WANLI dip | `r6.json`; `A:PLAN.md` "Round 6"; `A:runs/r6-readout` |
-| A1 | 09-23 | question-side LoRA, from scratch, 4B × 2, 9B, 27B | negative at every size; placement stays `full` | `A:PLAN.md` "Round 6" > A1 |
+| A1 | 09-23 | question-side LoRA, from scratch, 4B × 2, 9B, 27B | negative: 4B / 9B lose 3-6 pp and the date arithmetic; 27B keeps both but loses MMLU, pairs and coverage; placement stays `full` | `A:PLAN.md` "Round 6" > A1 |
 | A2 | 09-22 | Qwen3.8-27B zero-shot probe | 2 of 3 gates (MMLU-Pro 0.635 < 0.65); B1 authorized by Jared as a recorded override | `A:PLAN_27b.md` gating addendum; `runs/probes/qwen38-27b-*` |
 | B1 | 09-23 | Kev-27B, v7 recipe, 1 epoch, 3 trials | trial A missed by 0.15 pp on the paired bound and 2 questions on one task | `A:PLAN.md` "Round 6" > B1 |
 | Round 6 follow-up | 09-23 | Kev-27B, 2 epochs, seeds 1-2 | no candidate; two epochs bought nothing | `A:PLAN.md` "Round 6 follow-up" |
@@ -232,7 +244,7 @@ outcomes.
 | Round 14 | 09-24 | 12,000 more hard-v1 records on the round-10 4B | no candidate: diminishing returns | `r14.json`; `A:runs/r14-readout` |
 | Round 15 | 09-24 | 0.8B documents + skills in one delta | **Kev-0.8B confirmed, released** | `r15.json`; `runs/r15-readout`, `runs/r15-verdict` |
 | Round 16 | 09-24 | 9B skills, replay 10,000 | no candidate (documents cost) | `r16.json`; `A:runs/r16-readout` |
-| Round 17 | 09-24 | 27B skills, replay 10,000 | **pending** | `r17.json`; `A:PLAN.md` "Round 17" |
+| Round 17 | 09-24 | 27B skills, replay 10,000 | arm (a) lr 2e-5: no candidate (documents, scienthoon); arm (b) lr 1e-5: **pending** | `r17.json`; `A:PLAN.md` "Round 17" |
 | Round 18 | 09-24 | 9B documents + skills, replay 10,000 | no candidate (WANLI-v2, scienthoon) | `r18.json`; `A:runs/r18-readout` |
 | AutoJev head-to-head | 09-24 | AutoJev-27B vs Kev-27B, report only | see "Against Jev" above | `A:runs/autojev-h2h/report.json` |
 

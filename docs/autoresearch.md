@@ -32,7 +32,7 @@ Then set up:
 - The authorization is the session's total, counting everything still running. Before **every** launch, read the metered
   cost again and do not launch if `(metered_now - baseline) + sum(admission bounds of everything still running) >= authorization`.
 - A study's admission bound is printed at launch and saved in `runs/<study>.spawn.json`; a benchmark call's bound is
-  `compute_bound(gpu, timeout, jobs)` (`kev/budget.py`). A spec's study `budget` must be at least its bound
+  `compute_bound(gpu, timeout, trials)` (`kev/budget.py`). A spec's study `budget` must be at least its bound
   (`kev.rounds validate` checks it; `modal_app.admit_study` refuses a study over its budget before anything runs, and a
   study is capped at $250 and 28,800 s).
 - Keep a reserve (about 10 % of the authorization) that no phase plans into: billing readings lag and get revised, and
@@ -80,7 +80,7 @@ caffeinate -i nohup uv run python -m kev.rounds watch experiments/rounds/r<N>.js
   [...] --spend-start <baseline> --spend-cap <authorization>`. It validates, launches and watches each round to its read-out,
   stops before a round whose budgets would pass the cap, appends to `runs/autoresearch-sessions.jsonl`, and prints the
   confirmation commands; it never runs them. `kev.autoresearch leaderboard` refreshes `runs/leaderboard.{jsonl,md}` (not
-  committed), `compare` pairs trials against a reference on transfer accuracy, `release-check` checks every seed of a config.
+  committed), `compare` pairs trials against a reference on transfer accuracy, `release-check --study <name>` screens every config in that study (each config passes only if all its seeds pass their gates).
 
 ## 5. What a session may and may not touch
 
@@ -145,7 +145,8 @@ At the end of the session (and in the state file as it goes):
   file was added after the deploy fails inside the container. `--gpu H200` on `study` needs an app deployed with `KEV_GPU=H200`.
 - **27B.** H200 only (bf16 backbone, 55 GB resident); study timeouts up to 28,800 s (a 1-epoch skills delta at lr 2e-5 ran
   about 8.8 s per optimizer step); fp32 reads about three times a 9B's (spec `read_timeout: {"27b": 14400}`); the locked read
-  needs `--gpu H200 --timeout 14400 --memory-mb 131072` (spec `locked_args`). Every bf16-weights trial fails the in-trial
+  needs `--timeout 14400 --memory-mb 131072` (spec `locked_args`) on an H200 (the GPU comes from the spec's `gpu` / the
+  deployed app, or `--gpu H200` by hand). Every bf16-weights trial fails the in-trial
   `isolation_and_packing` gate (an fp32 check); read results from the rows and measure served isolation in bf16 separately.
 - **`locked_test` naming.** When an in-trial screening gate failed, the tool requires the `-ungated` suffix
   (`kev-4b-r8-ungated`); the verdict still follows the registered rule.
