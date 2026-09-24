@@ -38,12 +38,8 @@ def words(n):
     return ONES[n // 100] + " hundred" + ("" if rest == 0 else " and " + words(rest))
 
 
-def person(rng, used=None):
-    while True:
-        name = f"{rng.choice(FIRST)} {rng.choice(LAST)}"
-        if used is None or name not in used:
-            if used is not None: used.add(name)
-            return name
+def person(rng):
+    return f"{rng.choice(FIRST)} {rng.choice(LAST)}"
 
 
 def people(rng, n):

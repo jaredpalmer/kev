@@ -22,7 +22,7 @@ all partitions. Every record is validated through kev.data.materialize and must 
 training context (kev.model.training_context(MAX_TRAIN_STATE)) and in the serving context under the Qwen3.5 tokenizer.
 Deterministic: the same arguments give the same bytes.
 """
-import argparse, hashlib, json, random, sys
+import argparse, json, random, sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT))
 from kev.api import render  # noqa: E402
 from kev.data import materialize  # noqa: E402
 from kev.model import MAX_TRAIN_STATE, fits, load_tokenizer, training_context  # noqa: E402
-from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, GIT_LIMIT, SERVING_CONTEXT, digest, write_json, write_jsonl  # noqa: E402
+from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, GIT_LIMIT, SERVING_CONTEXT, digest, text_digest, write_json, write_jsonl  # noqa: E402
 from scripts.hard_v1_common import Ctx  # noqa: E402
 from scripts.hard_v1_families import ABSTAIN_KEYS, FAMILIES, labels  # noqa: E402
 
@@ -45,8 +45,10 @@ CODE = ("scripts/build_hard_v1.py", "scripts/hard_v1_common.py", "scripts/hard_v
 
 def family_counts(total):
     """Records per family: equal shares, the remainder to `ambiguous` first (its records come in twins, so its count must be
-    even) and then in family order."""
+    even) and then in family order. Needs one record per family and a twin pair for `ambiguous`: below that a family
+    would get none (or, after the even adjustment, a negative count)."""
     names = list(FAMILIES)
+    if total < len(names) + 1: raise ValueError(f"a partition needs at least {len(names) + 1} records (one per family, two for ambiguous), got {total}")
     base, extra = divmod(total, len(names))
     counts = {f: base for f in names}
     order = ["ambiguous"] + [f for f in names if f != "ambiguous"]
@@ -57,7 +59,8 @@ def family_counts(total):
 
 
 def normalised(state):
-    return hashlib.sha256(" ".join(render(state).casefold().split()).encode()).hexdigest()
+    """The deduplication key of a state: text_digest of the text the model reads (kev.api.render)."""
+    return text_digest(render(state))
 
 
 class Checker:

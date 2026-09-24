@@ -49,6 +49,17 @@ def record_digest(record):
     return hashlib.sha256(json.dumps(record, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 
 
+def normalise_text(text):
+    """Casefolded, whitespace runs collapsed to one space: the text two states are compared on for exact deduplication."""
+    return " ".join(text.casefold().split())
+
+
+def text_digest(text):
+    """sha256 of normalise_text(text): the `text_sha256` of suite builders (kev.data computes the same inline; it cannot
+    import this module). scripts/screen_overlap.py tokenises differently on purpose (words only, for n-gram overlap)."""
+    return hashlib.sha256(normalise_text(text).encode()).hexdigest()
+
+
 # Every JSON/JSONL file this repo writes is UTF-8 with LF line endings, whatever the platform's locale says (issue #12:
 # frozen partitions are sha256-checked byte for byte, and they contain non-ASCII text). Read them the same way.
 ENCODING = "utf-8"

@@ -1,8 +1,8 @@
 """devtools-v1: developer-tooling decisions from licence-clean public data with human or heuristic labels (no LLM labels).
 
-    uv run python scripts/build_devtools_v1.py --out /tmp/x/devtools-v1 --legacy-v1-ids   # reproduce devtools-v1 byte for byte
-    uv run python scripts/build_devtools_v1.py --out evals/devtools-v2                    # a new version (downloads into --raw)
-    uv run python scripts/build_devtools_v1.py --resolve-licences                         # refresh scripts/devtools_v1_licences.json (gh api)
+    uv run python scripts/build_devtools_v1.py --out /tmp/x/devtools-v1 --reproduce-v1   # rebuild the frozen devtools-v1 byte for byte
+    uv run python scripts/build_devtools_v1.py --out evals/devtools-v2                   # a new version (downloads into --raw)
+    uv run python scripts/build_devtools_v1.py --resolve-licences                        # refresh scripts/devtools_v1_licences.json (gh api)
 
 Sources (details, licences and label provenance are written into the manifest; SOURCES below is the canonical table):
   codereviewer   Microsoft CodeReviewer diff quality estimation (Zenodo 6900648, CC-BY-4.0). State = diff hunk plus up to
@@ -35,16 +35,25 @@ source has projects); choices are drawn round-robin over labels. Every record is
 Qwen3.5 tokenizer at the lifted training context (kev.model.training_context(MAX_TRAIN_STATE)). Deterministic: the same
 inputs give byte-identical partitions and manifest.
 
-Record ids: devtools-v1 named CodeReviewer records by the dataset's `id` field, which is not a row id (each file has 31,252
-rows and about 15,300 distinct ids, one id shared by up to 71 rows across projects). 68 devtools-v1 ids therefore name two
-or three different records: one pair inside development (codereviewer/cls-test/13657), one inside test
-(codereviewer/cls-test/19245), 53 ids inside train, and 13 ids name a train record and a different development (4) or test
-(9) record. Paired comparisons on devtools-v1 drop the two in-partition ids; train/eval overlap is checked by text_sha256,
-never by id. That is `--legacy-v1-ids`, kept only to rebuild the frozen suite. Without it CodeReviewer ids use the row's
-line number in its file (codereviewer_id), every id is checked unique (check_invariants) and the manifest version is the
---out directory name. The ids also order candidates (deduplication keeps the first by id), so a new version selects
-different records; a version that must keep devtools-v1's evaluation groups out of its training partition has to check
-that by group_id.
+What a new build does differently from devtools-v1. `--reproduce-v1` keeps all three v1 behaviours, and exists only to
+rebuild the frozen suite (a directory named devtools-v1 cannot be built without it); without it the manifest version is
+the --out directory name.
+  ids         devtools-v1 named CodeReviewer records by the dataset's `id` field, which is not a row id (each file has
+              31,252 rows and about 15,300 distinct ids, one id shared by up to 71 rows across projects). 68 devtools-v1
+              ids therefore name two or three different records: one pair inside development (codereviewer/cls-test/13657),
+              one inside test (codereviewer/cls-test/19245), 53 ids inside train, and 13 ids name a train record and a
+              different development (4) or test (9) record. Paired comparisons on devtools-v1 drop the two in-partition
+              ids. New builds use the row's line number (codereviewer_id) and check_invariants refuses duplicate ids.
+  state keys  devtools-v1's CodeReviewer text_sha256 hashed only the diff, not lines_before_hunk, so the same hunk under
+              different context collided in deduplication and looks identical to an overlap check. New builds hash the
+              whole state (state_key). FlakeFlagger keeps keying the test body alone on purpose: about 2,900 test methods
+              repeat a body in another class, and counting them as one state keeps them from being split across
+              partitions. Check train/eval overlap by text_sha256 within one version, never by id.
+  admission   commitpackft's message question is added after selection; devtools-v1 checked line separators before it
+              was added and the context fit with a fixed 200-character stand-in message. New builds check both on the
+              final record and redo the selection without any record that fails (choose).
+The ids and keys also order candidates (deduplication keeps the first by id), so a new version selects different records;
+a version that must keep devtools-v1's evaluation groups out of its training partition has to check that by group_id.
 """
 import argparse, csv, difflib, hashlib, io, json, random, re, subprocess, sys, tarfile, zipfile
 from collections import Counter, defaultdict
@@ -53,9 +62,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kev.data import materialize  # noqa: E402
 from kev.model import MAX_STATE, MAX_TRAIN_STATE, fits, load_tokenizer, training_context, user_tokens  # noqa: E402
-from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, CONTEXT, GIT_LIMIT, digest, read_json, read_jsonl, write_json, write_jsonl  # noqa: E402
+from kev.suite import (ADMISSION_TOKENIZER as TOKENIZER, CONTEXT, GIT_LIMIT, digest, normalise_text, read_json, read_jsonl, text_digest,  # noqa: E402
+                       write_json, write_jsonl)
 
-VERSION = "devtools-v1"     # the frozen suite; --legacy-v1-ids rebuilds it
+VERSION = "devtools-v1"     # the frozen suite; --reproduce-v1 rebuilds it
 SEED = "devtools-v1"
 LICENCES = Path(__file__).with_name("devtools_v1_licences.json")
 EVAL_SIZE, TRAIN_CAP = 150, 1500
@@ -64,7 +74,7 @@ CONTEXT_LINES, CONTEXT_CHARS = 10, 1200
 MAX_PATCH_CHARS, MAX_DIFF_CHARS, MAX_DIFF_LINES, MAX_LINE_CHARS = 6000, 8000, 240, 400
 SPLITS = ("test", "development", "train")
 # characters json.dumps(ensure_ascii=False) leaves raw but str.splitlines() breaks lines on; records containing them are
-# skipped. kev.suite.read_jsonl splits on "\n" only since #101, but other JSONL readers do not, and devtools-v1 was selected this way
+# skipped (line_safe). kev.suite.read_jsonl splits on "\n" only since #101, but other JSONL readers do not
 SPLITLINES = re.compile("[\u0085\u2028\u2029]")
 
 ZENODO_CR = {"record": 6900648, "doi": "10.5281/zenodo.6900648", "file": "Diff_Quality_Estimation.zip", "md5": "aad78e57d7d591172922da96e38e47dd",
@@ -138,7 +148,7 @@ VERB_CLASS = {
     **dict.fromkeys(("revert", "reverts", "reverted"), "revert"),
 }
 REFINABLE = ("feature", "change")          # "add tests" / "update docs": the object decides
-OBJECT_SKIP = {"a", "an", "the", "more", "some", "missing", "new", "basic", "initial", "extra", "additional", "unit", "simple", "better", "few", "and", "for", "to", "some"}
+OBJECT_SKIP = {"a", "an", "the", "more", "some", "missing", "new", "basic", "initial", "extra", "additional", "unit", "simple", "better", "few", "and", "for", "to"}
 DOC_OBJECTS = {"doc", "docs", "documentation", "docstring", "docstrings", "readme", "comment", "comments", "changelog", "javadoc", "jsdoc", "license", "copyright"}
 TEST_OBJECTS = {"test", "tests", "testcase", "testcases", "unittest", "unittests", "spec", "specs", "specs.", "coverage"}
 CONVENTIONAL = re.compile(r"^([a-z]+)(\([^)]*\))?!?:\s*")
@@ -168,12 +178,14 @@ def commit_type(subject):
     return cls
 
 
-def norm(text):
-    return " ".join(text.casefold().split())
+def state_key(state):
+    """text_digest of a whole state (a dict state as sorted JSON)."""
+    return text_digest(state if isinstance(state, str) else json.dumps(state, ensure_ascii=False, sort_keys=True))
 
 
-def text_key(text):
-    return hashlib.sha256(norm(text).encode()).hexdigest()
+def line_safe(record):
+    """No character in the record's JSON that str.splitlines() would break a JSONL line on (SPLITLINES)."""
+    return not SPLITLINES.search(json.dumps({"state": record["state"], "questions": record["questions"]}, ensure_ascii=False))
 
 
 def assign_match(n, rng):
@@ -190,7 +202,7 @@ def message_negatives(items, rng):
     for it in items: by_lang[it["lang"]].append(it)
     out = {}
     for it in items:
-        pool = [o for o in by_lang[it["lang"]] if o["group"] != it["group"] and norm(o["subject"]) != norm(it["subject"])]
+        pool = [o for o in by_lang[it["lang"]] if o["group"] != it["group"] and normalise_text(o["subject"]) != normalise_text(it["subject"])]
         if pool: out[it["id"]] = rng.choice(pool)["subject"]
     return out
 
@@ -321,13 +333,13 @@ def codereviewer_state(patch, oldf):
     return state
 
 
-def codereviewer_id(member, row, line, legacy):
-    """`codereviewer/<file>/<n>`: n is the dataset's `id` field under devtools-v1's legacy ids (it repeats within a file),
-    otherwise `L<line>`, the row's 1-based line number in its file."""
-    return f"codereviewer/{member.split('.')[0]}/{row['id'] if legacy else f'L{line}'}"
+def codereviewer_id(member, row, line, v1):
+    """`codereviewer/<file>/<n>`: n is the dataset's `id` field for devtools-v1 (not unique within a file), otherwise
+    `L<line>`, the row's 1-based line number in its file."""
+    return f"codereviewer/{member.split('.')[0]}/{row['id'] if v1 else f'L{line}'}"
 
 
-def codereviewer_candidates(rows, licences, report, legacy_ids):
+def codereviewer_candidates(rows, licences, report, v1):
     """Candidates from (member, line, row) triples of the CodeReviewer quality-estimation files."""
     allowed = {p for p, v in licences["codereviewer"].items() if v and (v.get("spdx") or "").lower() in PERMISSIVE}
     out, c = [], Counter()
@@ -339,9 +351,9 @@ def codereviewer_candidates(rows, licences, report, legacy_ids):
         state = codereviewer_state(patch, r["oldf"])
         out.append({"state": state, "questions": {"needs_comment": q_noul("Does this change need a reviewer comment?", r["y"] == 1, "codereviewer_needs_comment")},
                     "_label": r["y"] == 1, "_stratum": r["proj"],
-                    "_meta": {"id": codereviewer_id(member, r, line, legacy_ids), "source": "codereviewer", "group_id": f"codereviewer/{r['proj']}",
+                    "_meta": {"id": codereviewer_id(member, r, line, v1), "source": "codereviewer", "group_id": f"codereviewer/{r['proj']}",
                               "project": licences["codereviewer"][r["proj"]]["repo"], "repo_licence": licences["codereviewer"][r["proj"]]["spdx"],
-                              "dataset_lang": r["lang"], "text_sha256": text_key(patch),
+                              "dataset_lang": r["lang"], "text_sha256": text_digest(patch) if v1 else state_key(state),   # v1: the hunk only (module docstring)
                               "provenance": {"via": f"zenodo:{ZENODO_CR['record']}/{ZENODO_CR['file']}:{member}", "row_id": r["id"]}}})
     report["codereviewer"] = dict(c, candidates=len(out))
     return out
@@ -355,9 +367,9 @@ def codereviewer_rows(zpath):
                     yield member, line, json.loads(text)
 
 
-def codereviewer(raw, licences, report, legacy_ids):
+def codereviewer(raw, licences, report, v1):
     zpath = fetch(f"https://zenodo.org/api/records/{ZENODO_CR['record']}/files/{ZENODO_CR['file']}/content", raw / ZENODO_CR["file"], sha256=ZENODO_CR["sha256"])
-    return codereviewer_candidates(codereviewer_rows(zpath), licences, report, legacy_ids)
+    return codereviewer_candidates(codereviewer_rows(zpath), licences, report, v1)
 
 
 def unified_diff(old_file, new_file, old, new):
@@ -388,7 +400,7 @@ def commitpackft(report):
         out.append({"state": diff, "questions": {"change_type": q_choice("What kind of change is this?", COMMIT_TYPES, kind, "commitpackft_type")},
                     "_label": kind, "_subject": r["subject"].strip(), "_lang": lang,
                     "_meta": {"id": f"commitpackft/{lang}/{n}", "source": "commitpackft", "group_id": f"commitpackft/{group}", "commit": r["commit"],
-                              "repo": repos[0], "repo_licence": r["license"], "language": lang, "subject": r["subject"].strip(), "text_sha256": text_key(diff),
+                              "repo": repos[0], "repo_licence": r["license"], "language": lang, "subject": r["subject"].strip(), "text_sha256": text_digest(diff),
                               "provenance": {"via": f"hf:{COMMITPACK[0]}@{COMMITPACK[1]}:data/{lang}/data.jsonl", "row": n}}})
     report["commitpackft"] = dict(c, candidates=len(out), by_type=dict(sorted(Counter(x["_label"] for x in out).items())))
     return out
@@ -403,7 +415,7 @@ AEGIS_KEY = {v: k for k, v in AEGIS_CATEGORIES.items()}
 
 
 def aegis(report):
-    aart = {norm(r["prompt"]) for r in parquet_rows(hub_file(*AART))}
+    aart = {normalise_text(r["prompt"]) for r in parquet_rows(hub_file(*AART))}
     native = {"train.json": "train", "validation.json": "development", "test.json": "test"}
     prompts, c = {}, Counter()
     for fname, split in native.items():
@@ -412,7 +424,7 @@ def aegis(report):
             p = (r["prompt"] or "").strip()
             if not p or p == "REDACTED" or r.get("reconstruction_id_if_redacted"): c["redacted_dropped"] += 1; continue
             if r["prompt_label_source"] != "human": c["non_human_dropped"] += 1; continue
-            k = norm(p)
+            k = normalise_text(p)
             if k in aart: c["aart_dropped"] += 1; continue
             e = prompts.setdefault(k, {"prompt": p, "labels": set(), "splits": set(), "ids": [], "cats": set()})
             e["labels"].add(r["prompt_label"]); e["splits"].add(split); e["ids"].append(r["id"])
@@ -429,8 +441,8 @@ def aegis(report):
             qs["category"] = q_choice("Which hazard category does this unsafe request fall under?", AEGIS_CATEGORIES, AEGIS_KEY[cats[0]], "aegis_category")
         split = min(e["splits"], key=rank.get)
         out.append({"state": e["prompt"], "questions": qs, "_label": unsafe, "_stratum": "all", "_split": split,
-                    "_meta": {"id": f"aegis/{sorted(e['ids'])[0]}", "source": "aegis", "group_id": f"aegis/{text_key(e['prompt'])[:20]}", "native_split": split,
-                              "text_sha256": text_key(e["prompt"]), "provenance": {"via": f"hf:{AEGIS[0]}@{AEGIS[1]}", "row_ids": sorted(e["ids"])}}})
+                    "_meta": {"id": f"aegis/{sorted(e['ids'])[0]}", "source": "aegis", "group_id": f"aegis/{text_digest(e['prompt'])[:20]}", "native_split": split,
+                              "text_sha256": text_digest(e["prompt"]), "provenance": {"via": f"hf:{AEGIS[0]}@{AEGIS[1]}", "row_ids": sorted(e["ids"])}}})
     report["aegis"] = dict(c, candidates=len(out), with_category=sum("category" in x["questions"] for x in out))
     return out
 
@@ -448,7 +460,7 @@ def when2call(report):
         out.append({"state": state, "questions": {"action": q_choice("What should the assistant do next?", W2C_ACTIONS, r["correct_answer"], "when2call_action")},
                     "_label": r["correct_answer"],
                     "_meta": {"id": f"when2call/{r['uuid']}", "source": "when2call", "group_id": f"when2call/{r['source_id']}", "bfcl_id": r["source_id"],
-                              "bfcl_source": r["source"], "text_sha256": text_key(key), "provenance": {"via": f"hf:{WHEN2CALL[0]}@{WHEN2CALL[1]}:{WHEN2CALL[2]}"}}})
+                              "bfcl_source": r["source"], "text_sha256": text_digest(key), "provenance": {"via": f"hf:{WHEN2CALL[0]}@{WHEN2CALL[1]}:{WHEN2CALL[2]}"}}})
     report["when2call"] = {"rows": len(rows), "candidates": len(out), "by_label": dict(sorted(Counter(x["_label"] for x in out).items()))}
     return out
 
@@ -482,7 +494,7 @@ def flakeflagger(raw, licences, report):
                         "_label": label, "_stratum": project,
                         "_meta": {"id": f"flakeflagger/{project}/{cls}#{method}", "source": "flakeflagger", "group_id": f"flakeflagger/{project}",
                                   "project": allowed[project]["repo"], "project_commit": allowed[project]["sha"], "repo_licence": allowed[project]["licence"],
-                                  "text_sha256": text_key(body), "provenance": {"via": f"github:{FF_REPO[0]}@{FF_REPO[1]}:{m.name[len(f'FlakeFlagger-{FF_REPO[1]}/'):]}",
+                                  "text_sha256": text_digest(body), "provenance": {"via": f"github:{FF_REPO[0]}@{FF_REPO[1]}:{m.name[len(f'FlakeFlagger-{FF_REPO[1]}/'):]}",
                                                                                 "label": f"zenodo:{ZENODO_FF['record']}/test_results.csv"}}})
     report["flakeflagger"] = dict(c, candidates=len(out), flaky=sum(x["_label"] for x in out),
                                   tarball_sha256=digest(tar), by_project={p: [sum(1 for x in out if x["_stratum"] == p and x["_label"]), sum(1 for x in out if x["_stratum"] == p and not x["_label"])] for p in sorted(allowed)})
@@ -497,7 +509,7 @@ def prompt_injection(report):
         rows += [("gandalf", f, i, r["text"], True) for i, r in enumerate(parquet_rows(hub_file(GANDALF[0], GANDALF[1], f)))]
     seen, out, c = {}, [], Counter()
     for origin, f, i, text, label in rows:
-        text = (text or "").strip(); k = text_key(text)
+        text = (text or "").strip(); k = text_digest(text)
         if not text: continue
         if k in seen:
             c["duplicate_dropped"] += 1
@@ -551,23 +563,41 @@ def select(source, pool, n, admit, rng):
     classes = defaultdict(list)
     for x in ordered(pool, rng): classes[x["_label"]].append(x)
     chosen = round_robin(classes, n, admit)
-    if source == "commitpackft": add_message_question(chosen, rng)
-    return chosen
+    return with_message_question(chosen, rng) if source == "commitpackft" else chosen
 
 
-def add_message_question(chosen, rng):
+def with_message_question(chosen, rng):
+    """The chosen commits, each eligible one a copy with the message-match question added (the candidates themselves are
+    left untouched, so a selection can be redone)."""
     negatives = message_negatives([{"id": x["_meta"]["id"], "lang": x["_lang"], "group": x["_meta"]["group_id"], "subject": x["_subject"]} for x in chosen], rng)
     eligible = [x for x in chosen if x["_meta"]["id"] in negatives]
+    added = {}
     for x, match in zip(eligible, assign_match(len(eligible), rng)):
         shown = x["_subject"] if match else negatives[x["_meta"]["id"]]
-        x["questions"]["message_match"] = q_noul(f'Does this commit message describe this diff? Message: "{shown}"', match, "commitpackft_message")
-        if not match: x["_meta"]["shown_message"] = shown
+        q = q_noul(f'Does this commit message describe this diff? Message: "{shown}"', match, "commitpackft_message")
+        added[id(x)] = {**x, "questions": {**x["questions"], "message_match": q}, "_meta": {**x["_meta"], **({} if match else {"shown_message": shown})}}
+    return [added.get(id(x), x) for x in chosen]
 
 
-def build(raw, licences, tok, legacy_ids):
+def choose(source, pool, n, admitter, seed, final_ok=None):
+    """select() from a fresh RNG seeded `seed`, returning (chosen, admission rejections of the last attempt, records dropped
+    by final_ok). `admitter(counts)` returns the admission check, counting its rejections in `counts`. With final_ok (new
+    builds), each chosen record is checked in its final form (commitpackft's message question exists only after
+    selection); any that fail are excluded and the selection is redone from the same seed, so balance and determinism hold."""
+    excluded = set()
+    while True:
+        counts = Counter()
+        admit = admitter(counts)
+        chosen = select(source, pool, n, lambda x: x["_meta"]["text_sha256"] not in excluded and admit(x), random.Random(seed))
+        failed = {x["_meta"]["text_sha256"] for x in chosen if final_ok and not final_ok(x)}
+        if not failed: return chosen, counts, len(excluded)
+        excluded |= failed
+
+
+def build(raw, licences, tok, v1):
     ctx = training_context(MAX_TRAIN_STATE)
     report = {}
-    cands = {"codereviewer": codereviewer(raw, licences, report, legacy_ids), "commitpackft": commitpackft(report), "aegis": aegis(report),
+    cands = {"codereviewer": codereviewer(raw, licences, report, v1), "commitpackft": commitpackft(report), "aegis": aegis(report),
              "when2call": when2call(report), "flakeflagger": flakeflagger(raw, licences, report), "prompt_injection": prompt_injection(report)}
     for source, c in cands.items():     # one candidate per normalised state within a source (first by id)
         kept, keys = [], set()
@@ -578,28 +608,34 @@ def build(raw, licences, tok, legacy_ids):
         cands[source] = kept
     pools = {s: assign_splits(s, c) for s, c in cands.items()}
     seen, fit_cache, rejected = set(), {}, Counter()
-    probe_q = q_noul('Does this commit message describe this diff? Message: "' + "x" * 200 + '"', True, "probe")   # room for the message question added after selection
+    # devtools-v1 fitted commitpackft candidates with a 200-character stand-in for the message question added after selection
+    v1_probe = {"message_match": q_noul('Does this commit message describe this diff? Message: "' + "x" * 200 + '"', True, "probe")}
+
+    def fits_context(record):
+        return fits(materialize({"state": record["state"], "questions": record["questions"]}), tok, **ctx)
 
     def admitter(source):
-        def admit(x):   # no side effects: selected states are added to `seen` after each (source, split) selection
-            k = x["_meta"]["text_sha256"]
-            if k in seen: rejected[source, "duplicate_state"] += 1; return False
-            if SPLITLINES.search(json.dumps({"state": x["state"], "questions": x["questions"]}, ensure_ascii=False)):
-                rejected[source, "line_separator_rejected"] += 1; return False
-            if k not in fit_cache:
-                probe = {"state": x["state"], "questions": {**x["questions"], **({"message_match": probe_q} if source == "commitpackft" else {})}}
-                fit_cache[k] = fits(materialize(probe), tok, **ctx)
-            if not fit_cache[k]: rejected[source, "context_rejected"] += 1; return False
-            return True
-        return admit
+        def counting(counts):
+            def admit(x):   # no side effects beyond `counts`: selected states are added to `seen` after each (source, split) selection
+                k = x["_meta"]["text_sha256"]
+                if k in seen: counts[source, "duplicate_state"] += 1; return False
+                if not line_safe(x): counts[source, "line_separator_rejected"] += 1; return False
+                if k not in fit_cache:
+                    fit_cache[k] = fits_context({**x, "questions": {**x["questions"], **v1_probe}} if v1 and source == "commitpackft" else x)
+                if not fit_cache[k]: counts[source, "context_rejected"] += 1; return False
+                return True
+            return admit
+        return counting
 
     parts = {s: [] for s in SPLITS}
     for split in SPLITS:        # test, then development, then train: a state is kept by the first split that takes it
         for source in cands:
             if split == "train" and not SOURCES[source]["trainable"]: continue
             n = TRAIN_CAP if split == "train" else EVAL_SIZE
-            rng = random.Random(f"{SEED}:{source}:{split}")
-            chosen = select(source, pools[source][split], n, admitter(source), rng)
+            chosen, counts, dropped = choose(source, pools[source][split], n, admitter(source), f"{SEED}:{source}:{split}",
+                                             None if v1 else (lambda x: line_safe(x) and fits_context(x)))
+            rejected.update(counts)
+            if dropped: rejected[source, "final_record_rejected"] += dropped
             if len(chosen) < (n if split != "train" else 1): raise SystemExit(f"{source}/{split}: only {len(chosen)} records")
             seen.update(x["_meta"]["text_sha256"] for x in chosen)
             parts[split] += chosen
@@ -637,8 +673,8 @@ def summarise(parts, tok):
 
 
 def check_invariants(parts, unique_ids=True):
-    """Groups never span splits; no normalised state appears twice; no id names two records (except under devtools-v1's
-    legacy ids, unique_ids=False); noul labels balanced within 10% per source and split."""
+    """Groups never span splits; no normalised state appears twice; no id names two records (except in devtools-v1,
+    unique_ids=False); noul labels balanced within 10% per source and split."""
     where, keys, ids = {}, set(), set()
     for split, recs in parts.items():
         for r in recs:
@@ -696,19 +732,19 @@ def main():
     ap.add_argument("--out", help="suite directory to create, e.g. evals/devtools-v1")
     ap.add_argument("--raw", default="/tmp/devtools-raw", help="download directory for the Zenodo / GitHub files (never in git)")
     ap.add_argument("--resolve-licences", action="store_true", help="refresh the CodeReviewer project licences with `gh api` into scripts/devtools_v1_licences.json")
-    ap.add_argument("--legacy-v1-ids", action="store_true", help="rebuild the frozen devtools-v1 byte for byte, with its repeating CodeReviewer ids")
+    ap.add_argument("--reproduce-v1", action="store_true", help="rebuild the frozen devtools-v1 byte for byte: its CodeReviewer ids, state keys and admission check (module docstring)")
     a = ap.parse_args()
     raw = Path(a.raw)
     if a.resolve_licences: return resolve_licences(raw)
     if not a.out: ap.error("--out is required")
     out = Path(a.out)
     if out.exists(): raise FileExistsError(out)
-    version = VERSION if a.legacy_v1_ids else out.name
-    if version == VERSION and not a.legacy_v1_ids: ap.error(f"{VERSION} is frozen: pass --legacy-v1-ids to rebuild it, or name a new version with --out")
+    version = VERSION if a.reproduce_v1 else out.name
+    if version == VERSION and not a.reproduce_v1: ap.error(f"{VERSION} is frozen: pass --reproduce-v1 to rebuild it, or name a new version with --out")
     tok = load_tokenizer(*TOKENIZER)
     licences = read_json(LICENCES)
-    parts, report = build(raw, licences, tok, legacy_ids=a.legacy_v1_ids)
-    check_invariants(parts, unique_ids=not a.legacy_v1_ids)
+    parts, report = build(raw, licences, tok, v1=a.reproduce_v1)
+    check_invariants(parts, unique_ids=not a.reproduce_v1)
     counts, balance, lengths, groups = summarise(parts, tok)
     out.mkdir(parents=True)
     files = {}

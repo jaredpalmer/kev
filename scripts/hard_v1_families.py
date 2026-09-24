@@ -694,14 +694,15 @@ FAMILIES = {
 
 def labels(family, facts, questions):
     """Every question's label from the family's solver: a solver answer is mapped to the option key whose canonical value
-    it equals (choice), used as is (noul: bool), or as the level index (score). Raises unless exactly one option matches."""
+    it equals (choice), used as is (noul: bool), or as the level index (score). Raises unless exactly one option matches.
+    Every generator stores a choice question's option values under facts["options_q"][qid] (a judge item with only noul
+    questions has none; tradeoff's facts["options"] are the options' attributes, not question options)."""
     truth = FAMILIES[family][1](facts)
     out = {}
-    opts = facts.get("options_q") or facts.get("options") or {}
     for qid, q in questions.items():
         ans = truth[qid]
         if q["type"] == "choice":
-            keys = [k for k, v in opts[qid].items() if v == ans]
+            keys = [k for k, v in facts["options_q"][qid].items() if v == ans]
             if len(keys) != 1: raise ValueError(f"{family}/{qid}: {len(keys)} options match the solver's answer {ans!r}")
             out[qid] = keys[0]
         elif q["type"] == "noul":

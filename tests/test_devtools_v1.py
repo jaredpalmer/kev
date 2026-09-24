@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 
 from kev.data import materialize
-from kev.suite import read_jsonl
-from scripts.build_devtools_v1 import (COMMIT_TYPES, Components, assign_match, balanced_pairs, check_invariants, codereviewer_candidates,
-                                       codereviewer_state, commit_type, deal_groups, is_balanced, message_negatives, q_choice, q_noul,
-                                       round_robin, text_key)
+from kev.suite import read_jsonl, text_digest
+from scripts.build_devtools_v1 import (COMMIT_TYPES, Components, assign_match, balanced_pairs, check_invariants, choose, codereviewer_candidates,
+                                       codereviewer_state, commit_type, deal_groups, is_balanced, line_safe, message_negatives, q_choice, q_noul,
+                                       round_robin, state_key)
 
 SUITE = Path(__file__).resolve().parents[1] / "evals" / "devtools-v1"
 
@@ -150,7 +150,7 @@ def test_codereviewer_state_takes_lines_before_hunk():
 
 
 def record(split_group, key, label, src="x_yes"):
-    return {"state": key, "questions": {"q": q_noul("Is it?", label, src)}, "_meta": {"id": f"x/{key}", "group_id": split_group, "text_sha256": text_key(key)}}
+    return {"state": key, "questions": {"q": q_noul("Is it?", label, src)}, "_meta": {"id": f"x/{key}", "group_id": split_group, "text_sha256": text_digest(key)}}
 
 
 def test_check_invariants_catches_group_leak_duplicates_and_imbalance():
@@ -183,10 +183,10 @@ def codereviewer_rows():
 
 def test_a_new_build_gives_codereviewer_records_unique_ids():
     licences = {"codereviewer": {"a-x": {"repo": "a/x", "spdx": "MIT"}, "b-y": {"repo": "b/y", "spdx": "Apache-2.0"}}}
-    fresh = codereviewer_candidates(codereviewer_rows(), licences, {}, legacy_ids=False)
+    fresh = codereviewer_candidates(codereviewer_rows(), licences, {}, v1=False)
     assert [x["_meta"]["id"] for x in fresh] == ["codereviewer/cls-test/L1", "codereviewer/cls-test/L2", "codereviewer/cls-valid/L1", "codereviewer/cls-valid/L2"]
     check_invariants({"train": fresh})
-    legacy = codereviewer_candidates(codereviewer_rows(), licences, {}, legacy_ids=True)   # devtools-v1's ids
+    legacy = codereviewer_candidates(codereviewer_rows(), licences, {}, v1=True)   # devtools-v1's ids
     assert Counter(x["_meta"]["id"] for x in legacy) == {"codereviewer/cls-test/7": 2, "codereviewer/cls-valid/7": 2}
     with pytest.raises(AssertionError, match="duplicate id"):
         check_invariants({"train": legacy})
@@ -198,3 +198,41 @@ def test_devtools_v1_shares_exactly_the_documented_ids_inside_its_evaluation_par
     for split, expected in (("development", {"codereviewer/cls-test/13657"}), ("test", {"codereviewer/cls-test/19245"})):
         ids = Counter(r["_meta"]["id"] for r in read_jsonl(SUITE / f"{split}.jsonl"))
         assert {i for i, n in ids.items() if n > 1} == expected
+
+
+def test_a_new_build_keys_codereviewer_records_on_the_whole_state():
+    """devtools-v1 hashed only CodeReviewer's diff, so the same hunk under different context lines collided."""
+    hunk = "@@ -3,1 +3,1 @@\n-a\n+b"
+    licences = {"codereviewer": {"a-x": {"repo": "a/x", "spdx": "MIT"}}}
+    rows = [("cls-test.jsonl", i + 1, {"id": i, "proj": "a-x", "patch": hunk, "oldf": oldf, "y": 1, "lang": "go"}) for i, oldf in enumerate(["x = 1\ny = 2", "p = 1\nq = 2"])]
+    new = codereviewer_candidates(rows, licences, {}, v1=False)
+    assert new[0]["state"] != new[1]["state"]
+    assert [x["_meta"]["text_sha256"] for x in new] == [state_key(x["state"]) for x in new] and new[0]["_meta"]["text_sha256"] != new[1]["_meta"]["text_sha256"]
+    assert {x["_meta"]["text_sha256"] for x in codereviewer_candidates(rows, licences, {}, v1=True)} == {text_digest(hunk)}
+    assert state_key({"b": 1, "a": "X  y"}) == text_digest('{"a": "X  y", "b": 1}')
+
+
+def commits():
+    """Eight commitpackft-shaped candidates in one language and eight repositories; one subject holds a U+2028."""
+    out = []
+    for i in range(8):
+        subject = f"Fix bug {i}" + ("\u2028more" if i == 3 else "")
+        out.append({"state": f"diff --git a/f{i} b/f{i}\n+x{i}", "questions": {"change_type": q_choice("What kind of change is this?", COMMIT_TYPES, "fix", "commitpackft_type")},
+                    "_label": "fix", "_subject": subject, "_lang": "go",
+                    "_meta": {"id": f"commitpackft/go/{i}", "source": "commitpackft", "group_id": f"commitpackft/r{i}", "text_sha256": text_digest(f"d{i}")}})
+    return out
+
+
+def test_a_new_build_admits_commits_on_their_final_record():
+    """The message question exists only after selection; new builds check the final record and redo the selection without
+    the records that fail, keeping the message labels exactly balanced. devtools-v1 checked before the question was added."""
+    everyone = lambda counts: (lambda x: True)
+    v1, _, v1_dropped = choose("commitpackft", commits(), 8, everyone, "seed")
+    assert v1_dropped == 0 and not all(line_safe(x) for x in v1)          # this seed shows the U+2028 message under v1
+    pool = commits()
+    new, _, dropped = choose("commitpackft", pool, 8, everyone, "seed", final_ok=line_safe)
+    assert dropped >= 1 and all(line_safe(x) for x in new)
+    labels = [x["questions"]["message_match"]["label"] for x in new if "message_match" in x["questions"]]
+    assert len(labels) >= 6 and sum(labels) == len(labels) // 2
+    assert all("message_match" not in x["questions"] and "shown_message" not in x["_meta"] for x in pool)   # a redo starts from clean candidates
+    assert choose("commitpackft", commits(), 8, everyone, "seed", final_ok=line_safe)[0] == new

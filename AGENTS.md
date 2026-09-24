@@ -53,11 +53,12 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   labels from each family's solver over `_meta.facts`, templates 0-3 train / 4 development / 5 test; long_policy states reach ~5k tokens, so train with
   `--max_state` >= 5120; its 23 MB train partition is not in git and not yet in the kev-suites mirror: the builder regenerates it byte for byte, ~1 min;
   `scripts/screen_overlap.py` checks it against JevBench's public items, counts only, in `overlap.json`), `evals/devtools-v1`
-  (developer-tooling decisions from six licence-checked sources, human / heuristic / by-construction labels, no LLM labels; `scripts/build_devtools_v1.py --legacy-v1-ids`
-  rebuilds it from cached downloads; When2Call and prompt injection are eval-only. Known defect, frozen: CodeReviewer ids came from the dataset's
+  (developer-tooling decisions from six licence-checked sources, human / heuristic / by-construction labels, no LLM labels; `scripts/build_devtools_v1.py --reproduce-v1`
+  rebuilds it byte for byte from cached downloads; When2Call and prompt injection are eval-only. Known defects, frozen: CodeReviewer ids came from the dataset's
   non-unique `id` field, so `codereviewer/cls-test/13657` names two development records and `codereviewer/cls-test/19245` two test records
-  (paired comparisons drop both; 66 more ids repeat inside train or across train and an eval partition, so check train/eval overlap by `text_sha256`);
-  new versions get unique line-based ids), and the real-document suites
+  (paired comparisons drop both; 66 more ids repeat inside train or across train and an eval partition, so check train/eval overlap by `text_sha256`),
+  and its CodeReviewer `text_sha256` hashes the hunk without `lines_before_hunk`. Without `--reproduce-v1` the builder makes line-based unique ids, keys the
+  whole state and admits commitpackft records after their message question is added; see its docstring), and the real-document suites
   `evals/documents-v1` (CFPB complaint narratives, product + issue Choice questions; its 23 MB train partition, Kev-4B's round-8 delta data, is not in git and not yet in the kev-suites mirror)
   and `evals/documents-v2` (held-out test only, private mirror, manifest only): `scripts/build_documents_v{1,2}.py` -> `label_documents_v1.py`
   (AI Gateway teachers/judges, spend ledger) -> `freeze_documents_v1.py` (no flag: report + adjudication queue; `--combine`, `--spot-check`, `--freeze ... --min-agreement 47`);

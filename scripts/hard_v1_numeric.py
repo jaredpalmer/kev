@@ -513,7 +513,7 @@ def gen_judge(ctx, t):
         x = F(rng.randint(5, 900)) if offset == 0 else F(rng.randint(-20, 45))
         args = {"x": x, "factor": factor, "offset": offset}
         text = f"Convert {x} {src_u} to {dst_u} ({hint}). Give the answer to one decimal place."
-        errors = {"inverted": x / factor + offset if factor != 1 else x * 2, "missing_offset": x * factor if offset else x * factor * 10, "decimal_slip": (x * factor + offset) * 10,
+        errors = {"inverted": x / factor + offset, "missing_offset": x * factor if offset else x * factor * 10, "decimal_slip": (x * factor + offset) * 10,
                   "offset_first": (x + offset) * factor if offset else x * factor + 1}
         dp, unit = 1, dst_u
         work = lambda v: f"{x} x {float(factor):.6g}" + (f" + {offset}" if offset else "") + f" = {fmt_num(rounded(v, 1) / 10, 1)}"
