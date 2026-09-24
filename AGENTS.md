@@ -105,7 +105,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
     was kernel-launch bound (~60 ms on an H100 at any length); graphs replay bucketed passes (state left-padded, rows right-padded, masked
     exactly; equal to eager up to bf16 reassociation), a new bucket runs eagerly and is captured on a background thread under the model lock.
     Measure with `uv run modal run modal_app.py::serving --run <hub id> --gpu <GPU> --name <name>` (`scripts/serving_bench.py`: latency with
-    and without graphs, parity vs fp32; reports in `runs/serving-*`). `tests/test_model.py::test_cuda_graphs_match_eager` needs CUDA (run it on Modal).
+    and without graphs, parity vs fp32, `--flags=--isolation` for question isolation in bf16; reports in `runs/serving-*`). `tests/test_model.py::test_cuda_graphs_match_eager` needs CUDA (run it on Modal).
     Loading merges the fp32 adapter straight into bf16 weights (same bits as the old fp32 merge + cast), so Kev-9B needs ~17 GB, not 36 GB.
 - Extra endpoints for the demo: `POST /v1/systemone/permute` (one Choice under n option orders), `POST /v1/systemone/separate`
   (each question alone; packed-vs-separate comparison). `/v1/systemone` also returns `latency_ms`.

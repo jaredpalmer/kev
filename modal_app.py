@@ -19,6 +19,7 @@ KEV_HF_SECRET=<modal secret name> to attach a Secret carrying HF_TOKEN for gated
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -135,7 +136,7 @@ def run_locked_test(trial_path, name, suites, git_commit, redo_interrupted=False
                 # a read that crashed before any aggregate was produced: no number was ever observed, so completing it does
                 # not enable selection on the test; it must be requested explicitly and is recorded
                 if not redo_interrupted: raise RuntimeError(f"{label} partition was touched but not summarised; pass redo_interrupted to complete it")
-                import shutil; shutil.rmtree(out / label); interrupted.append(label)
+                shutil.rmtree(out / label); interrupted.append(label)
         summary = {**prior, "resumed_for": sorted(suites), "interrupted_reads_redone": interrupted}
     out.mkdir(parents=True, exist_ok=True)
     result = read_json(trial / "result.json")
@@ -396,18 +397,20 @@ def launch(suite, plan_path, name, gpu, existing=(), transfer=None, budget=20.0,
 
 def pull_study(study):
     """Download a study directory from the runs volume into runs/<study> and rank it. A study pulled before all its trials
-    finished gets only the trial directories it lacks (existing ones are never overwritten), then is re-ranked."""
+    finished is refreshed: finished trial directories (with result.json) are kept, unfinished ones are fetched again."""
     target = ROOT / "runs" / study
     target.parent.mkdir(exist_ok=True)
     if not target.exists():
         pull_volume(f"/{study}", target.parent)   # recreates runs/<study>/... locally, checkpoints included (gitignored)
     else:
+        # a local trial dir without result.json is a copy taken while the trial was still running: replace it
+        for p in target.glob("*-trial-*"):
+            if p.is_dir() and not (p / "result.json").exists(): shutil.rmtree(p)
         missing = sorted(d for d in volume_names(f"/{study}")[0] if not (target / d).exists())
         for d in missing: pull_volume(f"/{study}/{d}", target)
         (target / "results.jsonl").unlink(missing_ok=True)   # derived from the trials' result.json; aggregate rebuilds it
-        partial = sorted(p.name for p in target.glob("*-trial-*") if p.is_dir() and not (p / "result.json").exists())
-        print(f"{study}: added {len(missing)} trial(s) {missing or ''}"
-              + (f"; local trial dirs without result.json (still running, or an interrupted download to delete and re-pull): {partial}" if partial else ""))
+        running = sorted(p.name for p in target.glob("*-trial-*") if p.is_dir() and not (p / "result.json").exists())
+        print(f"{study}: fetched {len(missing)} trial dir(s) {missing or ''}" + (f"; still running (or failed, no result.json): {running}" if running else ""))
     subprocess.run([sys.executable, "-m", "kev.experiment", "--aggregate", "--out", str(target)], check=True, cwd=ROOT)
     return target
 
@@ -464,15 +467,16 @@ def pull(name: str):
 
 
 @app.local_entrypoint()
-def locked_test(trial: str, name: str, decision: str = "evals/v4/decision-v4", transfer: str = "evals/v4/transfer-v4", gpu: str = GPU, redo_interrupted: bool = False):
-    """One locked-test read for a promoted trial (path under the runs volume, e.g. v4-4b-baseline/01-trial-1)."""
+def locked_test(trial: str, name: str, decision: str = "evals/v4/decision-v4", transfer: str = "evals/v4/transfer-v4", gpu: str = GPU, redo_interrupted: bool = False,
+                timeout: int = 3600, memory_mb: int = 49152):
+    """One locked-test read for a promoted trial (path under the runs volume, e.g. v4-4b-baseline/01-trial-1). A 27B needs
+    --gpu H200 --timeout 14400 --memory-mb 131072 (its bf16 weights are staged through host memory while loading)."""
     from kev.suite import read_json
     target = ROOT / "runs/locked" / name
     if (target / "summary.json").exists() and all(k in read_json(target / "summary.json")["suites"] for k in ("decision", "transfer")):
         raise FileExistsError(f"{target} is complete; the locked test is read once per candidate")
-    fn = modal.Function.from_name(APP_NAME, "run_locked_test").with_options(gpu=gpu)
+    fn = modal.Function.from_name(APP_NAME, "run_locked_test").with_options(gpu=gpu, timeout=timeout, memory=(32768, memory_mb))
     summary = fn.remote(trial, name, {"decision": decision, "transfer": transfer}, local_git_commit(), redo_interrupted)
-    import shutil
     if target.exists(): shutil.rmtree(target)   # local copy only; the volume is the record
     target.parent.mkdir(parents=True, exist_ok=True)
     pull_volume(f"/locked/{name}", target.parent)
