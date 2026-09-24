@@ -32,6 +32,13 @@ RELEASES = {   # arm: trial + where each read lives
                    "hard_dev": "runs/hv1-P4r8", "devtools_dev": "runs/dt1-P4r8", "hard_test": "runs/r10c-4b-parent-hardtest", "devtools_test": "runs/r10c-4b-parent-devtest",
                    **{s: f"runs/r8-4b-s2-{s}" for s in EXTERNALS}},
     },
+    "kev-08b-r11": {   # PLAN.md round 11: the released Kev-0.8B + one epoch on documents-v1 train, replay 6,000, lr 2e-5 (seed 5)
+        "candidate": {"trial": "runs/release/kev-08b-r11", "docs1_dev": "runs/r11-08b-s5-docs", "docs1_test": "runs/r11c-08b-cand-docs1test", "docs2": "runs/r11c-08b-cand-docs2",
+                      "v9": "runs/r11-08b-s5-v9", "locked": "runs/locked/kev-08b-r11-ungated", **{s: f"runs/r11-08b-s5-{s}" for s in EXTERNALS}},
+        "parent": {"trial": "runs/night2-08b-du2/00-trial-0", "docs1_dev": "runs/docs1-P08", "docs1_test": "runs/r11c-08b-parent-docs1test", "docs2": "runs/r11c-08b-parent-docs2",
+                   "v9": "runs/r5r-P08-v9", "locked": "runs/locked/kev-08b-night2-du-ungated", "semif": "runs/r5r-P08-semif", "scienthoon": "runs/r5r-P08-scienthoon",
+                   "wanli2": "runs/r6-P08-wanli2", "typesafe": "runs/r5r-P08-typesafe"},
+    },
     "kev-4b-r8": {
         "candidate": {"trial": "runs/r8-small/00-trial-0", "docs1_dev": "runs/r8-4b-s2-docs", "docs1_test": "runs/r8c-4b-cand-docs1test", "docs2": "runs/r8c-4b-cand-docs2",
                       "v9": "runs/r8-4b-s2-v9", "locked": "runs/locked/kev-4b-r8-ungated", **{s: f"runs/r8-4b-s2-{s}" for s in EXTERNALS}},
