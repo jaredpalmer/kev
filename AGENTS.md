@@ -47,7 +47,22 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   unknowable) for OOD, `evals/round3/{decision-r3,transfer-r3}` (calibration audit; the 1,260-record final panel is
   unscored), `evals/smoke-v1` for tests, plus `evals/external/` (semif-v1, scienthoon-v1, ekzhang-mmlupro-v1, and SemIf's pinned third-party selections wanli-v1 + typesafe-v1 via
   `scripts/freeze_semif_external.py`; `scripts/compare_typesafe.py` reports equal-case agreement/TVD against the reference and published answers, `--tokenizer` adds accuracy by state length; Kev-9B/4B scored 2026-09-22: WANLI 0.703/0.695 vs Jev 0.758, TypeSafe 0.809/0.856 agreement on 89 answered rows vs 0.891, `runs/kev-*-{wanli,typesafe}-v1`),
-  `evals/night2/` (delta training data, `scripts/build_night2_data.py`) and `evals/diagnostics/` (binding-v1).
+  `evals/night2/` (delta training data, `scripts/build_night2_data.py`), `evals/diagnostics/` (binding-v1), `evals/hard-v1`
+  (programmatically labelled skill records in seven families: long policy documents, trade-offs, probability, multi-hop,
+  temporal/numeric, judging a proposed answer, missing-fact abstention; `scripts/build_hard_v1.py` + `hard_v1_{common,policy,families,numeric}.py`,
+  labels from each family's solver over `_meta.facts`, templates 0-3 train / 4 development / 5 test; long_policy states reach ~5k tokens, so train with
+  `--max_state` >= 5120; its 23 MB train partition is not in git and not yet in the kev-suites mirror: the builder regenerates it byte for byte, ~1 min;
+  `scripts/screen_overlap.py` checks it against JevBench's public items, counts only, in `overlap.json`), `evals/devtools-v1`
+  (developer-tooling decisions from six licence-checked sources, human / heuristic / by-construction labels, no LLM labels; `scripts/build_devtools_v1.py --reproduce-v1`
+  rebuilds it byte for byte from cached downloads; When2Call and prompt injection are eval-only. Known defects, frozen: CodeReviewer ids came from the dataset's
+  non-unique `id` field, so `codereviewer/cls-test/13657` names two development records and `codereviewer/cls-test/19245` two test records
+  (paired comparisons drop both; 66 more ids repeat inside train or across train and an eval partition, so check train/eval overlap by `text_sha256`),
+  and its CodeReviewer `text_sha256` hashes the hunk without `lines_before_hunk`. Without `--reproduce-v1` the builder makes line-based unique ids, keys the
+  whole state and admits commitpackft records after their message question is added; see its docstring), and the real-document suites
+  `evals/documents-v1` (CFPB complaint narratives, product + issue Choice questions; its 23 MB train partition, Kev-4B's round-8 delta data, is not in git and not yet in the kev-suites mirror)
+  and `evals/documents-v2` (held-out test only, private mirror, manifest only): `scripts/build_documents_v{1,2}.py` -> `label_documents_v1.py`
+  (AI Gateway teachers/judges, spend ledger) -> `freeze_documents_v1.py` (no flag: report + adjudication queue; `--combine`, `--spot-check`, `--freeze ... --min-agreement 47`);
+  label provenance in `runs/documents-v1-work/`.
   Partitions over ~10 MB are not in git; they are mirrored at the Hub dataset `jaredpalmer/kev-suites` (revision pinned
   in `kev/suite.py: SUITES_REVISION`) and `load_split` fetches + verifies them on first use. After freezing a new suite:
   `hf upload jaredpalmer/kev-suites evals . --type dataset --include "*.jsonl" --include "*.json"`, bump
@@ -107,7 +122,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
     `PrefixCache` keeps only the states that survive a batch); `/v1/systemone` is async, `Server.lock`
     excludes the model thread, `wait_idle()` waits for answers and captures, every response carries `server-timing`.
     Measure with `uv run modal run modal_app.py::serving --run <hub id> --gpu <GPU> --name <name>` (`scripts/serving_bench.py`: latency,
-    parity vs fp32, throughput at 1/8/32/64 in-process clients; reports in `runs/serving-*` (graphs only) and `runs/fused-*`).
+    parity vs fp32, throughput at 1/8/32/64 in-process clients, `--flags=--isolation` for question isolation on the served path; reports in `runs/serving-*` (graphs only) and `runs/fused-*`).
     `tests/test_model.py::test_cuda_graphs_match_eager` needs CUDA (run it on Modal). Over HTTP, Modal's `asgi_app` path caps a container at
     ~40-50 req/s; `modal.experimental.http_server` served ~99 req/s at 64 clients (Kev-4B, H100).
     Loading merges the fp32 adapter straight into bf16 weights (same bits as the old fp32 merge + cast), so Kev-9B needs ~17 GB, not 36 GB.
@@ -121,7 +136,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   - Next 16 dev only trusts `localhost`; other hostnames need `allowedDevOrigins` or the page SSRs but never hydrates
     (no console errors). `127.0.0.1` is allowed in `next.config.ts`. Verify hydration with `agent-browser` (CDP), not curl.
   - `playground/AGENTS.md` (regenerated by `next dev`) is the Next 16 rules file; read `node_modules/next/dist/docs/` before writing app code.
-- Unit tests (no weights; the CI `python` job): `uv run --extra serve python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py -q`.
+- Unit tests (no weights; the CI `python` job): `uv run --extra serve python -m pytest tests/test_unit.py tests/test_research.py tests/test_generators.py tests/test_conventions.py tests/test_documents_tools.py tests/test_hard_v1.py tests/test_devtools_v1.py -q`.
   `tests/test_skill_scripts.py` covers the kev-finetune stdlib scripts (stdlib only, no network). Weight-backed parity tests
   (`runs/smoke-hl/00-trial-0/checkpoint` + a Qwen2.5-0.5B / Qwen3.5-0.8B-Base download, ~2.5 min, local only): `tests/test_model.py`; `tests/test_mlx.py` (Apple Silicon, ~30 s) for the MLX backend.
   `test_conventions.py` is a table of "one canonical home" rules (head.pt via `kev.checkpoint`, `KEV_*` via `LoadOptions.from_env`,
@@ -178,7 +193,7 @@ runs / the endpoint / the volumes. Tests: `tests/test_skill_scripts.py`.
 - `kev/publish.py`   run -> Hub repo: adapter, head.pt, tokenizer, trial result/provenance/log, the card as README.md; `--tag`, `--revision`, `--private`
 - `modal_app.py`     every GPU entrypoint: trials, locked tests, probes, benches, anchors, smoke
 - `scripts/`         one-off builders and read-outs: `calibrate_checkpoint.py`, `build_night2_data.py`, `build_binding_diagnostic.py`,
-                     `freeze_{semif,scienthoon,calibration_audit}.py`, `calibration_audit.py`, `review_calibration_screen.py`,
+                     `freeze_{semif,scienthoon,calibration_audit}.py`, `{build,label,freeze}_documents_v*.py`, `calibration_audit.py`, `review_calibration_screen.py`,
                      `compare_{q35,night2}.py`, `temperature_groups.py`, `base_mmlu_probe.py`, `plot_*.py` + `chartstyle.py`, `publish_space.sh`
 - `tests/test_api.py` conformance against the docs' example requests + official SDK
 

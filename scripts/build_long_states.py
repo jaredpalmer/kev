@@ -24,10 +24,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kev.api import render  # noqa: E402
 from kev.data import materialize  # noqa: E402
 from kev.model import MAX_TRAIN_STATE, fits, load_tokenizer  # noqa: E402
-from kev.suite import SERVING_CONTEXT, digest, load_split, read_manifest, record_digest, write_json, write_jsonl  # noqa: E402
+from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, SERVING_CONTEXT, digest, load_split, read_manifest, record_digest, write_json, write_jsonl  # noqa: E402
 
 SUITE = "evals/v7/decision-v7"
-TOKENIZER = ("Qwen/Qwen3.5-4B-Base", "1001bb4d826a52d1f399e183466143f4da7b741b")
 LENGTHS = (1024, 2048, 4096)
 NOTE = "Answer about the primary record only; the other records are unrelated."
 PAIRING = ("pair_id", "sibling", "control_id")   # the parent's minimal-pair links; copies at several lengths must not claim them

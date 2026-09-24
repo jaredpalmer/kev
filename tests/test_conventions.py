@@ -30,6 +30,14 @@ RULES = [
      r"manifest\.json\"\)\.read_text\(\)", {"kev/suite.py"}),
     ("device selection, synchronize and empty_cache go through kev.device (the Space is a CUDA-only one-off)",
      r"is_available\(\) else|torch\.(mps|cuda)\.(synchronize|empty_cache|current_allocated_memory|max_memory_allocated)\(", {"kev/device.py", "space/app.py"}),
+    ("the isolation sibling probe is kev.experiment.ISOLATION_PROBE (fp32 mechanism check and served isolation read the same question)",
+     r"CRANE-9274", {"kev/experiment.py"}),
+    ("which partitions stay out of git is kev.suite.GIT_LIMIT",
+     r"10 \* 1024 \* 1024", {"kev/suite.py"}),
+    ("the pinned Qwen3.5 tokenizer suite builders admit records under is kev.suite.ADMISSION_TOKENIZER",
+     r"1001bb4d826a52d1f399e183466143f4da7b741b", {"kev/suite.py", "kev/transfer_v9.py"}),   # transfer_v9 pins every Qwen3.5 base it scores
+    ("a state's normalised-text hash (text_sha256) is kev.suite.text_digest",
+     r"\.casefold\(\)\.split\(\)\)\.encode\(\)", {"kev/suite.py", "kev/data.py"}),   # kev.suite imports kev.data, so kev.data keeps its inline copy
 ]
 
 

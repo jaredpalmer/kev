@@ -29,6 +29,10 @@ ADMISSION_BRANCH_HEADROOM = 64
 SUITES_DATASET = "jaredpalmer/kev-suites"
 PRIVATE_DATASET = "jaredpalmer/kev-private-evals"
 SUITES_REVISION = "a88f56db5341397299137cb68775c2ea6e3f68cb"
+# partitions larger than this stay out of git (gitignored; the manifest's sha256 still pins them)
+GIT_LIMIT = 10 * 1024 * 1024
+# the pinned tokenizer suites built for the Qwen3.5 family are admitted and length-counted under (hard-v1, devtools-v1, long states)
+ADMISSION_TOKENIZER = ("Qwen/Qwen3.5-4B-Base", "1001bb4d826a52d1f399e183466143f4da7b741b")
 # programmatic policy sources (kev.study_v3 / kev.contrastive); the trainer's mix ablations treat them as one group
 SYNTHETIC_SOURCES = ("legacy_policy", "compositional", "contrastive")
 
@@ -45,6 +49,17 @@ def record_digest(record):
     return hashlib.sha256(json.dumps(record, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 
 
+def normalise_text(text):
+    """Casefolded, whitespace runs collapsed to one space: the text two states are compared on for exact deduplication."""
+    return " ".join(text.casefold().split())
+
+
+def text_digest(text):
+    """sha256 of normalise_text(text): the `text_sha256` of suite builders (kev.data computes the same inline; it cannot
+    import this module). scripts/screen_overlap.py tokenises differently on purpose (words only, for n-gram overlap)."""
+    return hashlib.sha256(normalise_text(text).encode()).hexdigest()
+
+
 # Every JSON/JSONL file this repo writes is UTF-8 with LF line endings, whatever the platform's locale says (issue #12:
 # frozen partitions are sha256-checked byte for byte, and they contain non-ASCII text). Read them the same way.
 ENCODING = "utf-8"
@@ -59,7 +74,8 @@ def write_json(path, value):
 
 
 def read_jsonl(path):
-    return [json.loads(line) for line in Path(path).read_text(encoding=ENCODING).splitlines() if line.strip()]
+    # split on "\n" only: str.splitlines() also breaks on U+2028, U+2029 and U+0085, which write_jsonl leaves unescaped
+    return [json.loads(line) for line in Path(path).read_text(encoding=ENCODING).split("\n") if line.strip()]
 
 
 def write_jsonl(path, records):
