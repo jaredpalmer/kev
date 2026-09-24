@@ -36,7 +36,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
     on another's long record); `--max_steps N` stops early. `experiment.train_checkpoint` launches a full-weight trial
     under torchrun on every GPU of its container (`--gpu H200:8`). 27B, ~1,000-token records (`runs/sft-probe/`): one
     H200 `--batch 8 --accum 4 --row_budget 8192` 0.84 records/s; 8 H200 `--batch 4 --accum 4 --length_sort 1` 3.4
-    records/s (121 GB peak per GPU). Memory plan and projections: PR #PRNUM.
+    records/s (121 GB peak per GPU). Memory plan and projections: PR #122.
   - Only one training process at a time: two on MPS slow each other ~10x.
 - Smoke: `uv run python -m kev.train --n_per_source 40 --accum 4 --out runs/smoke` (~1 min).
 - Benchmark (the eval path for everything current): `uv run python -m kev.benchmark --run <run dir | Hub id[@rev]>
