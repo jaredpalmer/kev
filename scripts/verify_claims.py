@@ -43,7 +43,7 @@ def verify(root, claims=None):
     failures = []
     texts, sources = {}, {}
     for claim in read_json(claims or root / "docs/claims.json"):
-        label = f"{claim['printed']} <- {claim['source']}:{'/'.join(claim['path']) if 'path' in claim else claim['paths']}"
+        label = f"{claim['printed']} <- {claim['source']}:{'/'.join(map(str, claim['path'])) if 'path' in claim else claim['paths']}"
         for name in claim["in"]:
             if name not in texts:
                 texts[name] = (root / name).read_text(encoding="utf-8")
