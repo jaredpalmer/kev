@@ -1,5 +1,5 @@
-"""Accuracy by state length on evals/round4/longstate-v1 (PLAN.md round 4, item 4.12; PLAN_27b A3), paired against the
-same primaries unburied (longstate_control), from a kev.benchmark rows.json.
+"""Accuracy by state length on evals/round4/longstate-v1 (PLAN.md round 4, item 4.12; PLAN_27b A3; both at git tag
+research-archive-2026-09-24), paired against the same primaries unburied (longstate_control), from a kev.benchmark rows.json.
 
     uv run python scripts/longstate_report.py runs/r4-kev-4b-longstate-2 [runs/<other> ...]
 """

@@ -53,10 +53,10 @@ Kev-27B is a **decision model**: one document (the *state*) and a set of typed q
 
 **Read this first.**
 - **The base is post-trained, not a base model.** Every other Kev starts from a `-Base` checkpoint. `Qwen/Qwen3.8-27B` is Qwen's instruction-tuned release; what it was post-trained on (including any distillation from other models) is Qwen's and is not known to us. Comparisons with Jev or with the smaller Kevs are therefore not controlled comparisons of the method.
-- **One registered gate was overridden.** Before training, the untrained base had to reach MMLU-Pro ≥ 0.65 on `transfer-v9`; it scored 0.635 and the project owner overrode the gate (recorded in `PLAN_27b.md`, A2). The trained model's own MMLU-Pro is 0.665.
+- **One registered gate was overridden.** Before training, the untrained base had to reach MMLU-Pro ≥ 0.65 on `transfer-v9`; it scored 0.635 and the project owner overrode the gate (recorded in `PLAN_27b.md`, A2, at git tag `research-archive-2026-09-24`). The trained model's own MMLU-Pro is 0.665.
 - **It needs a data-centre GPU.** bf16 weights are 55 GB resident; one H100 80 GB or H200. There is no Mac path.
 
-- Hub: `jaredpalmer/kev-27b` (trial `r6-27b-v2/01-trial-1`; registration and every read in `PLAN_27b.md`, "B1 v2", on the `research/overnight-r6` branch). Numbers below: `runs/release/kev-27b-v2.json`.
+- Hub: `jaredpalmer/kev-27b` (trial `r6-27b-v2/01-trial-1`; registration and every read in `PLAN_27b.md`, "B1 v2", at git tag `research-archive-2026-09-24`). Numbers below: `runs/release/kev-27b-v2.json`.
 
 ## Results (as served: each checkpoint at its own fitted temperature)
 
@@ -79,7 +79,7 @@ Kev-27B is a **decision model**: one document (the *state*) and a set of typed q
 
 Paired against Kev-9B (record-clustered bootstrap, 95 %): transfer-r6 test +2.1 pp [+0.3, +3.8]; longstate-v3 buried questions +27.7 [+23.1, +32.5]; SemIf +6.2 [+2.8, +10.4]; scienthoon +4.1 [+1.9, +6.3]; real documents +2.9 [+0.7, +5.3]; WANLI-v2 +0.5 [−1.6, +2.6].
 
-How it was selected: two seeds were trained under a rule registered before any training (`PLAN_27b.md`, B1 v2): development criteria (transfer-v4 ≥ 0.842, MMLU-Pro ≥ 0.65, unknowable share ≤ 0.05, held-out pairs ≥ 0.75, long states ≥ Kev-9B + 10 pp, pooled externals ≥ Kev-9B), then one read of two fresh panels against Kev-9B, then one locked read (≥ 0.862, Brier ≤ 0.237). Seed 1 missed MMLU-Pro (0.630); seed 2 passed every step and is this checkpoint. Three earlier 27B trials (round 6) had missed the development rule by less than a point; their record is in `PLAN.md`.
+How it was selected: two seeds were trained under a rule registered before any training (`PLAN_27b.md`, B1 v2, at tag `research-archive-2026-09-24`): development criteria (transfer-v4 ≥ 0.842, MMLU-Pro ≥ 0.65, unknowable share ≤ 0.05, held-out pairs ≥ 0.75, long states ≥ Kev-9B + 10 pp, pooled externals ≥ Kev-9B), then one read of two fresh panels against Kev-9B, then one locked read (≥ 0.862, Brier ≤ 0.237). Seed 1 missed MMLU-Pro (0.630); seed 2 passed every step and is this checkpoint. Three earlier 27B trials (round 6) had missed the development rule by less than a point; their record is in `PLAN.md` at tag `research-archive-2026-09-24` ("Round 6").
 
 ## Serving (bf16)
 

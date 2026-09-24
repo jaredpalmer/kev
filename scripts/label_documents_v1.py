@@ -1,5 +1,5 @@
-"""Label documents-v1 candidates with LLMs through the Vercel AI Gateway (PLAN_27b B2, revised protocol), blind to the
-native labels. One call per (model, document) answers all of that document's questions; answers are cached per model and
+"""Label documents-v1 candidates with LLMs through the Vercel AI Gateway (PLAN_27b B2, revised protocol, at git tag
+research-archive-2026-09-24), blind to the native labels. One call per (model, document) answers all of that document's questions; answers are cached per model and
 split, so a rerun resumes; a call that failed (an `error` result: a non-retryable HTTP status or retries exhausted) is
 kept in the answers file for the record but is not cached, so the next run retries it. A shared spend ledger (labels/spend.json, written after every labelled result) enforces a
 hard cap across runs. The cap holds for sequential runs of this script (two concurrent runs each read the ledger once and

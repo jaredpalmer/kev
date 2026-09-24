@@ -51,7 +51,7 @@ Kev-0.6B is a **decision model**: one document (the *state*) and a set of typed 
 **The small member of the Kev family.** It is the best 0.6B checkpoint under a frozen, checksummed evaluation protocol: the 4B/8B recipe's data (`decision-v7`) at lr 1e-4, three seeds (transfer 0.613 / 0.605 / **0.620**), after eight one-knob mutations and three seeds of the previous data found nothing better than 0.61. Out of domain it is a 0.6B model — use Kev-4B for accuracy; use this one where memory or latency rule the 4B out, and measure on your own data.
 
 - Hub: `jaredpalmer/kev-0.6b` (this repo; trial `v7-06b/02-trial-2`, seed 2 of 3)
-- Code, suites, results, and the full research log: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — see `PLAN.md`, `runs/leaderboard.md`, and `evals/v4/*/manifest.json`
+- Code, suites, results, and the full research log: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — see `PLAN.md` (full record at git tag `research-archive-2026-09-24`), `runs/leaderboard.md`, and `evals/v4/*/manifest.json`
 
 ## What changed since Kev-0.5B
 
@@ -85,7 +85,7 @@ Frozen suite `evals/v7/decision-v7` (manifest pins dataset and base-model revisi
 
 ## Evaluation protocol
 
-Development partitions select models; a locked test partition exists and is read at most once per promoted candidate. Every number above carries the suite hash, code hashes, and git commit in `result.json`. Comparisons use a record-clustered paired bootstrap. See `PLAN.md` for the corrections we made to our own earlier claims.
+Development partitions select models; a locked test partition exists and is read at most once per promoted candidate. Every number above carries the suite hash, code hashes, and git commit in `result.json`. Comparisons use a record-clustered paired bootstrap. See `PLAN.md` at git tag `research-archive-2026-09-24` ("Evidence and corrections") for the corrections we made to our own earlier claims.
 
 ## Use
 

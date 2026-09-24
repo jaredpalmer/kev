@@ -14,7 +14,7 @@ All GPU work in this repo goes through `modal_app.py`. Never train large models 
 2. **Deploy if `kev/*.py` changed** (the launcher refuses otherwise: "deployed app has different kev/*.py"): `uv run modal deploy modal_app.py`. Redeploying while trials run is safe — in-flight containers keep their image — but wait for trials that are seconds from finishing if you can.
 3. **Launch** (each trial is spawned as its own call on the deployed app; survives disconnects):
    `uv run modal run modal_app.py::study --suite evals/v7/decision-v7 --plan experiments/X.json --name X --transfer evals/v4/transfer-v4 --budget 30 --timeout 5400`
-   Names are immutable: a failed study needs a new name (`X2`). Timeout max 14400. Bound cost is printed; H100 ≈ $3.95/h.
+   Names are immutable: a failed study needs a new name (`X2`). Timeout max 28800 (a 27B), budget max $250 per study (`modal_app.admit_study`). Bound cost is printed; H100 ≈ $3.95/h.
 4. **Monitor**: `uv run modal app logs kev-research | grep -a -E "step .*/|evaluated|Error" | tail`. Per-trial status without logs:
    ```python
    import json, modal

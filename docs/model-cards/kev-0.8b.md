@@ -93,9 +93,9 @@ It is still a sub-1B model. On the development splits it trails Jev everywhere i
   - Confirmation then required the documents-v1 test and the pooled hard-v1 + devtools-v1 tests to have lower bounds above zero (skills tests pooled +21.7 pp [+19.5, +24.0]), and one locked read (accuracy ≥ parent − 1 pp, served Brier ≤ parent + 0.005). All passed.
   - The in-trial screening gate "held-out pairs ≥ 70 %" fails at this size, as it did for the released parent (0.422 for both), which is why the locked read is named `kev-08b-r15-ungated`.
 
-- Hub: `jaredpalmer/kev-0.8b` (this repo; trial `r15-08b/00-trial-0`; the registration and every read are in `PLAN.md` rounds 9, 11, 12, 13 and 15 on the `research/overnight-r6` branch). The previous version is at tag `night2-du-release`; the pre-delta v7 checkpoint at `v7-base`.
+- Hub: `jaredpalmer/kev-0.8b` (this repo; trial `r15-08b/00-trial-0`; the registration and every read are in `PLAN.md` rounds 9, 11, 12, 13 and 15 at git tag `research-archive-2026-09-24`; specs in `experiments/rounds/`). The previous version is at tag `night2-du-release`; the pre-delta v7 checkpoint at `v7-base`.
 - Demo: [huggingface.co/spaces/jaredpalmer/kev](https://huggingface.co/spaces/jaredpalmer/kev) runs Kev-4B and Kev-0.8B on ZeroGPU with the same encoder and API code as `kev.serve`.
-- Code, suites, results, and the full research log: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — `PLAN.md`, `runs/leaderboard.md`. The numbers below are in `runs/release/kev-08b-r15.json`; JevBench in `runs/jevbench-public/kev-08b-r15/`.
+- Code, suites, results, and the full research log: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — `PLAN.md` (full record at git tag `research-archive-2026-09-24`), `runs/leaderboard.md`. The numbers below are in `runs/release/kev-08b-r15.json`; JevBench in `runs/jevbench-public/kev-08b-r15/`.
 
 ## Results (as served: each checkpoint at its own fitted temperature)
 

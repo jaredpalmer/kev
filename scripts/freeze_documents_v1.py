@@ -6,8 +6,8 @@ adjudication queue and, once adjudications exist, the frozen suite.
     uv run python scripts/freeze_documents_v1.py --spot-check              # the 50-question human sample from the final test split
     uv run python scripts/freeze_documents_v1.py --freeze evals/documents-v1 --min-agreement 47   # needs adjudications + spot-check reviews
 
-Rules (PLAN_27b, B2 revised). Train: a question keeps its native label only if both teachers chose it; otherwise the
-question is dropped (a record with no question left is dropped). Development and test: a question is verified if all three
+Rules (PLAN_27b, B2 revised; at git tag research-archive-2026-09-24). Train: a question keeps its native label only if
+both teachers chose it; otherwise the question is dropped (a record with no question left is dropped). Development and test: a question is verified if all three
 judges chose the native label; every other question goes to the adjudication queue and is adjudicated twice,
 independently (runs/documents-v1-work/adjudication/out and out2); it is decided only where both agree, otherwise dropped.
 Unparsed judge answers count as disagreement.

@@ -398,7 +398,7 @@ KEV_BASE_URL=http://127.0.0.1:8009 uv run --extra serve python -m pytest tests/t
 cd playground && npm run lint && npx next typegen && npx tsc --noEmit -p .
 ```
 
-The API tests run TypeSafe's example requests and the official SDK against your local server. [PLAN.md](PLAN.md) is the research log: every experiment, the criteria set before it ran, and how it came out.
+The API tests run TypeSafe's example requests and the official SDK against your local server. [PLAN.md](PLAN.md) is the research plan: what we have learned, the rules every experiment follows, and one line per round. The full log (every experiment, the criteria set before it ran, and how it came out) is at the git tag `research-archive-2026-09-24`.
 
 <details>
 <summary>Previous generation (Qwen3) and the prototype</summary>

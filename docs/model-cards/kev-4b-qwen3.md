@@ -51,7 +51,7 @@ Kev-4B is a **decision model**: one document (the *state*) and a set of typed qu
 **The recommended Kev.** The best 4B checkpoint under a frozen, checksummed protocol after ~40 controlled 4B trials, and the first Kev within seven points of Jev out of domain on the same items. Same recipe run at three seeds: transfer 0.773 / **0.790** / 0.770; this checkpoint is the seed selected on the development partition (never on the locked test).
 
 - Hub: `jaredpalmer/kev-4b`, revision tag `qwen3` (trial `v7-rc3/01-trial-1`); the repo's main revision now holds the Qwen3.5 checkpoint
-- Code, suites, every trial with hashes and paired bootstraps: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — `PLAN.md`, `runs/leaderboard.md`
+- Code, suites, every trial with hashes and paired bootstraps: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev) — `PLAN.md` (full record at git tag `research-archive-2026-09-24`), `runs/leaderboard.md`
 
 ## Results (same frozen items for every row)
 
@@ -90,7 +90,7 @@ Frozen suite `evals/v4/decision-v4`: 10,000 public records (1,000 per source, te
 
 ## Evaluation protocol
 
-Development partitions select models; the locked test partition is read at most once per candidate. Every number carries suite hash, code hashes, and git commit in `result.json`. See `PLAN.md` for the corrections we made to our own earlier claims.
+Development partitions select models; the locked test partition is read at most once per candidate. Every number carries suite hash, code hashes, and git commit in `result.json`. See `PLAN.md` at git tag `research-archive-2026-09-24` ("Evidence and corrections") for the corrections we made to our own earlier claims.
 
 ## Use
 

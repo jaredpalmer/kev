@@ -68,7 +68,7 @@ def test_validation_checks_budgets():
 # --- benchmark jobs --------------------------------------------------------------------------------------------------
 
 def test_benchmark_jobs_keep_a_pinned_hub_revision():
-    """Round 10's parent test reads failed because `repo@sha@suite@name` shifted every field (PLAN.md, Night 3 incidents)."""
+    """Round 10's parent test reads failed because `repo@sha@suite@name` shifted every field (PLAN.md at research-archive-2026-09-24, Night 3 incidents)."""
     from modal_app import parse_jobs
     jobs = ",".join([rounds.bench_job("jaredpalmer/kev-4b@957b91e762e883935830246eeb02381f9d2694b6", "evals/hard-v1", "r10c-4b-parent-hardtest", "--allow-test"),
                      rounds.bench_job("/runs/r10-skills/00-trial-0/checkpoint", "evals/external/semif-v1", "r10-4b-skills-semif"),
@@ -356,7 +356,7 @@ def test_confirm_reproduces_the_committed_verdicts(round_number, name):
 
 
 def test_concurrent_pulls_of_one_study_run_one_at_a_time(tmp_path, monkeypatch):
-    """Two watchers' pulls of the same study collided (PLAN.md, Night 3 incidents): modal_app.pull_lock serialises them."""
+    """Two watchers' pulls of the same study collided (PLAN.md at research-archive-2026-09-24, Night 3 incidents): modal_app.pull_lock serialises them."""
     import threading, time
     import modal_app
     inside, overlaps = [], []
