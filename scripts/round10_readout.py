@@ -28,7 +28,7 @@ ARMS = {"4b-skills": ("runs/r10-skills/00-trial-0", "4b"), "4b-hard": ("runs/r10
 
 # devtools-v1 development has one record id used by two different records (a builder bug found at the first read;
 # fixed for the next version); pairing needs unique (id, question), so that id is dropped on both sides and reported.
-DUPLICATE_IDS = {"codereviewer/cls-test/13657"}
+DUPLICATE_IDS = {"codereviewer/cls-test/13657", "codereviewer/cls-test/19245"}   # development, test
 
 
 def arm_rows(trial, reads, t):

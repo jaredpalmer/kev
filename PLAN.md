@@ -134,6 +134,8 @@ Reported, never gating:
 3. Target A (hard-tier calibration): served ECE on hard-v1 development no worse than the parent's + 0.01 (point), with a bootstrap interval reported.
 4. Per size, the passing arm with the largest primary point estimate is the candidate. Confirmation, once: hard-v1 test and devtools-v1 test (both locked and unread) pooled, paired lower bound > 0; locked `transfer-v4` accuracy ≥ parent − 1 pp and served Brier ≤ parent + 0.005. JevBench public items are read for the candidate as a report, never for selection.
 
+**Amendment (2026-09-24T04:30Z, after the first development read, before any confirmation read).** devtools-v1 reuses a few CodeReviewer record ids for different records (development 1 id, test 1 id, train several; the builder took ids from a per-file row index while pooling two files). Paired bootstraps need unique `(id, question)`, so every devtools comparison drops the duplicated ids on both sides (`round10_readout.py: DUPLICATE_IDS`; 2 of 1,074 development rows; the test id `codereviewer/cls-test/19245` will be dropped the same way). Training is unaffected. The builder is fixed for the next version; devtools-v1 stays frozen as it is.
+
 ## Rounds 7 and 8 result (2026-09-23/24; each read once per registered rule)
 
 **Round 7 (documents delta, every size against its released parent; `scripts/round7_readout.py`, `runs/r7-readout/round7.json`).** No candidate at any size.
