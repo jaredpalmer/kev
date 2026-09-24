@@ -60,7 +60,7 @@ Kev-4B is a **decision model**: one document (the *state*) and a set of typed qu
 
 **Read this before relying on the documents numbers.** The gain is measured **in distribution**: training and every documents suite share one source (CFPB complaints) and the same two question templates. It shows Kev-4B learns real long documents from a few thousand labelled examples; it does not show the same gain on other kinds of documents. Evaluation labels are AI-adjudicated (a unanimous three-model judge panel, or two agreeing adjudications) and human spot-checked (47/50 and 50/50).
 
-- Hub: `jaredpalmer/kev-4b` (this repo; trial `r8-small/00-trial-0`, `PLAN.md` round 8). The previous version is at tag `night2-du-release`; the pre-delta v7 checkpoint at `v7-base`; the Qwen3 generation at `qwen3` ([its card](kev-4b-qwen3.md)).
+- Hub: `jaredpalmer/kev-4b` (this repo; trial `r8-small/00-trial-0`; the registration and every read are in `PLAN.md` round 8 on the `research/overnight-r6` branch). The previous version is at tag `night2-du-release`; the pre-delta v7 checkpoint at `v7-base`; the Qwen3 generation at `qwen3` ([its card](kev-4b-qwen3.md)).
 - Code, suites, every trial with hashes and paired bootstraps: [github.com/jaredpalmer/kev](https://github.com/jaredpalmer/kev). The numbers below are in `runs/release/kev-4b-r8.json`.
 
 ## Results (as served: each checkpoint at its own fitted temperature)
@@ -86,7 +86,7 @@ Kev-4B is a **decision model**: one document (the *state*) and a set of typed qu
 | WANLI-v2 (1,002 NLI pairs) | 0.691 | 0.699 | – |
 | TypeSafe (89 answered rows) | 0.843 | 0.843 | – |
 
-Paired against the previous version (record-clustered bootstrap, 95 %): documents dev +8.4 pp [+6.0, +10.6], locked test +9.9 [+7.5, +12.4], private held-out +8.0 [+5.6, +10.3]; scienthoon +2.6 [+0.8, +4.4]; SemIf −0.7 [−2.8, +1.4]; WANLI-v2 −0.8 [−2.0, +0.4]; TypeSafe identical on all 89 rows. The release was decided by a rule registered before any read (`PLAN.md`, round 8): documents development lower bound > 0, short-state and external guards sized to what each suite can resolve, then one read of the untouched documents test and one locked read. A first seed (round 7) gave the same documents gain and failed only per-suite lower bounds on the two smallest suites; it was not released.
+Paired against the previous version (record-clustered bootstrap, 95 %): documents dev +8.4 pp [+6.0, +10.6], locked test +9.9 [+7.5, +12.4], private held-out +8.0 [+5.6, +10.3]; scienthoon +2.6 [+0.8, +4.4]; SemIf −0.7 [−2.8, +1.4]; WANLI-v2 −0.8 [−2.0, +0.4]; TypeSafe identical on all 89 rows. The release was decided by a rule registered before any read (`PLAN.md` round 8, `research/overnight-r6` branch): documents development lower bound > 0, short-state and external guards sized to what each suite can resolve, then one read of the untouched documents test and one locked read. A first seed (round 7) gave the same documents gain and failed only per-suite lower bounds on the two smallest suites; it was not released.
 
 **Calibration.** The delta sharpened the raw logits (fitted temperature 2.14 → 2.96; raw out-of-domain Brier 0.327, raw locked Brier 0.278). As served, calibration is unchanged. `KEV_TEMPERATURE=1.0` gives the raw values.
 
