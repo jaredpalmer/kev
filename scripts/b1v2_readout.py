@@ -16,10 +16,11 @@ import argparse, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from kev.metrics import metrics, paired_bootstrap, served, unknowable_report  # noqa: E402
+from kev.metrics import metrics, served_at, unknowable_report  # noqa: E402
+from kev.rounds import paired as boot, served_clean, temperature  # noqa: E402
 from kev.suite import read_json, write_json  # noqa: E402
-from round6_readout import EXTERNALS, boot, knowable, serve  # noqa: E402
+
+EXTERNALS = ("semif", "scienthoon", "wanli2", "typesafe")
 
 P9 = "runs/night2-9b-du/00-trial-0"
 SEEDS = {1: "runs/r6-27b-v2/00-trial-0", 2: "runs/r6-27b-v2/01-trial-1"}
@@ -27,8 +28,8 @@ P9_READS = {"long": "runs/r5r-P9-long", "semif": "runs/r5r-P9-semif", "scienthoo
 
 
 def parent():
-    t = served(read_json(Path(P9) / "development/rows.json"), [])[0]
-    return t, {k: knowable(serve(P9, f"{d}/rows.json", t)[0]) for k, d in P9_READS.items()}
+    t = temperature(P9, ".")
+    return t, {k: served_at(read_json(f"{d}/rows.json"), t) for k, d in P9_READS.items()}
 
 
 def select(out):
@@ -38,10 +39,10 @@ def select(out):
     report = {"parent": P9, "parent_temperature": pt, "parent_long_acc": metrics(plong)["acc"], "parent_pooled_external_acc": metrics(p_ext)["acc"], "seeds": {}}
     for seed, trial in SEEDS.items():
         res, tag = read_json(Path(trial) / "result.json"), f"runs/r6-27bv2-s{seed}"
-        t = served(read_json(Path(trial) / "development/rows.json"), [])[0]
-        v9 = serve(trial, f"{tag}-v9/rows.json", t)[0]
-        long = [r for r in knowable(serve(trial, f"{tag}-long/rows.json", t)[0]) if r["source"] == "longstate"]
-        ext = [r for s in EXTERNALS for r in knowable(serve(trial, f"{tag}-{s}/rows.json", t)[0])]
+        t = temperature(trial, ".")
+        v9 = served_clean(read_json(f"{tag}-v9/rows.json"), t)
+        long = [r for r in served_at(read_json(f"{tag}-long/rows.json"), t) if r["source"] == "longstate"]
+        ext = [r for s in EXTERNALS for r in served_at(read_json(f"{tag}-{s}/rows.json"), t)]
         s = {"trial": trial, "temperature": t, "transfer_acc": res["transfer"]["clean"]["acc"], "mmlu_pro": read_json(f"{tag}-v9/report.json")["tasks"]["mmlu_pro"]["acc"],
              "unknowable_share": unknowable_report(v9)["share_at_0_9"], "pairs": res["transfer"]["paired_flip"]["both_correct_rate"],
              "long_acc": metrics(long)["acc"], "long_delta": boot(long, plong, "acc"), "pooled_external_acc": metrics(ext)["acc"], "pooled_external_delta": boot(ext, p_ext, "acc")}
@@ -62,9 +63,9 @@ def select(out):
 
 
 def confirm(candidate, out):
-    t = {"cand": served(read_json(Path(candidate) / "development/rows.json"), [])[0], "parent": served(read_json(Path(P9) / "development/rows.json"), [])[0]}
+    t = {"cand": temperature(candidate, "."), "parent": temperature(P9, ".")}
     trial = {"cand": candidate, "parent": P9}
-    rows = {(k, s): knowable(serve(trial[k], f"runs/r6c-27b-{k}-{s}/rows.json", t[k])[0]) for k in trial for s in ("r6test", "long3")}
+    rows = {(k, s): served_at(read_json(f"runs/r6c-27b-{k}-{s}/rows.json"), t[k]) for k in trial for s in ("r6test", "long3")}
     long = {k: [r for r in rows[k, "long3"] if r["source"] == "longstate"] for k in trial}
     acc, ld = boot(rows["cand", "r6test"], rows["parent", "r6test"], "acc"), boot(long["cand"], long["parent"], "acc")
     tasks = {}
