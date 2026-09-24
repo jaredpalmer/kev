@@ -12,8 +12,6 @@ Small Jev-like decision models you can train and run yourself.
 
 Kev is a family of small decision models built on Qwen3.5 and Qwen3.8 and based on the architecture described in [Jev's Architecture Unmasked](https://archerhume.com/posts/jevs-architecture-unmasked). You can use the pretrained weights or train your own. The API matches TypeSafe's [System One](https://docs.typesafe.ai/api), so you can point their Python SDK at your local server.
 
-![Kev accuracy against Jev on data Kev never trained on](docs/kev-benchmark.png)
-
 ## Highlights
 
 - Yes/no (`noul`), multiple-choice (`choice`) and rating (`score`) questions in one request. The questions share the text but can't read each other.
