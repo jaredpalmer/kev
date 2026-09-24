@@ -126,6 +126,14 @@ Jev on the same development splits: hard-v1 0.777, devtools-v1 0.713. **Confirma
 
 **JevBench public items, report only (`runs/jevbench-public/kev-4b-r10`; the candidate served from a private Hub copy by the kev-deploy template, same unchanged harness):** all public 0.714 → **0.758** (Kev-9B 0.762); standard 0.931 → 0.931; hard 0.450 → **0.541**, paired over the 111 hard items +9.0 pp [+2.7, +15.3], 12 newly right vs 2 newly wrong (exact McNemar p = 0.013); hard-tier ECE 0.263 → **0.112** (Kev-9B 0.192, Kev-27B 0.128, Jev 0.06). By family: ambiguous 0.43 → 0.71, multi_hop 0.39 → 0.61, long_policy 0.21 → 0.32, tradeoff 0.33 → 0.50, temporal_numeric 0.13 → 0.20, judge_hard and probability unchanged. The skill data transfers to a benchmark it never saw, and Target A (hard-tier calibration) moves by training, not only by temperature. No JevBench item was used for selection.
 
+## Round 13 - 0.8B skills on top of the 0.8B documents candidate (registered 2026-09-24T05:46Z, before any training or read)
+
+**Why.** 0.8B has two separately confirmed deltas from the released checkpoint: documents (round 11, confirmed) and skills (round 12, rules 1-3 passed, confirmation running). A release is one model, so this round trains the skills data on top of the round-11 documents candidate, the path Kev-4B took (round 8 → round 10).
+
+**Arms** (study `r13-08b`, `experiments/round13/skills.json`): from `/runs/r11-docs/03-trial-3/checkpoint`, one epoch, `data evals/round10/skills/train.jsonl`, `replay 6000`, lr 4e-5, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seeds 1 and 2; H200, timeout 12,600 s. Parent reads for the round-11 candidate on hard-v1 and devtools-v1 development: `runs/r13-P08r11-{hard,devtools}` (read once, alongside).
+
+**Rule:** round 12's rule against this parent (the round-11 candidate), including the documents guard (`documents-v1` development lower bound ≥ −2 pp, parent rows `runs/r11-08b-s5-docs`) and the pooled short-state panel (parent `runs/r11-08b-s5-r3test`). The passing seed with the larger primary estimate is the candidate; confirmation: hard-v1 + devtools-v1 test pooled lower bound > 0 against the round-11 candidate, `documents-v1` test lower bound ≥ −2 pp against it (its test was read once already, by rule), and locked `transfer-v4` (≥ parent − 1 pp, Brier ≤ parent + 0.005).
+
 ## Round 12 - skills delta at 9B and 0.8B (registered 2026-09-24T04:56Z, before any training or read)
 
 **Why.** Round 10's 4B skills arm passed rules 1-3 (hard-v1 development 0.503 → 0.786, devtools-v1 0.605 → 0.739, every guard flat, hard-set ECE 0.137 → 0.095); its confirmation is running. This round applies the same data at 9B with round 9's lesson (replay 6,000 removes the 9B external cost) and at 0.8B.

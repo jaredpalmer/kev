@@ -30,8 +30,11 @@ PARENTS.update({
                                                "semif": "runs/r5r-P08-semif", "scienthoon": "runs/r5r-P08-scienthoon", "wanli2": "runs/r6-P08-wanli2", "typesafe": "runs/r5r-P08-typesafe"})})
 ROUNDS = {10: {"4b-skills": ("runs/r10-skills/00-trial-0", "4b"), "4b-hard": ("runs/r10-skills/01-trial-1", "4b"), "4b-devtools": ("runs/r10-skills/02-trial-2", "4b"),
                "27b-skills": ("runs/r10-skills-27b/00-trial-0", "27b")},
-          12: {"9b-s1": ("runs/r12-skills/00-trial-0", "9b"), "9b-s2": ("runs/r12-skills/01-trial-1", "9b"), "08b-s1": ("runs/r12-skills/02-trial-2", "08b")}}
-POOLED_SHORT = {12}   # rounds whose short-state guard pools transfer-v4 dev with transfer-r3 test (round 11)
+          12: {"9b-s1": ("runs/r12-skills/00-trial-0", "9b"), "9b-s2": ("runs/r12-skills/01-trial-1", "9b"), "08b-s1": ("runs/r12-skills/02-trial-2", "08b")},
+          13: {"08b-s1": ("runs/r13-08b/00-trial-0", "08b-r11"), "08b-s2": ("runs/r13-08b/01-trial-1", "08b-r11")}}
+PARENTS["08b-r11"] = ("runs/r11-docs/03-trial-3", {"hard": "runs/r13-P08r11-hard", "devtools": "runs/r13-P08r11-devtools", "docs": "runs/r11-08b-s5-docs",
+                                                   "v9": "runs/r11-08b-s5-v9", "r3test": "runs/r11-08b-s5-r3test", **{s: f"runs/r11-08b-s5-{s}" for s in EXTERNALS}})
+POOLED_SHORT = {12, 13}   # rounds whose short-state guard pools transfer-v4 dev with transfer-r3 test (round 11)
 
 
 # devtools-v1 development has one record id used by two different records (a builder bug found at the first read;
@@ -76,7 +79,7 @@ def main():
                            "3_hard_ece_at_most_parent_plus_0.01": rep["hard_ece"]["candidate"] <= rep["hard_ece"]["parent"] + 0.01}
         rep["passed"] = all(rep["criteria"].values())
         report["arms"][arm] = rep
-    for size in sorted({size for _, size in ROUNDS[a.round].values()}):
+    for size in sorted({size.split("-")[0] for _, size in ROUNDS[a.round].values()}):
         passing = [(k, v) for k, v in report["arms"].items() if k.startswith(size + "-") and isinstance(v, dict) and v["passed"]]
         report[f"candidate_{size}"] = max(passing, key=lambda kv: kv[1]["primary"]["delta"])[0] if passing else None
     Path(a.out).mkdir(parents=True, exist_ok=True); write_json(Path(a.out) / f"round{a.round}.json", report)
