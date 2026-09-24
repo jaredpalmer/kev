@@ -220,6 +220,63 @@ def test_backend_resolution_vllm_is_explicit():
     assert ck.backend("cuda", LoadOptions(backend="vllm")) == "vllm" and ck.backend("cuda", LoadOptions(backend="auto")) == "torch"
 
 
+@pytest.mark.parametrize("every_unit", [False, True])
+def test_vllm_state_sharing_reads_the_same_positions(monkeypatch, every_unit):
+    """kev.vllm_model against a fake engine with vLLM's align-mode cache semantics: hits land on multiples of the prefix
+    match unit, never cover a whole prompt, and hidden states come back only for the tokens computed; a finished prompt
+    leaves an entry at its last unit boundary (every_unit: at every boundary, so a repeat can hit inside its own branch).
+    Sharing the state must read exactly the logits the unshared rows read and compute the state once; a repeated request
+    hits only the state (its padded rows end on a boundary a hit never covers), and a hit that does reach a readout makes
+    that row run again, salted."""
+    import asyncio, importlib, sys
+    from collections import Counter
+    from types import ModuleType, SimpleNamespace
+    for name in ("vllm", "vllm.config", "vllm.engine", "vllm.engine.arg_utils", "vllm.v1", "vllm.v1.engine", "vllm.v1.engine.async_llm"):
+        monkeypatch.setitem(sys.modules, name, ModuleType(name))
+    sys.modules["vllm"].TokensPrompt = dict
+    sys.modules["vllm"].PoolingParams = SimpleNamespace
+    sys.modules["vllm.config"].PoolerConfig = sys.modules["vllm.engine.arg_utils"].AsyncEngineArgs = sys.modules["vllm.v1.engine.async_llm"].AsyncLLM = object
+    monkeypatch.delitem(sys.modules, "kev.vllm_model", raising=False)
+    V = importlib.import_module("kev.vllm_model")
+    monkeypatch.setattr(V, "SHARE_MIN_STATE", 32)   # the fake state is 40 tokens
+    from kev.model import PointerHead
+
+    def hidden(prefix):   # causal: position t's state depends on the tokens up to t only
+        return torch.randn(8, generator=torch.Generator().manual_seed(hash(prefix) % 2**31))
+
+    class Engine:
+        def __init__(self): self.cache = set()
+        async def encode(self, prompt, params, request_id):
+            ids, salt, unit = prompt["prompt_token_ids"], prompt.get("cache_salt"), V.PREFIX_UNIT
+            hit = max((k for k in range(unit, len(ids), unit) if (salt, tuple(ids[:k])) in self.cache), default=0)
+            self.cache.update((salt, tuple(ids[:k])) for k in (range(unit, len(ids) + 1, unit) if every_unit else [len(ids) // unit * unit]))
+            h = torch.stack([hidden(tuple(ids[:t + 1])) for t in range(hit, len(ids))])
+            yield SimpleNamespace(outputs=SimpleNamespace(data=h[-1:] if params.task == "embed" else h), num_cached_tokens=hit)
+
+    state = list(range(100, 140))                                         # 40 tokens: the state request covers 32
+    branch = lambda q: [q, 1, 2, 3, 4, 5, 6, 7, 8, 9]                      # </opt> at offsets 3 and 6, <decide> last
+    enc = {"ids": state + branch(11) + branch(12), "pos": list(range(60)), "seg": [0] * 40 + [1] * 10 + [2] * 10,
+           "decide_idx": [49, 59], "opt_idx": [[43, 46], [53, 56]]}
+    head = PointerHead(8, dp=4).eval()
+    def model(share):
+        m = V.VLLMDecisionModel.__new__(V.VLLMDecisionModel)
+        m.head, m.share_state, m.tokens, m.engine = head, share, Counter(), Engine()
+        return m
+    plain, shared = model(False), model(True)
+    ref = asyncio.run(plain._logits(enc))
+    first = asyncio.run(shared._logits(enc))
+    assert shared.tokens["computed"] == 32 + 2 * 32         # the state's first 32 tokens once, then each row (padded 50 -> 64) from 32
+    again = asyncio.run(shared._logits(enc))
+    for got in (first, again):
+        assert all(torch.equal(a, b) for a, b in zip(got, ref))
+    if not every_unit: assert plain.tokens["computed"] == 2 * 50 and plain.tokens["requests"] == 2
+    # the repeat: rows hit the state only, or (every_unit) their own branch at 48 > readout 43 and run again salted
+    assert (shared.tokens["redone"], shared.tokens["requests"]) == ((2, 9) if every_unit else (0, 6))
+    monkeypatch.setattr(V, "SHARE_MIN_STATE", 48)   # a state too short to share: no state request, the rows (still padded) carry it
+    short = model(True)
+    assert all(torch.equal(a, b) for a, b in zip(asyncio.run(short._logits(enc)), ref)) and short.tokens["requests"] == 2
+
+
 def test_rows_per_pass_is_a_token_budget():
     from kev.model import rows_per_pass
     assert rows_per_pass([[0] * 30] * 5, prefix_len=270) == 16384 // 300     # a short state: every question of a normal request batches

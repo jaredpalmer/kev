@@ -1,0 +1,198 @@
+{
+  "run": "/runs/r6-27b/00-trial-0/checkpoint",
+  "gpu": "NVIDIA H200",
+  "records": 40,
+  "load_seconds": 43.5,
+  "resident_gb": 65.7,
+  "latency_graphs": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 1023.8,
+      "new_ms": 71.0,
+      "cached_ms": 39.6
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 268.9,
+      "new_ms": 111.45,
+      "cached_ms": 79.75
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 493.5,
+      "new_ms": 144.85000000000002,
+      "cached_ms": 82.7
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 610.2,
+      "new_ms": 406.54999999999995,
+      "cached_ms": 104.2
+    }
+  },
+  "questions": 40,
+  "graphs_miss_vs_eager_bf16": {
+    "max_dp": 0.011047899723052979,
+    "mean_dp": 0.00198837498112141,
+    "argmax_flips": 0
+  },
+  "graphs_hit_vs_eager_bf16": {
+    "max_dp": 0.011047899723052979,
+    "mean_dp": 0.00198837498112141,
+    "argmax_flips": 0
+  },
+  "throughput": {
+    "6 questions, new short state @ 1 clients": {
+      "p50_ms": 114.3,
+      "p99_ms": 115.7,
+      "requests_per_s": 8.7,
+      "first": {
+        "p50_ms": 113.9,
+        "p99_ms": 114.8,
+        "requests_per_s": 8.8
+      }
+    },
+    "6 questions, new short state @ 8 clients": {
+      "p50_ms": 543.6,
+      "p99_ms": 562.9,
+      "requests_per_s": 14.7,
+      "first": {
+        "p50_ms": 542.4,
+        "p99_ms": 4649.0,
+        "requests_per_s": 9.6
+      }
+    },
+    "6 questions, new short state @ 32 clients": {
+      "p50_ms": 1905.2,
+      "p99_ms": 1939.6,
+      "requests_per_s": 16.7,
+      "first": {
+        "p50_ms": 2724.6,
+        "p99_ms": 3683.2,
+        "requests_per_s": 11.6
+      }
+    },
+    "6 questions, new short state @ 64 clients": {
+      "p50_ms": 3748.6,
+      "p99_ms": 4073.8,
+      "requests_per_s": 16.7,
+      "first": {
+        "p50_ms": 3799.5,
+        "p99_ms": 4873.8,
+        "requests_per_s": 15.6
+      }
+    },
+    "decision-v7 development @ 1 clients": {
+      "p50_ms": 72.2,
+      "p99_ms": 165.4,
+      "requests_per_s": 12.3,
+      "first": {
+        "p50_ms": 148.8,
+        "p99_ms": 1153.6,
+        "requests_per_s": 3.8
+      }
+    },
+    "decision-v7 development @ 8 clients": {
+      "p50_ms": 438.1,
+      "p99_ms": 1003.4,
+      "requests_per_s": 15.9,
+      "first": {
+        "p50_ms": 753.1,
+        "p99_ms": 2276.9,
+        "requests_per_s": 7.9
+      }
+    },
+    "decision-v7 development @ 32 clients": {
+      "p50_ms": 1848.9,
+      "p99_ms": 2468.3,
+      "requests_per_s": 17.8,
+      "first": {
+        "p50_ms": 2339.1,
+        "p99_ms": 4072.7,
+        "requests_per_s": 12.8
+      }
+    },
+    "decision-v7 development @ 64 clients": {
+      "p50_ms": 3277.3,
+      "p99_ms": 4139.6,
+      "requests_per_s": 20.1,
+      "first": {
+        "p50_ms": 4064.5,
+        "p99_ms": 4695.0,
+        "requests_per_s": 15.5
+      }
+    },
+    "5 questions, 2,200-token state @ 1 clients": {
+      "p50_ms": 416.6,
+      "p99_ms": 419.6,
+      "requests_per_s": 2.4,
+      "first": {
+        "p50_ms": 417.5,
+        "p99_ms": 420.7,
+        "requests_per_s": 2.4
+      }
+    },
+    "5 questions, 2,200-token state @ 8 clients": {
+      "p50_ms": 3251.6,
+      "p99_ms": 3257.0,
+      "requests_per_s": 2.5,
+      "first": {
+        "p50_ms": 3773.8,
+        "p99_ms": 4851.5,
+        "requests_per_s": 2.1
+      }
+    },
+    "5 questions, 2,200-token state @ 32 clients": {
+      "p50_ms": 12492.1,
+      "p99_ms": 12540.4,
+      "requests_per_s": 2.6,
+      "first": {
+        "p50_ms": 13732.6,
+        "p99_ms": 25182.2,
+        "requests_per_s": 2.3
+      }
+    },
+    "5 questions, 2,200-token state @ 64 clients": {
+      "p50_ms": 23836.2,
+      "p99_ms": 23948.6,
+      "requests_per_s": 2.7,
+      "first": {
+        "p50_ms": 25050.1,
+        "p99_ms": 25153.0,
+        "requests_per_s": 2.5
+      }
+    }
+  },
+  "graphs": {
+    "captured": 167,
+    "kept": 167,
+    "pending": 0,
+    "failed": 0
+  },
+  "latency_eager": {
+    "2 questions, short state": {
+      "tokens": 89,
+      "first_ms": 495.0,
+      "new_ms": 458.05,
+      "cached_ms": 236.3
+    },
+    "6 questions, short state": {
+      "tokens": 253,
+      "first_ms": 267.0,
+      "new_ms": 455.6,
+      "cached_ms": 239.14999999999998
+    },
+    "5 questions, 370-token state": {
+      "tokens": 567,
+      "first_ms": 1487.6,
+      "new_ms": 462.0,
+      "cached_ms": 241.0
+    },
+    "5 questions, 2,200-token state": {
+      "tokens": 2392,
+      "first_ms": 541.2,
+      "new_ms": 543.4000000000001,
+      "cached_ms": 241.15
+    }
+  }
+}

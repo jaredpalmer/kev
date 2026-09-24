@@ -1,0 +1,383 @@
+{
+ "run": "jaredpalmer/kev-4b",
+ "gpu": "H100",
+ "rows": {
+  "share_state": false,
+  "load_seconds": 100.5,
+  "latency": {
+   "2 questions, short state": {
+    "first_ms": 482.0,
+    "new_ms": 66.1,
+    "new_tokens": {
+     "prompt_tokens": 130,
+     "computed_tokens": 130,
+     "engine_requests": 2.0,
+     "redone_rows": 0
+    },
+    "cached_ms": 66.4,
+    "cached_tokens": {
+     "prompt_tokens": 120,
+     "computed_tokens": 120,
+     "engine_requests": 2.0,
+     "redone_rows": 0
+    }
+   },
+   "6 questions, short state": {
+    "first_ms": 92.5,
+    "new_ms": 73.3,
+    "new_tokens": {
+     "prompt_tokens": 438,
+     "computed_tokens": 438,
+     "engine_requests": 6.0,
+     "redone_rows": 0
+    },
+    "cached_ms": 74.6,
+    "cached_tokens": {
+     "prompt_tokens": 408,
+     "computed_tokens": 408,
+     "engine_requests": 6.0,
+     "redone_rows": 0
+    }
+   },
+   "5 questions, 370-token state": {
+    "first_ms": 126.2,
+    "new_ms": 96.0,
+    "new_tokens": {
+     "prompt_tokens": 2065,
+     "computed_tokens": 2065,
+     "engine_requests": 5.0,
+     "redone_rows": 0
+    },
+    "cached_ms": 95.8,
+    "cached_tokens": {
+     "prompt_tokens": 2035,
+     "computed_tokens": 2035,
+     "engine_requests": 5.0,
+     "redone_rows": 0
+    }
+   },
+   "5 questions, 2,200-token state": {
+    "first_ms": 368.4,
+    "new_ms": 307.3,
+    "new_tokens": {
+     "prompt_tokens": 11190,
+     "computed_tokens": 11190,
+     "engine_requests": 5.0,
+     "redone_rows": 0
+    },
+    "cached_ms": 310.8,
+    "cached_tokens": {
+     "prompt_tokens": 11160,
+     "computed_tokens": 11160,
+     "engine_requests": 5.0,
+     "redone_rows": 0
+    }
+   }
+  },
+  "throughput": {
+   "6 questions, new short state @ 1 clients": {
+    "p50_ms": 81.4,
+    "p99_ms": 109.2,
+    "requests_per_s": 11.9,
+    "prompt_tokens": 444,
+    "computed_tokens": 444,
+    "engine_requests": 6.0,
+    "redone_rows": 0
+   },
+   "6 questions, new short state @ 8 clients": {
+    "p50_ms": 122.5,
+    "p99_ms": 189.0,
+    "requests_per_s": 59.8,
+    "prompt_tokens": 444,
+    "computed_tokens": 444,
+    "engine_requests": 6.0,
+    "redone_rows": 0
+   },
+   "6 questions, new short state @ 32 clients": {
+    "p50_ms": 485.2,
+    "p99_ms": 564.1,
+    "requests_per_s": 62.3,
+    "prompt_tokens": 444,
+    "computed_tokens": 444,
+    "engine_requests": 6.0,
+    "redone_rows": 0
+   },
+   "6 questions, new short state @ 64 clients": {
+    "p50_ms": 999.8,
+    "p99_ms": 1152.2,
+    "requests_per_s": 59.5,
+    "prompt_tokens": 444,
+    "computed_tokens": 444,
+    "engine_requests": 6.0,
+    "redone_rows": 0
+   },
+   "decision-v7 development @ 1 clients": {
+    "p50_ms": 39.9,
+    "p99_ms": 77.6,
+    "requests_per_s": 21.7,
+    "prompt_tokens": 199,
+    "computed_tokens": 199,
+    "engine_requests": 1.17,
+    "redone_rows": 0
+   },
+   "decision-v7 development @ 8 clients": {
+    "p50_ms": 91.2,
+    "p99_ms": 111.8,
+    "requests_per_s": 82.2,
+    "prompt_tokens": 199,
+    "computed_tokens": 199,
+    "engine_requests": 1.17,
+    "redone_rows": 0
+   },
+   "decision-v7 development @ 32 clients": {
+    "p50_ms": 186.1,
+    "p99_ms": 308.9,
+    "requests_per_s": 148.0,
+    "prompt_tokens": 199,
+    "computed_tokens": 199,
+    "engine_requests": 1.17,
+    "redone_rows": 0
+   },
+   "decision-v7 development @ 64 clients": {
+    "p50_ms": 352.4,
+    "p99_ms": 528.8,
+    "requests_per_s": 155.8,
+    "prompt_tokens": 199,
+    "computed_tokens": 199,
+    "engine_requests": 1.17,
+    "redone_rows": 0
+   },
+   "5 questions, 2,200-token state @ 1 clients": {
+    "p50_ms": 328.5,
+    "p99_ms": 353.6,
+    "requests_per_s": 3.0,
+    "prompt_tokens": 11195,
+    "computed_tokens": 11195,
+    "engine_requests": 5.0,
+    "redone_rows": 0
+   },
+   "5 questions, 2,200-token state @ 8 clients": {
+    "p50_ms": 2204.7,
+    "p99_ms": 2309.4,
+    "requests_per_s": 3.6,
+    "prompt_tokens": 11195,
+    "computed_tokens": 11195,
+    "engine_requests": 5.0,
+    "redone_rows": 0
+   },
+   "5 questions, 2,200-token state @ 32 clients": {
+    "p50_ms": 8785.1,
+    "p99_ms": 8883.2,
+    "requests_per_s": 3.6,
+    "prompt_tokens": 11195,
+    "computed_tokens": 11195,
+    "engine_requests": 5.0,
+    "redone_rows": 0
+   },
+   "5 questions, 2,200-token state @ 64 clients": {
+    "p50_ms": 9186.0,
+    "p99_ms": 17433.6,
+    "requests_per_s": 3.6,
+    "prompt_tokens": 11195,
+    "computed_tokens": 11195,
+    "engine_requests": 5.0,
+    "redone_rows": 0
+   }
+  },
+  "engine_tokens": {
+   "prompt": 7667799,
+   "computed": 7667799,
+   "requests": 18050
+  }
+ },
+ "share": {
+  "share_state": true,
+  "load_seconds": 63.1,
+  "latency": {
+   "2 questions, short state": {
+    "first_ms": 134.8,
+    "new_ms": 104.8,
+    "new_tokens": {
+     "prompt_tokens": 176,
+     "computed_tokens": 112,
+     "engine_requests": 3.0,
+     "redone_rows": 0
+    },
+    "cached_ms": 104.9,
+    "cached_tokens": {
+     "prompt_tokens": 144,
+     "computed_tokens": 112,
+     "engine_requests": 3.0,
+     "redone_rows": 0
+    }
+   },
+   "6 questions, short state": {
+    "first_ms": 116.9,
+    "new_ms": 112.4,
+    "new_tokens": {
+     "prompt_tokens": 512,
+     "computed_tokens": 320,
+     "engine_requests": 7.0,
+     "redone_rows": 0
+    },
+    "cached_ms": 109.8,
+    "cached_tokens": {
+     "prompt_tokens": 464,
+     "computed_tokens": 368,
+     "engine_requests": 7.0,
+     "redone_rows": 0
+    }
+   },
+   "5 questions, 370-token state": {
+    "first_ms": 117.0,
+    "new_ms": 108.8,
+    "new_tokens": {
+     "prompt_tokens": 2464,
+     "computed_tokens": 624,
+     "engine_requests": 6.0,
+     "redone_rows": 0
+    },
+    "cached_ms": 112.0,
+    "cached_tokens": {
+     "prompt_tokens": 2416,
+     "computed_tokens": 656,
+     "engine_requests": 6.0,
+     "redone_rows": 0
+    }
+   },
+   "5 questions, 2,200-token state": {
+    "first_ms": 206.2,
+    "new_ms": 202.2,
+    "new_tokens": {
+     "prompt_tokens": 13408,
+     "computed_tokens": 2448,
+     "engine_requests": 6.0,
+     "redone_rows": 0
+    },
+    "cached_ms": 119.5,
+    "cached_tokens": {
+     "prompt_tokens": 13376,
+     "computed_tokens": 304,
+     "engine_requests": 6.0,
+     "redone_rows": 0
+    }
+   }
+  },
+  "throughput": {
+   "6 questions, new short state @ 1 clients": {
+    "p50_ms": 116.3,
+    "p99_ms": 125.7,
+    "requests_per_s": 8.5,
+    "prompt_tokens": 512,
+    "computed_tokens": 320,
+    "engine_requests": 7.0,
+    "redone_rows": 0
+   },
+   "6 questions, new short state @ 8 clients": {
+    "p50_ms": 220.5,
+    "p99_ms": 241.5,
+    "requests_per_s": 35.1,
+    "prompt_tokens": 512,
+    "computed_tokens": 320,
+    "engine_requests": 7.0,
+    "redone_rows": 0
+   },
+   "6 questions, new short state @ 32 clients": {
+    "p50_ms": 445.0,
+    "p99_ms": 1292.0,
+    "requests_per_s": 57.0,
+    "prompt_tokens": 512,
+    "computed_tokens": 320,
+    "engine_requests": 7.0,
+    "redone_rows": 0
+   },
+   "6 questions, new short state @ 64 clients": {
+    "p50_ms": 770.6,
+    "p99_ms": 951.6,
+    "requests_per_s": 72.6,
+    "prompt_tokens": 512,
+    "computed_tokens": 320,
+    "engine_requests": 7.0,
+    "redone_rows": 0
+   },
+   "decision-v7 development @ 1 clients": {
+    "p50_ms": 37.8,
+    "p99_ms": 113.8,
+    "requests_per_s": 19.5,
+    "prompt_tokens": 225,
+    "computed_tokens": 195,
+    "engine_requests": 1.29,
+    "redone_rows": 2
+   },
+   "decision-v7 development @ 8 clients": {
+    "p50_ms": 91.0,
+    "p99_ms": 208.4,
+    "requests_per_s": 71.0,
+    "prompt_tokens": 225,
+    "computed_tokens": 195,
+    "engine_requests": 1.29,
+    "redone_rows": 2
+   },
+   "decision-v7 development @ 32 clients": {
+    "p50_ms": 184.5,
+    "p99_ms": 419.4,
+    "requests_per_s": 144.0,
+    "prompt_tokens": 225,
+    "computed_tokens": 195,
+    "engine_requests": 1.29,
+    "redone_rows": 2
+   },
+   "decision-v7 development @ 64 clients": {
+    "p50_ms": 357.4,
+    "p99_ms": 791.3,
+    "requests_per_s": 138.6,
+    "prompt_tokens": 225,
+    "computed_tokens": 195,
+    "engine_requests": 1.29,
+    "redone_rows": 2
+   },
+   "5 questions, 2,200-token state @ 1 clients": {
+    "p50_ms": 197.6,
+    "p99_ms": 210.0,
+    "requests_per_s": 4.9,
+    "prompt_tokens": 13424,
+    "computed_tokens": 2464,
+    "engine_requests": 6.0,
+    "redone_rows": 0
+   },
+   "5 questions, 2,200-token state @ 8 clients": {
+    "p50_ms": 534.8,
+    "p99_ms": 681.5,
+    "requests_per_s": 14.2,
+    "prompt_tokens": 13424,
+    "computed_tokens": 2464,
+    "engine_requests": 6.0,
+    "redone_rows": 0
+   },
+   "5 questions, 2,200-token state @ 32 clients": {
+    "p50_ms": 2265.5,
+    "p99_ms": 2363.0,
+    "requests_per_s": 13.7,
+    "prompt_tokens": 13424,
+    "computed_tokens": 2464,
+    "engine_requests": 6.0,
+    "redone_rows": 0
+   },
+   "5 questions, 2,200-token state @ 64 clients": {
+    "p50_ms": 4487.5,
+    "p99_ms": 4711.1,
+    "requests_per_s": 13.1,
+    "prompt_tokens": 13424,
+    "computed_tokens": 2464,
+    "engine_requests": 6.0,
+    "redone_rows": 0
+   }
+  },
+  "engine_tokens": {
+   "prompt": 9124624,
+   "computed": 2427744,
+   "requests": 21046,
+   "redone": 16
+  }
+ }
+}
