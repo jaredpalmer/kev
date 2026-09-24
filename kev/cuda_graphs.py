@@ -51,7 +51,8 @@ GRAPH_ROWS = 32        # question rows per graphed pass; more run as several rep
 GRAPH_STATES = 16      # states per state pass: the bank's entries
 BANK_WIDTH = 4096      # positions per bank entry (states are right-aligned in it; about 2 GB for 16 entries on Kev-4B and 9B)
 GRAPHS_KEPT = 256      # captured graphs kept, least recently used evicted (a busy server met ~160 on mixed traffic)
-PAD_SPLIT = 4096       # padded tokens under which a batched pass is never split by length (see length_groups)
+PASS_TOKENS = 256      # tokens a pass costs however few it holds: below about this many, a pass is bound by reading the
+                       # weights, not by compute (bf16 GEMMs: peak FLOP/s over memory bandwidth is ~200-400 on H100, H200, B200, L40S)
 HOT_BUCKET = 3         # eager passes after which a busy server captures a bucket's graph anyway (capture_due)
 
 
@@ -73,16 +74,20 @@ def count_bucket(n):
 
 
 def length_groups(lengths, cap):
-    """Indices grouped into padded passes of at most `cap` items, in order of length. A group is split only where padding
-    to its longest item would more than double its tokens past PAD_SPLIT: a small pass costs about the same padded or not,
-    while a batch padded to one long outlier wastes most of a large one."""
-    groups, cur = [], []
-    for i in sorted(range(len(lengths)), key=lengths.__getitem__):
-        padded = (len(cur) + 1) * bucket(lengths[i])
-        if cur and (len(cur) == cap or (padded > PAD_SPLIT and padded > 2 * (sum(lengths[j] for j in cur) + lengths[i]))):
-            groups.append(cur); cur = []
-        cur.append(i)
-    return groups + [cur]
+    """Indices grouped into padded passes of at most `cap` items, in order of length, computing the fewest tokens: a pass
+    costs its padded size, count_bucket(items) x bucket(longest), but at least PASS_TOKENS (below that, reading the
+    weights dominates). Optimal among groupings of consecutive lengths (dynamic programming; ties keep larger passes)."""
+    order = sorted(range(len(lengths)), key=lengths.__getitem__)
+    padded = [bucket(lengths[i]) for i in order]
+    counts = [0] + [count_bucket(n) for n in range(1, cap + 1)]
+    best, cut = [0] + [float("inf")] * len(order), [0] * (len(order) + 1)
+    for j in range(1, len(order) + 1):
+        for i in range(max(0, j - cap), j):
+            cost = best[i] + max(PASS_TOKENS, counts[j - i] * padded[j - 1])
+            if cost < best[j]: best[j], cut[j] = cost, i
+    groups, j = [], len(order)
+    while j: groups.append(order[cut[j]:j]); j = cut[j]
+    return groups[::-1]
 
 
 class Request(NamedTuple):
@@ -268,8 +273,8 @@ class CudaGraphs:
     @torch.no_grad()
     def run(self, requests):
         """Admitted requests (Request) -> (their picked hidden states, float32 [sum of picks, d] in request, row, pick
-        order; per request its state's cache: the cached one, a new one if `keep`, else None). States of a similar length
-        share a state pass (identical states once); each request takes one bank entry, so at most GRAPH_STATES per group.
+        order; per request its state's cache: the cached one, a new one if `keep`, else None). States grouped by length
+        (length_groups) share a state pass (identical states once); each request takes one bank entry, so at most GRAPH_STATES per group.
         Every row pass writes its picks straight to their place in the output."""
         at = [0]
         for r in requests: at.append(at[-1] + sum(map(len, r.picks)))
@@ -335,7 +340,7 @@ class CudaGraphs:
     def rows(self, rows, out):
         """Row passes for question rows (_Row), each continuing its state in the bank; each row's picked hidden states land
         in out[row.at:]. The rows see the last Sr positions of the bank, Sr the longest state rounded up to a power of two
-        (it only lengthens attention). Rows of a similar length share a pass; as few passes as the buffers allow."""
+        (it only lengthens attention). Rows are grouped by length (length_groups), then split to fit the buffers."""
         for idx in length_groups([len(r.ids) for r in rows], GRAPH_ROWS):
             Lb, Sr = bucket(max(len(rows[i].ids) for i in idx)), pow2(max(16, max(rows[i].state_len for i in idx)))
             group = min(GRAPH_ROWS, GRAPH_TOKENS // (Sr + Lb))

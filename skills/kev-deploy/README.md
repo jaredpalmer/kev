@@ -21,6 +21,7 @@ client = TypeSafeClient(api_key=KEV_API_KEY, base_url="https://<your-workspace>-
 | Kev-0.8B | `KEV_MODEL=jaredpalmer/kev-0.8b` | L4 (0.80) | 37 / 28 ms | ~40 s |
 | Kev-4B (default) | nothing | L40S (1.95) | 42 / 28 ms | ~35 s |
 | Kev-9B | `KEV_MODEL=jaredpalmer/kev-9b` | H100 (3.95) | 24 / 17 ms | ~55 s |
+| Kev-27B | `KEV_MODEL=jaredpalmer/kev-27b` | B200 (6.25) | 47 / 32 ms | ~50 s |
 
 Concurrent requests are batched in each container (about 100 requests/s per H100 container for Kev-4B over HTTP), and
 Modal adds containers past 32 concurrent requests each. `KEV_FLASH=1` (with `KEV_REGION`) uses Modal's experimental direct
