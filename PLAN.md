@@ -98,6 +98,20 @@ Reported, never gating:
 
 **Next (to be registered, not read):** the 9B recipe minus the MNLI soft targets (keep them hard) isolates the WANLI question. It needs fresh panels (both round-5 panels have now been read by these candidates) and a WANLI panel disjoint from the 256 items, large enough that a 1 pp point threshold is not three questions. The external gates in this round were point estimates on 89–256 questions; the next registration should use paired intervals with a margin sized to the suite.
 
+## Round 10 - skills delta: hard-v1 + devtools-v1 (registered 2026-09-24T03:25Z, before its data is built or any training or read)
+
+**Why.** Two new suites measure what the released models are worst at. `evals/hard-v1` (programmatic, exact labels; seven families: long policy documents, trade-offs, probability, multi-hop, temporal/numeric, judging a proposed answer, missing-fact abstention; templates held out per split; JevBench overlap screen clean) is Target B of the JevBench section; `evals/devtools-v1` (six licence-checked developer-tooling sources) is the developer workload. Baseline on devtools-v1 development (1,074 questions, served): Kev-0.8B 0.488, Kev-4B 0.606, Kev-9B 0.631, Kev-27B 0.703, Jev 0.713.
+
+**Data** (`scripts/build_round10_data.py`, manifests under `evals/round10/`): `hard` = hard-v1 train (6,000 records); `devtools` = devtools-v1 train (5,320, trainable sources only); `skills` = both.
+
+**Arms** (one epoch, `max_state 7552`, `p_none_pair 0.25`, bf16, checkpointing, seed 1, H200): study `r10-skills`: Kev-4B from the released `jaredpalmer/kev-4b` (round-8 checkpoint), lr 2e-5, `replay 4000`, on (a) `skills`, (b) `hard`, (c) `devtools`; study `r10-skills-27b`: Kev-27B from `/runs/release/kev-27b-v2/checkpoint`, lr 2e-5, `replay 4000`, on (d) `skills`. 9B arms will be registered separately once round 9 shows which replay / step keeps short states at 9B.
+
+**Rule, per arm against its own parent** (bootstraps and temperatures as rounds 7-9):
+1. Primary: accuracy on hard-v1 development and devtools-v1 development pooled (1,083 + 1,074 questions), paired lower bound > 0; each suite reported separately.
+2. Guards: short-state (`transfer-v4` dev) accuracy lower bound ≥ −2 pp, Brier upper bound ≤ +0.01, confident errors upper bound ≤ +1 pp; `documents-v1` development accuracy lower bound ≥ −2 pp (the round-8 gain must survive); WANLI-v2 and scienthoon lower bounds ≥ −2 pp, pooled externals lower bound ≥ −1.5 pp; unknowable share ≤ 0.05.
+3. Target A (hard-tier calibration): served ECE on hard-v1 development no worse than the parent's + 0.01 (point), with a bootstrap interval reported.
+4. Per size, the passing arm with the largest primary point estimate is the candidate. Confirmation, once: hard-v1 test and devtools-v1 test (both locked and unread) pooled, paired lower bound > 0; locked `transfer-v4` accuracy ≥ parent − 1 pp and served Brier ≤ parent + 0.005. JevBench public items are read for the candidate as a report, never for selection.
+
 ## Rounds 7 and 8 result (2026-09-23/24; each read once per registered rule)
 
 **Round 7 (documents delta, every size against its released parent; `scripts/round7_readout.py`, `runs/r7-readout/round7.json`).** No candidate at any size.
