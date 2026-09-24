@@ -8,9 +8,10 @@ reproduction skips unless KEV_ROUNDS_ROOT points at a checkout that has the rows
 (`git worktree add /tmp/kev-archive research-archive-2026-09-24`, whose gitignored trial rows are not in git either) or the
 checkout the rounds ran in:
     KEV_ROUNDS_ROOT=/path/to/kev uv run --extra serve python -m pytest tests/test_rounds.py -q
-The per-round scripts (on the tag) wrote different key names for the same numbers; the legacy_* functions below map them,
-and every number is compared for exact equality.
+The per-round scripts (on the tag) wrote different key names for the same numbers; the legacy_* functions below map them.
+Every number is compared: bit for bit on macOS, floats to 1e-12 relative elsewhere (same()).
 """
+import math
 import os
 import socket
 from pathlib import Path
@@ -272,6 +273,17 @@ def legacy_stage(verdict, rep):
         yield "brier_delta", verdict["brier_delta"], B(p[name]["brier"])
 
 
+def same(a, b):
+    """Equal, with floats allowed a 1e-12 relative difference. On macOS every number reproduces bit for bit; on some Linux
+    CI runners numpy's SIMD exp/log (CPU-dispatched) moves the last digit of a Brier or a bootstrap bound. Anything that
+    is not a float (a verdict, a count, a name) must match exactly."""
+    if isinstance(a, float) or isinstance(b, float):
+        return isinstance(a, (int, float)) and isinstance(b, (int, float)) and math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-15)
+    if isinstance(a, dict) and isinstance(b, dict): return a.keys() == b.keys() and all(same(a[k], b[k]) for k in a)
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)): return len(a) == len(b) and all(map(same, a, b))
+    return a == b
+
+
 def reproduce(round_number, root=DATA):
     """(checked numbers, differences) between the committed read-out of a round and kev.rounds.readout on the same rows."""
     spec = rounds.load(ROOT / f"experiments/rounds/r{round_number}.json")
@@ -293,7 +305,7 @@ def reproduce(round_number, root=DATA):
             pairs += [(f"{arm}.{k}", x, y) for k, x, y in rows]
         pairs += [(k, v, report["candidates"].get(k.removeprefix("candidate_"))) for k, v in old.items() if k.startswith("candidate_")]
         if "excluded_duplicate_ids" in old: pairs.append(("drop_ids", old["excluded_duplicate_ids"], report["drop_ids"]))
-    return len(pairs), [(k, a, b) for k, a, b in pairs if a != b]
+    return len(pairs), [(k, a, b) for k, a, b in pairs if not same(a, b)]
 
 
 VERDICTS = [(r, f"{size}-{stage}") for r, size, stages in ((8, "4b", ("docs", "docs2", "locked")), (10, "4b", ("tests", "locked")), (11, "08b", ("docs", "locked")),
@@ -310,7 +322,7 @@ def reproduce_verdict(round_number, name, root=DATA):
     spec = rounds.load(ROOT / f"experiments/rounds/r{round_number}.json")
     size, stage = name.split("-", 1)
     pairs = list(legacy_stage(read_json(root / f"runs/r{round_number}-verdict/{name}.json"), rounds.confirm(spec, stage, candidate_arm(round_number, size, root), root)))
-    return len(pairs), [(k, a, b) for k, a, b in pairs if a != b]
+    return len(pairs), [(k, a, b) for k, a, b in pairs if not same(a, b)]
 
 
 def absent(paths, root=DATA):
