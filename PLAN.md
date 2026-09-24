@@ -139,6 +139,10 @@ From the released Kev-0.8B: hard-v1 development 0.350 → 0.651 (+30.1 [+26.8, +
 
 Both 9B seeds beat Jev on hard-v1 (0.777) and devtools-v1 (0.713) development, and both pay on the external suites; this is the 9B pattern of rounds 7, 9 and 11 again (the delta is learnt; the 9B gives up NLI and ticket routing for it). Round 16 tests more replay at a smaller step.
 
+## Round 14 result (2026-09-24; `runs/r14-readout/round14.json`) — no candidate
+
+More hard-v1 data on top of the round-10 Kev-4B candidate: (a) lr 1e-5 primary +3.6 [+2.4, +4.9] (hard-v1 dev 0.786 → 0.834, devtools 0.739 → 0.762), every guard flat, but hard-set ECE 0.095 → 0.106 against a 0.105 limit; (b) lr 2e-5 +4.0 [+2.6, +5.4] (hard 0.847) with pooled externals −1.1 [−2.2, −0.1] and scienthoon below its bound. Diminishing returns on the same generators: +26 pp for the first 6,000 records, +5 for the next 12,000. The round-10 checkpoint stays the 4B candidate.
+
 ## Round 15 result (2026-09-24; `runs/r15-readout/round15.json`, `runs/r15-verdict/`) — **joint Kev-0.8B candidate confirmed**
 
 | arm (from the released Kev-0.8B, documents + skills in one epoch, replay 6000) | documents dev | skills primary (hard + devtools dev) | short (pooled) | pooled externals | verdict |
