@@ -15,7 +15,8 @@ States of a batch are left-padded (the padded positions are zeroed and stay zero
 the conv window and the residual stream unchanged), branches right-padded.
 Exactness: fp32 with transformers' reference kernels matches the row form to ~1e-5 (logits and every gradient; tiny
 random Qwen3.5 in tests/test_unit.py, Qwen3.5-0.8B-Base in tests/test_model.py). On CUDA fla's Triton kernels round their
-fp32 dots like TF32, and there the difference stays within the row form's own difference between two batchings.
+fp32 dots like TF32 and the shared prefix left-pads states, so it rounds differently from the row form: measured against the
+exact kernels, it is as far from the exact answer as the row form's own batchings are, with no systematic shift.
 """
 import types
 
