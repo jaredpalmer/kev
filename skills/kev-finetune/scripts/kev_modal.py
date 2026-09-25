@@ -13,7 +13,7 @@ The image clones github.com/jaredpalmer/kev at KEV_REF and installs it; every co
 kev.benchmark / kev.serve code the released checkpoints were built and measured with. Trial outputs live on the Modal
 volume `kev-finetune-runs` under /runs/<name> (names are immutable: a new attempt needs a new name); base weights are
 cached on `kev-hf-cache`. Environment (read at launch time): KEV_GPU (training GPU, default H100), KEV_SERVE_GPU (default L4;
-Kev-9B needs A100-80GB or H100), KEV_SERVE_RUN (run name on the volume or a Hub id), KEV_SERVE_SECRET (Modal secret holding
+L40S for the 4B under load, H100 or L40S for the 9B), KEV_SERVE_RUN (run name on the volume or a Hub id), KEV_SERVE_SECRET (Modal secret holding
 KEV_API_KEY for bearer auth, read by kev.serve itself), KEV_HF_SECRET (Modal secret holding HF_TOKEN, needed by publish), KEV_APP_NAME, KEV_REF.
 """
 import json

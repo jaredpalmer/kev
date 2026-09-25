@@ -16,8 +16,8 @@ to 8 concurrent requests, and scales to zero after 5 idle minutes. Cold start af
 
 | Base | `KEV_SERVE_GPU` |
 | --- | --- |
-| kev-0.8b, kev-4b | `L4` (default) |
-| kev-9b | `H100` or `A100-80GB` (about 17 GB of GPU memory in bf16) |
+| kev-0.8b, kev-4b | `L4` (default; the cheapest, but it runs out of compute on the 4B under load: `L40S` there) |
+| kev-9b | `H100` or `L40S` (about 17 GB of GPU memory in bf16) |
 
 Without `KEV_SERVE_SECRET` the endpoint is public (the URL is the only secret); with it, requests need
 `Authorization: Bearer <KEV_API_KEY>` and everything else gets 401. Redeploying with another `KEV_SERVE_RUN`
