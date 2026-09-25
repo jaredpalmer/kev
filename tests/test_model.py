@@ -126,18 +126,20 @@ def test_row_batching_and_packed_fallback_do_not_change_answers(smoke_run, monke
         packed = torch.cat(m.probs(enc)); prefix_packed = m.prefix(enc)
         monkeypatch.setattr(M, "SERVE_MAX_PACKED", len(enc["ids"]) - 1)   # now "too long to pack": every path takes the row form
         assert m.rows_form([enc])
-        rows_full = torch.cat(m.probs(enc)); rows_miss, prefix_rows = m.probs_and_prefix(enc)
+        full = lambda: torch.cat([torch.softmax(z, -1) for z in m.forward(enc)])   # the row form (probs() would take the prefix path)
+        rows_full = full(); rows_miss, prefix_rows = m.probs_and_prefix(enc)
         rows_hit_from_packed_prefix = torch.cat(m.probs_with_prefix(enc, prefix_packed))   # a prefix made by the packed pass, reused by rows
         rows_hit = torch.cat(m.probs_with_prefix(enc, prefix_rows))
         monkeypatch.setattr(M, "rows_per_pass", lambda rows, prefix_len=0, budget=0: 1)   # one row per pass
-        one_at_a_time = torch.cat(m.probs(enc)); one_at_a_time_hit = torch.cat(m.probs_with_prefix(enc, prefix_rows))
+        one_at_a_time = full(); one_at_a_time_hit = torch.cat(m.probs_with_prefix(enc, prefix_rows))
     for got in (rows_full, torch.cat(rows_miss), rows_hit_from_packed_prefix, rows_hit, one_at_a_time, one_at_a_time_hit):
         assert (got - packed).abs().max() < 1e-4
 
 
-def test_hybrid_rows_isolation_and_prefix():
+def test_hybrid_rows_isolation_and_prefix(monkeypatch):
     """Qwen3.5 (Gated DeltaNet + attention): the row form isolates questions exactly, and the serving prefix path
-    (state once, cache replicated per question) reproduces it. Uses the 0.8B base; slow reference kernels on CPU."""
+    (state once, cache replicated per question), which probs() takes (#77), reproduces it. Uses the 0.8B base; slow
+    reference kernels on CPU."""
     import torch
     from kev.model import DecisionModel, load_tokenizer
     tok = load_tokenizer("Qwen/Qwen3.5-0.8B-Base"); m = DecisionModel("Qwen/Qwen3.5-0.8B-Base", tok, "cpu").eval()
@@ -147,7 +149,13 @@ def test_hybrid_rows_isolation_and_prefix():
                          {"instr": "Which team should handle this?", "options": ["returns", "shipping", "billing", "other"], "label": 2}]}
     enc = m.encode(tok, rec)
     with torch.no_grad():
-        together = m.probs(enc)
+        rows = [torch.softmax(z, -1) for z in m.forward(enc)]   # the row form (kev.benchmark): the state once per question
+        calls = []
+        with monkeypatch.context() as mp:
+            for name in ("forward_rows_batch", "prefix"):
+                mp.setattr(m, name, lambda *a, f=getattr(m, name), name=name: calls.append(name) or f(*a))
+            together = m.probs(enc)
+        assert calls == ["prefix"]   # one state pass, no row per question
         alone = [m.probs(m.encode(tok, {"state": rec["state"], "questions": [q]}))[0] for q in rec["questions"]]
         cached, prefix = m.probs_and_prefix(enc)
         again = m.probs_with_prefix(enc, prefix); again2 = m.probs_with_prefix(enc, prefix)
@@ -155,8 +163,8 @@ def test_hybrid_rows_isolation_and_prefix():
         saved, M.rows_per_pass = M.rows_per_pass, lambda rows, prefix_len=0, budget=0: 1   # one row per pass: same answers, bounded memory
         try: chunked = m.probs_with_prefix(enc, prefix)
         finally: M.rows_per_pass = saved
-    for a, b, c, d, e, f in zip(together, alone, cached, again, again2, chunked):
-        assert (a - b).abs().max() < 1e-4 and (a - c).abs().max() < 1e-4 and (a - d).abs().max() < 1e-4 and (a - e).abs().max() < 1e-4 and (a - f).abs().max() < 1e-4
+    for a, *others in zip(rows, together, alone, cached, again, again2, chunked):
+        assert all((a - b).abs().max() < 1e-4 for b in others)
 
 
 @pytest.mark.parametrize("device,dtype", [("cpu", "float32"), ("cuda", "float32"), ("cuda", "bfloat16")])

@@ -131,7 +131,7 @@ def main():
     ck = Checkpoint(a.run)
     report = {"run": a.run, "gpu": torch.cuda.get_device_name(0), "records": len(recs)}
     targets = None
-    if a.reference == "fp32":   # the exact evaluation path (kev.predictors.LocalPredictor): no TF32, no fused SDPA
+    if a.reference == "fp32":   # the exact evaluation path's precision (kev.predictors.LocalPredictor): no TF32, no fused SDPA; probs() runs the state once, as served
         tok, ref = ck.load("cuda")
         torch.backends.cuda.enable_flash_sdp(False); torch.backends.cuda.enable_mem_efficient_sdp(False)
         targets = [ref.probs(ref.encode(tok, r)) for r in recs]

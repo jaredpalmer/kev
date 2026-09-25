@@ -333,9 +333,9 @@ class DecisionModel(nn.Module):
     def forward_rows_batch(self, encs, shared_prefix=False):
         """Row form: every question of every record is one causal row = state tokens + its branch tokens. Returns the same
         nested logits as forward_batch. Exact isolation by construction (rows are independent); the state is recomputed
-        per row (Q x state tokens), which training accepts; serving uses the prefix cache instead. shared_prefix (training,
-        hybrid Qwen3.5): the same rows computed with each state run once and its branches continuing from it, gradients
-        included (kev.shared_prefix)."""
+        per row (Q x state tokens), which training accepts; serving and probs() use the prefix cache instead. shared_prefix
+        (training, hybrid Qwen3.5): the same rows computed with each state run once and its branches continuing from it,
+        gradients included (kev.shared_prefix)."""
         if shared_prefix:
             from .shared_prefix import branch_hidden   # here, not at the top: the HF Space vendors model.py alone
             splits = [rows_of(e) for e in encs]
@@ -364,6 +364,10 @@ class DecisionModel(nn.Module):
 
     @torch.no_grad()
     def probs(self, enc):
+        """Probabilities per question. A record that runs as rows (every record on a hybrid backbone) takes the serving miss
+        path: its state once, then the question rows from its cache. forward() keeps the row form, which re-runs the state
+        per question; the two agree to fp32 rounding (#77)."""
+        if self.rows_form([enc]): return self.probs_and_prefix(enc)[0]
         return [F.softmax(z, -1).cpu() for z in self.forward(enc)]
 
     # --- state-prefix reuse (serving): the state is encoded once, question branches attend to its cached keys/values.
