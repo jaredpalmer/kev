@@ -236,6 +236,12 @@ Reported alongside (never gating): Jev and AutoJev on the same breadth-v1 develo
 
 **Budget.** ~2 × 1.5 h H100 ≈ $12 for training plus ~$10 for panel reads; cap $40.
 
+**Result (negative, 2026-09-26T00:25Z).** Both arms collapsed to "always escalate" within 25 iterations and stayed there (stopped at iteration ~90, ~$6): held-out greedy return -0.41 -> 0.00, knowable-correct 0.27 -> 0.00, opens 1.6 -> 0, entropy 1.68 -> 0.006; per-step KL to the parent reached ~2.3 nats in both arms, so kl_w 0.05 did not hold the policy. The reward made escalating a flat 0 while the parent's answers were right a quarter of the time, so the policy found the one action that never loses. No checkpoint was saved and no panel read was made. Lessons: an abstention action needs a cost when the answer was knowable (otherwise RL learns blanket abstention, the calibration failure we were guarding against, expressed as behaviour), and the KL anchor has to be an order of magnitude stronger at this lr.
+
+### RL pilot 1b - reward fixed, stronger anchor (registered 2026-09-26T00:30Z, before any training or read)
+
+Changes from pilot 1: escalating scores +0.5 when the question is unknowable and -0.5 when it was knowable (always-escalate now averages -0.25; the solver 0.82; the parent -0.4). Arms (otherwise pilot 1's settings, both with replay 0.5): (a) `rl-kl0.2` kl_w 0.2 - the candidate; (b) `rl-kl0.05` kl_w 0.05 (attribution: the anchor's strength). Same rule as pilot 1, plus: an arm whose held-out greedy policy escalates > 90 % of knowable episodes, or whose step entropy falls below 0.05, fails as collapsed. Budget: ~$12 training + ~$10 reads; cap $40 including pilot 1's spend.
+
 ## Next
 
 Goals and open questions, not registered rounds; each becomes a spec and a PLAN section before it runs.

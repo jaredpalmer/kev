@@ -7,8 +7,8 @@ and when to escalate instead of guessing.
 
 Investigation: a small staff directory whose records are hidden until opened. The task asks for an attribute reached by a
 chain of manager references ("the city of the manager of the manager of Ada"). Actions: open a record, answer with a
-value, or escalate. Some episodes redact a record on the chain, so no answer is knowable and escalating is right. Rewards
-are exact (the world is generated, the solver is the chain walk); nothing comes from a teacher model.
+value, or escalate. Some episodes redact a record on the chain, so no answer is knowable and escalating is right. Escalating is
+rewarded only when the question is unknowable, so "always escalate" is not a safe harbour. Rewards are exact (the world is generated, the solver is the chain walk); nothing comes from a teacher model.
 
 Splits draw from disjoint seed namespaces; phrasing templates 0-1 are for training and 2 is held out for evaluation, so an
 evaluation reads a generalisation to an unseen surface form as well as unseen worlds.
@@ -26,7 +26,8 @@ TEMPLATES = (
     "Report the {attr} for {chain}, using only records you have opened.",
 )
 TRAIN_TEMPLATES, EVAL_TEMPLATES = (0, 1), (2,)
-REWARD = {"correct": 1.0, "wrong": -1.0, "escalate": 0.0, "out_of_budget": -0.5}
+REWARD = {"correct": 1.0, "wrong": -1.0, "out_of_budget": -0.5}
+ESCALATE = {True: -0.5, False: 0.5}   # by whether the answer was knowable: escalating everything must not be a safe harbour
 STEP_COST = 0.02   # per record opened: prefer short investigations, but never so much that guessing beats looking
 
 
@@ -96,7 +97,7 @@ class Investigation:
 
     def _end(self, outcome):
         self.done, self.outcome = True, outcome
-        self.reward = REWARD[outcome]
+        self.reward = ESCALATE[self.answer() is not None] if outcome == "escalate" else REWARD[outcome]
         return self.reward
 
     def oracle(self):

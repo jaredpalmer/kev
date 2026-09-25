@@ -793,7 +793,7 @@ def test_score_trial_uses_the_suites_admission_context(monkeypatch, tmp_path):
 def test_investigation_env_rewards_and_oracle():
     """Episodes are reproducible per (split, seed); the solver answers knowable episodes correctly and escalates the
     unknowable ones; guessing, escalating a knowable question and overrunning the budget are scored as registered."""
-    from kev.envs import REWARD, STEP_COST, investigation
+    from kev.envs import ESCALATE, REWARD, STEP_COST, investigation
     a, b = investigation(7), investigation(7)
     assert a.request() == b.request() and investigation(7, "eval").request() != a.request()
     assert investigation(7, "eval").template == 2 and {investigation(s).template for s in range(50)} <= {0, 1}
@@ -802,10 +802,10 @@ def test_investigation_env_rewards_and_oracle():
         ep = investigation(s); total = 0.0
         while not ep.done: total += ep.step(ep.oracle())
         assert ep.outcome == ("correct" if ep.answer() is not None else "escalate"); outcomes.add(ep.outcome)
-        assert total == pytest.approx(REWARD[ep.outcome] - STEP_COST * len(ep.opened))
+        assert total == pytest.approx((REWARD.get(ep.outcome) if ep.answer() is not None else ESCALATE[False]) - STEP_COST * len(ep.opened))
     assert outcomes == {"correct", "escalate"}
     ep = next(e for e in (investigation(s) for s in range(50)) if e.answer() is not None)
-    assert ep.step("escalate") == REWARD["escalate"] and ep.done
+    assert ep.step("escalate") == ESCALATE[True] and ep.done
     with pytest.raises(ValueError): ep.step("escalate")
     ep = investigation(0)
     while not ep.done: ep.step(next(k for k in ep.actions() if k.startswith("open ")))
