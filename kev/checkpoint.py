@@ -15,6 +15,7 @@ import the data or suite modules at import time.
     ck.meta.temperature                             # the calibration the checkpoint carries
 """
 import datetime
+import importlib.util
 import json
 import os
 import re
@@ -112,7 +113,7 @@ class LoadOptions:
                  reassociation, not bit for bit (the passes are padded to buckets).
     fused        rewrite a merged hybrid backbone on CUDA with fused Triton kernels (kev.fused_qwen35; needs
                  flash-linear-attention fused_qwen35.FLA_VERSION and refuses any other). None = off; kev.serve turns it on
-                 for CUDA (KEV_FUSED=0 to decline). Equal to the reference layers up to bf16 rounding.
+                 for CUDA when fused_available() (KEV_FUSED=0 to decline). Equal to the reference layers up to bf16 rounding.
     """
     dtype: torch.dtype | None = None
     merge: bool = True
@@ -148,6 +149,18 @@ def mlx_available():
         return True
     except ImportError:
         return False
+
+
+def fused_available():
+    """Whether kev.fused_qwen35 can run: flash-linear-attention importable at its FLA_VERSION (kev.serve's CUDA default;
+    not in the serve extra, pinned in the Modal images). An explicit fused=True skips this and fails loudly instead."""
+    if importlib.util.find_spec("fla") is None: return False
+    try:
+        import fla
+        from .fused_qwen35 import FLA_VERSION
+    except ImportError:
+        return False
+    return fla.__version__ == FLA_VERSION
 
 
 class Checkpoint:

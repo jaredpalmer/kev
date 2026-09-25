@@ -170,6 +170,21 @@ def test_checkpoint_meta_round_trip_and_defaults(tmp_path):
         LoadOptions.from_env({"KEV_BACKEND": "metal"})
 
 
+def test_fused_default_needs_pinned_fla(monkeypatch):
+    """kev.serve's CUDA fused default (checkpoint.fused_available): on only with flash-linear-attention importable at
+    fused_qwen35.FLA_VERSION; it is not in the serve extra, so a plain install serves unfused instead of failing to import fla."""
+    import importlib.machinery, sys, types
+    from kev.checkpoint import fused_available
+    monkeypatch.setitem(sys.modules, "fla", None)   # not installed
+    assert not fused_available()
+    fla = types.ModuleType("fla"); fla.__spec__ = importlib.machinery.ModuleSpec("fla", None); fla.__version__ = "9.9.9"
+    monkeypatch.setitem(sys.modules, "fla", fla)
+    monkeypatch.setitem(sys.modules, "kev.fused_qwen35", types.SimpleNamespace(FLA_VERSION="9.9.9"))
+    assert fused_available()
+    fla.__version__ = "9.9.8"   # another version: fuse() would refuse it
+    assert not fused_available()
+
+
 def test_head_temperature_scales_logits_at_eval_only():
     """The pointer head divides logits by its temperature in eval mode only; argmax is unchanged; training sees T=1."""
     import torch

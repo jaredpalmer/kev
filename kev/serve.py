@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
-from .checkpoint import Checkpoint, LoadOptions, is_hub_id
+from .checkpoint import Checkpoint, LoadOptions, fused_available, is_hub_id
 from .device import default_device, sync
 from .model import SERVE_MAX_BRANCH, SERVE_MAX_STATE
 
@@ -265,7 +265,9 @@ def main():
     if dev == "mps" and opts.attn is None: opts = replace(opts, attn="sdpa")   # serving default on Apple GPUs (parity measured)
     if dev != "cpu" and opts.dtype is None: opts = replace(opts, dtype=torch.bfloat16)   # serving default: 2-4.5x faster than fp32 on an L4, same answers (LoadOptions.dtype); KEV_DTYPE=fp32 for the exact path
     if dev == "cuda" and opts.cuda_graphs is None: opts = replace(opts, cuda_graphs=True)   # serving default: a pass is ~2,000 kernel launches, so replaying graphs cuts warm latency several-fold (kev.cuda_graphs); KEV_CUDA_GRAPHS=0 to decline
-    if dev == "cuda" and opts.fused is None: opts = replace(opts, fused=True)   # serving default: fused Qwen3.5 kernels, ~1/3 less GPU time per batch (kev.fused_qwen35); KEV_FUSED=0 to decline
+    if dev == "cuda" and opts.fused is None:   # serving default: fused Qwen3.5 kernels, ~1/3 less GPU time per batch (kev.fused_qwen35), when fla is installed; KEV_FUSED=0 to decline, KEV_FUSED=1 to insist
+        opts = replace(opts, fused=fused_available())
+        if not opts.fused: print("fused Qwen3.5 kernels off: install the flash-linear-attention version kev/fused_qwen35.py pins (FLA_VERSION) to turn them on")
     if opts.backend is None: opts = replace(opts, backend="auto")   # serving default: MLX for the hybrid Qwen3.5 checkpoints on Apple Silicon (LoadOptions.backend); KEV_BACKEND=torch to decline
     ck = Checkpoint(run)
     tok, model = ck.load(dev, opts)

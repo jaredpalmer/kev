@@ -169,7 +169,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   the playground proxies :8009)
   - TypeSafe-compatible: `POST /v1/systemone`, `GET /v1/models` (model cards for `kev-latest` and `jev-latest`, plus device, dtype, temperature and prefix-cache stats), an `x-typesafe-request-id` header on every response, and bearer auth when `KEV_API_KEY` is set (unset = open server).
   - SDK: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8009", model="kev-latest")`
-  - CUDA: bf16, fused kernels and CUDA graphs by default (`LoadOptions.fused` / `LoadOptions.cuda_graphs`, `KEV_FUSED=0` / `KEV_CUDA_GRAPHS=0` to decline). A server pass was
+  - CUDA: bf16, fused kernels and CUDA graphs by default (`LoadOptions.fused` / `LoadOptions.cuda_graphs`, `KEV_FUSED=0` / `KEV_CUDA_GRAPHS=0` to decline; fused only when fla 0.5.2 is installed, `checkpoint.fused_available`, not in the serve extra). A server pass was
     kernel-launch bound (~60 ms on an H100 at any length). `kev/fused_qwen35.py` rewrites the merged Qwen3.5 layers with fla Triton kernels
     (it needs fla 0.5.2 exactly, pinned in the images, and refuses others: it patches fla's NB-keyed kernel launches; a pass continuing a
     cached DeltaNet state does not write it back). `kev/cuda_graphs.py` replays bucketed passes (state left-padded, rows right-padded, masked exactly; equal to eager up to bf16
