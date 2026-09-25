@@ -9,7 +9,7 @@ comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS size the state-prefix cach
 date preprocessing (api.with_date_facts). Backend and precision follow LoadOptions (KEV_BACKEND, KEV_DTYPE, ...): on Apple
 Silicon the hybrid Qwen3.5 checkpoints run on MLX by default, elsewhere on torch in bf16.
 """
-import argparse, asyncio, atexit, hmac, os, queue, random, sys, threading, time, uuid
+import argparse, asyncio, atexit, hmac, os, queue, random, sys, threading, time, traceback, uuid
 from concurrent.futures import Future
 import torch
 from dataclasses import dataclass, field, replace
@@ -129,6 +129,7 @@ class Server:
             try:
                 with self.lock: results = self._run([enc for enc, _ in batch])
             except Exception as e:   # every request of the batch gets the error; the thread lives on
+                traceback.clear_frames(e.__traceback__)   # its frames held the failed pass's tensors until the next batch replaced `results` (142 MiB, a 3,578-token state on Kev-0.8B); the traceback keeps its lines
                 results = [e] * len(batch)
             for (_, done), result in zip(batch, results):
                 (done.set_exception if isinstance(result, Exception) else done.set_result)(result)

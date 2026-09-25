@@ -242,6 +242,96 @@ def test_cuda_graphs_match_eager():
             assert all((a - b).abs().max() < 0.05 for a, b in zip(ref, ps)) and all((a - b).abs().max() < 0.05 for a, b in zip(ref, hs))
     assert graphs.captures > 0 and not graphs.pending
 
+
+def test_server_recovers_when_a_pass_runs_out_of_memory():
+    """kev.serve.Server._run on CUDA, served as kev.serve serves it (bf16, CUDA graphs, fused kernels): a new state whose
+    pass cannot fit beside a full prefix cache raises a genuine torch.OutOfMemoryError inside the model, the server drops
+    the cache and the retry answers as the unpressured server did (#132, #75). Afterwards a cache hit and a new state still
+    match (the graphs and fused kernels survived the failed pass). Under a cap an empty cache cannot meet either, the error
+    reaches the caller, the cache is left empty and the failed pass's tensors are freed (the model thread used to keep them
+    until its next batch). The pressure is a memory cap (set_per_process_memory_fraction) placed halfway across what
+    dropping the cache frees, so both outcomes have that half as margin (H100: 652 MiB freed, 326 each side; the pass adds 158)."""
+    import torch
+    if not torch.cuda.is_available(): pytest.skip("needs CUDA")
+    from types import MethodType
+    from kev.checkpoint import Checkpoint, LoadOptions
+    from kev import cuda_graphs
+    from kev.device import empty_cache, sync
+    from kev.model import SERVE_MAX_BRANCH, SERVE_MAX_STATE
+    from kev.serve import Server
+    ck = Checkpoint("jaredpalmer/kev-0.8b")
+    tok, m = ck.load("cuda", LoadOptions(dtype=torch.bfloat16, cuda_graphs=True, fused=True))
+    qs = [{"instr": "Which team should handle this?", "options": ["returns", "shipping", "billing", "other"], "label": 0},
+          {"instr": "Is a refund owed?", "options": ["yes", "no"], "label": 0}]
+    # states past the graphed state pass (an eager state pass, the path a long document takes) that still fit a bank
+    # entry (graphed question rows); ~55 MiB of prefix each on Kev-0.8B
+    rec = lambda i: {"state": f"Ticket {i}. " + f"Order {4400 + i} arrived late and the box was crushed. Two charges appear on the card. " * 170, "questions": qs}
+    fills, target, after = [rec(i) for i in range(12)], rec(100), rec(101)
+    enc = lambda r: m.encode(tok, r, max_state=SERVE_MAX_STATE, max_branch=SERVE_MAX_BRANCH)
+    n = enc(target)["seg"].count(0)
+    assert cuda_graphs.GRAPH_STATE < n <= cuda_graphs.BANK_WIDTH, n
+    total = torch.cuda.get_device_properties(0).total_memory
+    s = Server(ck, tok, m, "cuda")
+    attempts = []   # per probs_batch call: [bytes allocated when it starts, the type of the exception it raised or None]
+    def probs_batch(self, *a):   # keeps only the type: an exception kept would keep its pass's tensors
+        attempts.append([torch.cuda.memory_allocated(), None])
+        try: return type(self).probs_batch(self, *a)
+        except Exception as e: attempts[-1][1] = type(e); raise
+    m.probs_batch = MethodType(probs_batch, m)
+
+    def settle():   # model thread idle, freed blocks returned: -> bytes reserved
+        s.wait_idle()
+        with s.lock: sync("cuda"); empty_cache("cuda"); return torch.cuda.memory_reserved()
+
+    def fill():
+        s.prefix_cache.clear()
+        for r in fills: s.probs(r)
+        assert len(s.prefix_cache.entries) == len(fills)
+        return settle()
+
+    close = lambda a, b: all((x - y).abs().max() < 0.05 for x, y in zip(map(torch.tensor, a), map(torch.tensor, b)))
+    cap = lambda b: torch.cuda.set_per_process_memory_fraction(b / total)
+    key = lambda r: s.prefix_cache.plan([enc(r)])[0][0]
+    try:
+        s.prefix_cache.size = len(fills)
+        refs = {id(r): s.probs(r)[0] for r in fills + [after]}   # the unpressured answers (graphs captured along the way)
+        s.prefix_cache.clear(); empty = settle(); base = torch.cuda.memory_allocated(); torch.cuda.reset_peak_memory_stats()
+        refs[id(target)] = s.probs(target)[0]
+        need = torch.cuda.max_memory_reserved() - empty            # what the target's pass adds with nothing cached
+        full = fill(); freed = full - empty                        # what dropping the cache gives back
+        mib = lambda b: f"{b / 2**20:.0f} MiB"
+        print(f"\nreserved {mib(empty)} with an empty cache ({mib(base)} allocated), {mib(full)} with {len(fills)} states cached; "
+              f"the target's {n}-token pass adds {mib(need)}; cap {mib(full + need - freed // 2)} of {mib(total)}")
+        assert freed > 2**29 and need > 0, (freed, need)            # a quarter of a GiB of margin on each side at least
+        attempts.clear(); cap(full + need - freed // 2)            # the pass cannot fit beside the cache, and fits without it
+        ps, stats = s.probs(target)
+        print(f"attempts (allocated at start, error): {[(mib(b), e and e.__name__) for b, e in attempts]}")
+        assert [e for _, e in attempts] == [torch.OutOfMemoryError, None], attempts   # a genuine OOM, then the retry
+        assert attempts[1][0] - base < 2**24, "the retry started with the cache or the failed pass still resident"
+        assert s.prefix_cache.oom_retries == 1 and list(s.prefix_cache.entries) == [key(target)] and not stats["prefix_cache_hit"]
+        assert close(ps, refs[id(target)])
+        cap(total)
+        done = [s.submit(r) for r in (target, after)]              # after the OOM: a cache hit and a new state
+        for r, (ps, stats), hit in zip((target, after), [d.result() for d in done], (True, False)):
+            assert stats["prefix_cache_hit"] is hit and close(ps, refs[id(r)])
+        assert list(s.prefix_cache.entries) == [key(target), key(after)]
+        s.prefix_cache.clear(); settle(); base = torch.cuda.memory_allocated()
+        full = fill(); attempts.clear(); cap(full - freed + need // 2)   # half the room even with the cache dropped: the error reaches the caller
+        with pytest.raises(torch.OutOfMemoryError): s.probs(target)
+        s.wait_idle(); held = torch.cuda.memory_allocated() - base
+        print(f"failed twice: attempts {[(mib(b), e and e.__name__) for b, e in attempts]}, {mib(held)} still allocated past the empty server")
+        assert [e for _, e in attempts] == [torch.OutOfMemoryError] * 2, attempts
+        assert s.prefix_cache.entries == {} and s.prefix_cache.oom_retries == 2
+        assert held < 2**20, "the failed batch's tensors outlive it"
+        attempts.clear(); cap(total)
+        ps, stats = s.probs(after)                                 # and the server still answers
+        assert close(ps, refs[id(after)]) and list(s.prefix_cache.entries) == [key(after)]
+        assert m.graphs.captures > 0 and not m.graphs.failed, m.graphs.stats()
+    finally:
+        torch.cuda.set_per_process_memory_fraction(1.0)
+        s.close()
+
+
 def test_init_from_warm_start_and_compatibility_checks(tmp_path):
     """PR #9: --init_from loads an existing adapter + pointer head before training and refuses incompatible sources.
     Two tiny runs on Qwen2.5-0.5B: the second warm-starts from the first and must start with identical head weights."""

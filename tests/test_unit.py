@@ -239,17 +239,22 @@ def test_prefix_cache_keeps_what_survives_the_batch():
 def test_out_of_memory_drops_the_prefix_cache_and_retries_once():
     """kev.serve.Server._run: a pass out of device memory with states cached clears the cache and runs once more (#75: a
     full cache kept failing every later batch); a second failure fails the batch with the cache left empty, and an
-    out-of-memory pass with nothing cached, or any other error, is not retried."""
-    import torch
+    out-of-memory pass with nothing cached, or any other error, is not retried. A failed batch's pass is freed with it:
+    the model thread keeps the exception until its next batch, and the exception's frames held the pass's tensors (142 MiB
+    on an H100, tests/test_model.py::test_server_recovers_when_a_pass_runs_out_of_memory)."""
+    import torch, weakref
     from types import SimpleNamespace
     from kev.device import out_of_memory
     from kev.serve import Server
 
+    class Tensors: pass   # stands for what a pass allocates
+
     class Model:
-        prefix_min_tokens, fail, calls = 0, None, 0
+        prefix_min_tokens, fail, calls, passes = 0, None, 0, []
         def encode(self, tok, rec, **kw): return rec
         def probs_batch(self, encs, cached, keep):
             self.calls += 1
+            tensors = Tensors(); self.passes.append(weakref.ref(tensors))
             if self.fail == "always" or self.fail == "cached" and any(c is not None for c in cached): raise torch.OutOfMemoryError("CUDA out of memory")
             if self.fail == "other": raise ValueError("not memory")
             return [[torch.tensor([0.5, 0.5])] for _ in encs], [("prefix", self.calls) if k else None for k in keep]
@@ -266,6 +271,7 @@ def test_out_of_memory_drops_the_prefix_cache_and_retries_once():
         model.fail, model.calls = "always", 0
         with pytest.raises(torch.OutOfMemoryError): s.probs(enc("abc"))
         assert model.calls == 2 and s.prefix_cache.entries == {} and s.prefix_cache.oom_retries == 2
+        s.wait_idle(); assert all(ref() is None for ref in model.passes), "a failed batch's pass outlives it"
         model.calls = 0
         with pytest.raises(torch.OutOfMemoryError): s.probs(enc("abc"))   # nothing cached: nothing to drop
         assert model.calls == 1 and s.prefix_cache.oom_retries == 2
