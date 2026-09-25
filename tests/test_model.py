@@ -129,10 +129,10 @@ def test_row_batching_and_packed_fallback_do_not_change_answers(smoke_run, monke
         full = lambda: torch.cat([torch.softmax(z, -1) for z in m.forward(enc)])   # the row form (probs() would take the prefix path)
         rows_full = full(); rows_miss, prefix_rows = m.probs_and_prefix(enc)
         rows_hit_from_packed_prefix = torch.cat(m.probs_with_prefix(enc, prefix_packed))   # a prefix made by the packed pass, reused by rows
-        rows_hit = torch.cat(m.probs_with_prefix(enc, prefix_rows))
+        rows_hit = torch.cat(m.probs_with_prefix(enc, prefix_rows)); rows_probs = torch.cat(m.probs(enc))   # probs() on an attention-only record too long to pack
         monkeypatch.setattr(M, "rows_per_pass", lambda rows, prefix_len=0, budget=0: 1)   # one row per pass
         one_at_a_time = full(); one_at_a_time_hit = torch.cat(m.probs_with_prefix(enc, prefix_rows))
-    for got in (rows_full, torch.cat(rows_miss), rows_hit_from_packed_prefix, rows_hit, one_at_a_time, one_at_a_time_hit):
+    for got in (rows_full, torch.cat(rows_miss), rows_hit_from_packed_prefix, rows_hit, rows_probs, one_at_a_time, one_at_a_time_hit):
         assert (got - packed).abs().max() < 1e-4
 
 

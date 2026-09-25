@@ -4,7 +4,7 @@
     uv run --extra mlx python scripts/mlx_parity.py --run jaredpalmer/kev-4b --n 40 --out runs/mlx-parity-4b/report.json
 
 For n clean development records of decision-v7: probabilities from MLX (full pass, prefix pass, each question alone) vs
-the torch fp32 path (max |dp|, argmax flips, calibrated), and median latency of each path. Writes a JSON report
+the torch fp32 path (probs(): the state once, as served; max |dp|, argmax flips, calibrated), and median latency of each path. Writes a JSON report
 (runs/<name>/report.json is kept by .gitignore; runs/mlx-parity-{4b,0.8b} hold the numbers the README quotes).
 """
 import argparse, gc, json, statistics, time
@@ -32,7 +32,7 @@ def reference(ck, tok, recs):
     _, ref = ck.load("mps", LoadOptions(backend="torch"))
     targets = [ref.probs(ref.encode(tok, rec)) for rec in recs]
     enc = ref.encode(tok, recs[0]); _, prefix = ref.probs_and_prefix(enc)
-    ms = {"torch_fp32_full": timed(lambda: ref.probs(enc), 5), "torch_fp32_prefix_hit": timed(lambda: ref.probs_with_prefix(enc, prefix), 5)}
+    ms = {"torch_fp32_miss": timed(lambda: ref.probs(enc), 5), "torch_fp32_prefix_hit": timed(lambda: ref.probs_with_prefix(enc, prefix), 5)}
     return targets, ms, ref.dtype
 
 
