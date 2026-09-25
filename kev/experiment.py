@@ -32,7 +32,7 @@ from kev.device import default_device, empty_cache
 from kev.metrics import fit_temperature, paired_bootstrap
 from kev.model import MAX_STATE, MAX_TRAIN_STATE
 from kev.predictors import LocalPredictor
-from kev.suite import ENCODING, digest, load_split, read_json, read_manifest, record_digest, validate_training, write_json
+from kev.suite import CONTEXT, ENCODING, digest, load_split, read_json, read_manifest, record_digest, validate_training, write_json
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULTS = {"epochs": 1, "seed": 0, "lr": 0.0002, "lora": 16, "accum": 8, "batch": 1,
@@ -272,7 +272,9 @@ def score_trial(run, suite, output, expected_sources, device, provenance, transf
     output = Path(output); suite_hash = provenance["suite_sha256"]
     # raw logits: the trial fits its own temperature on the calibration partition below. A backbone trained in bf16 weights
     # (weights_dtype) is loaded in bf16 by the checkpoint itself.
-    predictor = LocalPredictor(run, device, LoadOptions(temperature=1.0))
+    # the suite's own admission context (a long-state suite admits states far past the 384-token default), as kev.benchmark
+    # reads it; the transfer suite's records fit inside any admitted context
+    predictor = LocalPredictor(run, device, LoadOptions(temperature=1.0), context=read_manifest(suite).get("context", CONTEXT))
     provenance["measured_checkpoint"] = {"requested": run, "resolved": str(predictor.run),
                                           "head_sha256": digest(Path(predictor.run) / "head.pt"),
                                           "weights_sha256": predictor.checkpoint.weights_sha256(),
