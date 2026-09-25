@@ -17,6 +17,12 @@ def empty_cache(device):
     elif device == "cuda": torch.cuda.empty_cache()
 
 
+def out_of_memory(e):
+    """Whether a torch allocator ran out: CUDA raises torch.OutOfMemoryError, MPS a plain RuntimeError with this message.
+    The MLX backend's Metal errors are neither."""
+    return isinstance(e, torch.OutOfMemoryError) or isinstance(e, RuntimeError) and str(e).startswith("MPS backend out of memory")
+
+
 def allocated_bytes(device):
     """Bytes currently allocated on the device (MPS) or the peak since the process started (CUDA); 0 on CPU."""
     if device == "mps": return torch.mps.current_allocated_memory()

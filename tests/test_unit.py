@@ -242,7 +242,8 @@ def test_out_of_memory_drops_the_prefix_cache_and_retries_once():
     out-of-memory pass with nothing cached, or any other error, is not retried."""
     import torch
     from types import SimpleNamespace
-    from kev.serve import Server, out_of_memory
+    from kev.device import out_of_memory
+    from kev.serve import Server
 
     class Model:
         prefix_min_tokens, fail, calls = 0, None, 0

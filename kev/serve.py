@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
 from .checkpoint import Checkpoint, LoadOptions, fused_available, is_hub_id
-from .device import default_device, empty_cache, sync
+from .device import default_device, empty_cache, out_of_memory, sync
 from .model import SERVE_MAX_BRANCH, SERVE_MAX_STATE
 
 PREFIX_CACHE_SIZE = int(os.environ.get("KEV_PREFIX_CACHE", "4"))          # states kept (KV + hidden); 0 disables
@@ -175,11 +175,6 @@ class Server:
     def _body(self, req, meta, ps, m):
         answers = to_answers(ps, meta)
         return {"model": req.model, "answers": answers, "usage": {"input_tokens": m["tokens"], "output_tokens": output_tokens(self.tok, answers)}, "latency_ms": m["latency_ms"]}
-
-
-def out_of_memory(e):
-    """CUDA raises torch.OutOfMemoryError; the MPS allocator a plain RuntimeError with this message."""
-    return isinstance(e, torch.OutOfMemoryError) or isinstance(e, RuntimeError) and str(e).startswith("MPS backend out of memory")
 
 
 def prepare(req):
