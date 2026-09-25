@@ -242,6 +242,12 @@ Reported alongside (never gating): Jev and AutoJev on the same breadth-v1 develo
 
 Changes from pilot 1: escalating scores +0.5 when the question is unknowable and -0.5 when it was knowable (always-escalate now averages -0.25; the solver 0.82; the parent -0.4). Arms (otherwise pilot 1's settings, both with replay 0.5): (a) `rl-kl0.2` kl_w 0.2 - the candidate; (b) `rl-kl0.05` kl_w 0.05 (attribution: the anchor's strength). Same rule as pilot 1, plus: an arm whose held-out greedy policy escalates > 90 % of knowable episodes, or whose step entropy falls below 0.05, fails as collapsed. Budget: ~$12 training + ~$10 reads; cap $40 including pilot 1's spend.
 
+**Result (negative, 2026-09-26T00:50Z).** Both arms collapsed to always-escalate by iteration 25 again (greedy return -0.37 -> -0.26, knowable-correct 0.27 -> 0, entropy < 0.06, KL ~2.2 nats even at kl_w 0.2); stopped at iteration ~40 (~$3). The reward fix could not help: always-escalate (-0.25) still beats the parent (-0.37), so it stays the nearest improvement. The parent has to be able to win the task before RL can refine it.
+
+### RL pilot 2 - SFT on solver demonstrations, then RL (registered 2026-09-26T00:55Z, before any training or read)
+
+The standard recipe: `kev.rl --warmup_episodes 300 --warmup_epochs 2` behaviour-clones the solver on 300 train-namespace worlds (seeds from 10^6, apart from RL's), evaluated as phase `warmup`; RL then runs as in pilot 1b, and the KL now anchors to the policy as RL starts (post-warm-up), not the released parent. Arms: (a) `rl2-kl0.2` - candidate; (b) `rl2-kl0.05` - anchor attribution. **The RL question is read against the warm-up policy** (same run, same held-out 400 eval-seed episodes, paired by episode): the candidate needs a positive paired-bootstrap lower bound on greedy return vs warm-up, knowable-escalate not above warm-up + 0.05, answer-step ECE not above warm-up + 0.02, and must not trip pilot 1b's collapse rule. The panel gates (pilot 1's, at a temperature refit per checkpoint) are read for warm-up and final against the released parent only if the env gate passes. Spend cap $40 across pilots 1-2 (so far ~$10).
+
 ## Next
 
 Goals and open questions, not registered rounds; each becomes a spec and a PLAN section before it runs.

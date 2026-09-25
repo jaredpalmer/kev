@@ -831,16 +831,18 @@ def test_rl_advantage_and_loss_direction():
 
 def test_rl_runs_from_a_trained_checkpoint(tiny_base, tmp_path, monkeypatch):
     """kev.rl warm-starts from an SFT run, trains a few iterations with replay, and saves a checkpoint kev.checkpoint
-    loads, keeping the parent's temperature and marking it for a refit; evaluations cover iteration 0 and the end."""
+    loads (after a behaviour-cloning warm-up on solver steps), keeping the parent's temperature and marking it for a refit; evaluations cover iteration 0 and the end."""
     from kev import rl
     from kev.checkpoint import Checkpoint, read_meta
     from kev.suite import read_json
     train_tiny(tiny_base, tmp_path / "sft", "--max_steps", "2", monkeypatch=monkeypatch)
     rl.main(["--init_from", str(tmp_path / "sft"), "--out", str(tmp_path / "rl"), "--device", "cpu", "--iters", "2", "--episodes", "2", "--group", "2",
-             "--eval_episodes", "4", "--eval_every", "2", "--replay", str(tiny_base / "data.jsonl"), "--replay_batch", "2", "--checkpointing", "0", "--lr", "1e-3"])
+             "--eval_episodes", "4", "--eval_every", "2", "--warmup_episodes", "2", "--replay", str(tiny_base / "data.jsonl"), "--replay_batch", "2", "--checkpointing", "0", "--lr", "1e-3"])
     log, evals = read_json(tmp_path / "rl/rl_log.json"), read_json(tmp_path / "rl/evals.json")
     assert [e["iter"] for e in log] == [1, 2] and all(e["replay_ce"] > 0 and e["kl"] >= 0 for e in log)
-    assert [(e["iter"], e["mode"]) for e in evals] == [(0, "greedy"), (0, "sampled"), (2, "greedy"), (2, "sampled")]
+    assert [(e["phase"], e["iter"], e["mode"]) for e in evals] == [("parent", 0, "greedy"), ("parent", 0, "sampled"), ("warmup", 0, "greedy"), ("warmup", 0, "sampled"),
+                                                                     ("rl", 2, "greedy"), ("rl", 2, "sampled")]
+    assert read_json(tmp_path / "rl/rl_config.json")["warmup"]["steps"] > 0
     meta = read_meta(tmp_path / "rl")
     assert meta.temperature == read_meta(tmp_path / "sft").temperature and meta.extra["rl"]["temperature_refit_needed"]
     tok, model = Checkpoint(tmp_path / "rl").load("cpu")

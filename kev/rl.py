@@ -6,10 +6,15 @@ Why not REINFORCE on single decisions: its reward is a proper score of one answe
 already minimises; sampling only adds variance. Here the reward is the episode's: which records Kev opened, whether it
 answered or escalated, and whether the answer was right. That credit assignment across steps is what SFT has no label for.
 
+Warm-up (--warmup_episodes): behaviour cloning on solver trajectories from their own seed namespace, kev.train's loss
+on raw logits, so RL starts from a policy that sometimes wins (an SFT-only parent that rarely answers right collapses to
+escalating everything; RL pilot 1). The reference the KL anchors to is the policy as RL starts (after any warm-up): a
+snapshot of the trainable weights, swapped in for its forward passes.
+
 Policy: Kev's served distribution over the step's actions, softmax(z / tau) with tau the parent's calibration temperature
 (unless --tau), so rollouts sample and the gradient moves the distribution that is actually served. Per iteration:
 - `--episodes` worlds x `--group` rollouts each; advantage = (return - group mean) / (group std + eps) (GRPO);
-- loss = mean over steps of -A log pi(a) + kl_w KL(pi || pi_sft) (exact over the options, at the same tau),
+- loss = mean over steps of -A log pi(a) + kl_w KL(pi || pi_ref) (exact over the options, at the same tau),
   plus replay_w x the SFT loss (kev.train.question_loss, raw logits as in SFT) on `--replay` records.
 The KL anchor and the replay are the calibration guards: policy gradient sharpens a distribution toward whatever was
 rewarded, and the SFT head's probabilities are the thing Kev sells. Evaluation (held-out seeds and template) reports
@@ -30,13 +35,13 @@ import torch
 import torch.nn.functional as F
 
 from .api import SystemOneRequest, to_record
-from .checkpoint import Checkpoint, LoadOptions, Meta, write_meta
+from .checkpoint import Checkpoint, Meta, write_meta
 from .data import load_records, materialize
 from .device import default_device
 from .envs import STEP_COST, investigation
 from .metrics import ece
 from .model import DecisionModel, fits, load_tokenizer
-from .suite import write_json
+from .suite import read_json, write_json
 from .train import MAX_GRAD_NORM, question_loss
 
 
@@ -52,6 +57,8 @@ def parse_args(argv=None):
     ap.add_argument("--head_lr", type=float, default=0.0, help="pointer head learning rate; 0 = --lr")
     ap.add_argument("--kl_w", type=float, default=0.05, help="weight of KL(pi || pi_sft) per step")
     ap.add_argument("--tau", type=float, default=0.0, help="policy temperature; 0 = the parent's calibration temperature")
+    ap.add_argument("--warmup_episodes", type=int, default=0, help="solver episodes behaviour-cloned before RL")
+    ap.add_argument("--warmup_epochs", type=int, default=1)
     ap.add_argument("--replay", default="", help="JSONL of labelled requests (kev.data.load_records) replayed with the SFT loss")
     ap.add_argument("--replay_w", type=float, default=0.5)
     ap.add_argument("--replay_batch", type=int, default=8, help="replay records per iteration")
@@ -80,9 +87,25 @@ def logits_of(model, encs, microbatch, autocast):
     return out
 
 
+class Reference:
+    """The policy frozen at a point in training: a copy of its trainable weights, swapped in for a forward pass."""
+    def __init__(self, policy):
+        self.policy = policy
+        self.weights = [p.detach().clone() for p in policy.trainable_parameters()]
+
+    @torch.no_grad()
+    def logits(self, encs, microbatch, autocast):
+        params = list(self.policy.trainable_parameters())
+        current = [p.detach().clone() for p in params]
+        for p, w in zip(params, self.weights): p.copy_(w)
+        try: return logits_of(self.policy, encs, microbatch, autocast)
+        finally:
+            for p, w in zip(params, current): p.copy_(w)
+
+
 @torch.no_grad()
 def rollout(policy, ref, tok, episodes, tau, rng, greedy=False, microbatch=8, autocast=contextlib.nullcontext()):
-    """Run every episode to its end. -> per episode a list of steps {"enc", "action", "ref", "p"} (ref: the SFT policy's
+    """Run every episode to its end. -> per episode a list of steps {"enc", "action", "ref", "p"} (ref: the Reference's
     log-probabilities at tau; p: the policy's probabilities the action was drawn from)."""
     policy.eval()
     trajs = [[] for _ in episodes]
@@ -90,7 +113,7 @@ def rollout(policy, ref, tok, episodes, tau, rng, greedy=False, microbatch=8, au
         steps = [step_record(episodes[i]) for i in active]
         encs = [policy.encode(tok, rec, strict=True) for rec, _ in steps]
         zs = logits_of(policy, encs, microbatch, autocast)
-        zr = logits_of(ref, encs, microbatch, autocast) if ref is not None else [None] * len(encs)
+        zr = ref.logits(encs, microbatch, autocast) if ref is not None else [None] * len(encs)
         for i, (_, keys), enc, z, r in zip(active, steps, encs, zs, zr):
             p = F.softmax(z / tau, -1).cpu()
             a = int(p.argmax()) if greedy else rng.choices(range(len(p)), weights=p.tolist())[0]
@@ -148,7 +171,7 @@ def evaluate(policy, tok, a, tau, greedy, autocast):
 
 
 def load_policy(a, dev):
-    """(tokenizer, trainable policy warm-started from --init_from, frozen SFT reference, the parent's Meta)."""
+    """(tokenizer, trainable policy warm-started from --init_from, the parent's Meta, provenance)."""
     ck = Checkpoint(a.init_from)
     parent = ck.meta
     if parent.weights != "lora": raise ValueError("kev.rl trains a LoRA on the parent's adapter; full-weight parents are not supported yet")
@@ -161,9 +184,34 @@ def load_policy(a, dev):
     init_source = ck.warm_start(policy, ours)
     if a.checkpointing: policy.lm.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     policy.lm.config.use_cache = False
-    _, ref = ck.load(dev, LoadOptions(temperature=1.0))
-    for p in ref.parameters(): p.requires_grad_(False)
-    return tok, policy, ref, ours, init_source
+    return tok, policy, ours, init_source
+
+
+def solver_steps(a, tok, policy):
+    """Every step of the solver's trajectories on --warmup_episodes worlds (seeds from 10^6, apart from RL's) as
+    (encoding, internal record labelled with the solver's action)."""
+    out = []
+    for s in range(10**6, 10**6 + a.warmup_episodes):
+        ep = investigation(s, "train", a.n_people, a.max_hops, a.p_redact)
+        while not ep.done:
+            rec, keys = step_record(ep); action = ep.oracle()
+            rec["questions"][0].update(label=keys.index(action), qtype="choice")
+            out.append((policy.encode(tok, rec, strict=True), rec)); ep.step(action)
+    return out
+
+
+def warmup(policy, opt, a, tok, dev, rng, autocast):
+    steps = solver_steps(a, tok, policy)
+    policy.train(); losses = []
+    for _ in range(a.warmup_epochs):
+        rng.shuffle(steps)
+        for i in range(0, len(steps), a.microbatch):
+            chunk = steps[i:i + a.microbatch]
+            zs = logits_of(policy, [e for e, _ in chunk], a.microbatch, autocast)
+            loss = sum(question_loss(z, r["questions"][0], dev, 0.0) for z, (_, r) in zip(zs, chunk)) / len(chunk)
+            opt.zero_grad(); loss.backward(); torch.nn.utils.clip_grad_norm_(policy.trainable_parameters(), MAX_GRAD_NORM); opt.step()
+            losses.append(loss.item())
+    return {"steps": len(steps), "loss_first": statistics.fmean(losses[:10]), "loss_last": statistics.fmean(losses[-10:])}
 
 
 def main(argv=None):
@@ -172,7 +220,7 @@ def main(argv=None):
     out = Path(a.out); out.mkdir(parents=True, exist_ok=False)
     torch.manual_seed(a.seed); rng = random.Random(a.seed)
     autocast = torch.autocast("cuda", dtype=torch.bfloat16) if dev == "cuda" and a.dtype == "bf16" else contextlib.nullcontext()
-    tok, policy, ref, meta, init_source = load_policy(a, dev)
+    tok, policy, meta, init_source = load_policy(a, dev)
     policy.head.temperature = 1.0   # the policy applies tau itself; the served temperature goes back into head.pt
     tau = a.tau or meta.temperature
     replay = [r for r in (materialize(q) for q in load_records(a.replay, "replay")) if fits(r, tok)] if a.replay else []
@@ -184,12 +232,18 @@ def main(argv=None):
                              {"params": list(policy.head.parameters()), "lr": a.head_lr or a.lr}], weight_decay=0.0)
     log, evals, t0 = [], [], time.time()
 
-    def run_eval(it):
+    def run_eval(it, phase="rl"):
         for greedy in (True, False):
-            evals.append({"iter": it, **evaluate(policy, tok, a, tau, greedy, autocast)}); print(evals[-1], flush=True)
+            evals.append({"iter": it, "phase": phase, **evaluate(policy, tok, a, tau, greedy, autocast)}); print(evals[-1], flush=True)
         write_json(out / "evals.json", evals)
 
-    run_eval(0)
+    run_eval(0, "parent")
+    warm = None
+    if a.warmup_episodes:
+        warm = warmup(policy, opt, a, tok, dev, rng, autocast); print(f"warm-up: {warm}", flush=True)
+        run_eval(0, "warmup")
+    write_json(out / "rl_config.json", {**read_json(out / "rl_config.json"), "warmup": warm})
+    ref = Reference(policy)
     for it in range(1, a.iters + 1):
         seeds = [(it - 1) * a.episodes + k for k in range(a.episodes)]
         eps = [investigation(s, "train", a.n_people, a.max_hops, a.p_redact) for s in seeds for _ in range(a.group)]
@@ -228,7 +282,8 @@ def main(argv=None):
     meta.head = policy.head.state_dict()
     meta.extra = {"args": vars(a), "init_source": init_source, "rl": {"tau": tau, "temperature_refit_needed": True}}
     write_meta(out, meta); tok.save_pretrained(out)
-    write_json(out / "report.json", {"clean": {"parent": evals[:2], "final": evals[-2:]}, "wall_seconds": time.time() - t0})
+    write_json(out / "report.json", {"clean": {"parent": evals[:2], "start": [e for e in evals if e["phase"] == "warmup"], "final": evals[-2:]},
+                                     "wall_seconds": time.time() - t0})
 
 
 if __name__ == "__main__":
