@@ -45,7 +45,7 @@ def test_to_answers_shapes_and_formulas():
     assert ans["c"]["choice"] == "a" and ans["c"]["probabilities"] == {"a": 0.8, "b": 0.15, "c": 0.05}
     assert ans["c"]["confidence"] == round((0.8 - 1 / 3) / (1 - 1 / 3), 4)
     assert ans["s"]["score"] == 1.5 and ans["s"]["probabilities"] == {"0": 0.1, "1": 0.3, "2": 0.6}
-    assert ans["s"]["legend"] == {"0": "lo", "1": "mid", "2": "hi"}
+    assert ans["s"]["legend"] == {"0": "lo", "1": "mid", "2": "hi"} and ans["s"]["confidence"] == 0.25   # 1 - (0.1*2 + 0.3*1) / (2/3)
 
 
 @pytest.mark.parametrize("p", [[0.79] + [0.21 / 39] * 39, [1 / 255] * 255])
