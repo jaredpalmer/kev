@@ -788,3 +788,60 @@ def test_score_trial_uses_the_suites_admission_context(monkeypatch, tmp_path):
     with pytest.raises(Stop):
         E.score_trial("run", "evals/v7/decision-v7", tmp_path, [], "cpu", {"suite_sha256": "x"}, None, 0.0, False)
     assert seen["context"] == E.CONTEXT
+
+
+def test_investigation_env_rewards_and_oracle():
+    """Episodes are reproducible per (split, seed); the solver answers knowable episodes correctly and escalates the
+    unknowable ones; guessing, escalating a knowable question and overrunning the budget are scored as registered."""
+    from kev.envs import REWARD, STEP_COST, investigation
+    a, b = investigation(7), investigation(7)
+    assert a.request() == b.request() and investigation(7, "eval").request() != a.request()
+    assert investigation(7, "eval").template == 2 and {investigation(s).template for s in range(50)} <= {0, 1}
+    outcomes = set()
+    for s in range(200):
+        ep = investigation(s); total = 0.0
+        while not ep.done: total += ep.step(ep.oracle())
+        assert ep.outcome == ("correct" if ep.answer() is not None else "escalate"); outcomes.add(ep.outcome)
+        assert total == pytest.approx(REWARD[ep.outcome] - STEP_COST * len(ep.opened))
+    assert outcomes == {"correct", "escalate"}
+    ep = next(e for e in (investigation(s) for s in range(50)) if e.answer() is not None)
+    assert ep.step("escalate") == REWARD["escalate"] and ep.done
+    with pytest.raises(ValueError): ep.step("escalate")
+    ep = investigation(0)
+    while not ep.done: ep.step(next(k for k in ep.actions() if k.startswith("open ")))
+    assert ep.outcome == "out_of_budget" and len(ep.opened) == ep.budget + 1
+    assert ep.request()["questions"]["action"]["criteria"]   # the request validates as a SystemOneRequest in kev.rl.step_record
+
+
+def test_rl_advantage_and_loss_direction():
+    """Group-relative advantages centre each world's rollouts; a positive advantage raises the chosen action's
+    probability, a negative one lowers it, and the KL term is zero at the reference."""
+    from kev.rl import advantages, policy_loss
+    adv = advantages([1.0, 0.0, 1.0, 0.0, 0.5, 0.5], 2)
+    assert adv[:4] == pytest.approx([1, -1, 1, -1], abs=1e-4) and adv[4:] == [0.0, 0.0]
+    for A, sign in ((1.0, 1), (-1.0, -1)):
+        z = torch.tensor([0.3, -0.2, 0.1], requires_grad=True)
+        step = {"action": 1, "ref": torch.log_softmax(z.detach() / 2.0, -1)}
+        loss, kl, _ = policy_loss(z, step, A, 2.0, 0.1)
+        loss.backward()
+        assert float(kl.detach()) == pytest.approx(0.0, abs=1e-6)
+        z2 = z.detach() - 0.1 * z.grad
+        assert sign * (torch.softmax(z2, -1)[1] - torch.softmax(z.detach(), -1)[1]) > 0
+
+
+def test_rl_runs_from_a_trained_checkpoint(tiny_base, tmp_path, monkeypatch):
+    """kev.rl warm-starts from an SFT run, trains a few iterations with replay, and saves a checkpoint kev.checkpoint
+    loads, keeping the parent's temperature and marking it for a refit; evaluations cover iteration 0 and the end."""
+    from kev import rl
+    from kev.checkpoint import Checkpoint, read_meta
+    from kev.suite import read_json
+    train_tiny(tiny_base, tmp_path / "sft", "--max_steps", "2", monkeypatch=monkeypatch)
+    rl.main(["--init_from", str(tmp_path / "sft"), "--out", str(tmp_path / "rl"), "--device", "cpu", "--iters", "2", "--episodes", "2", "--group", "2",
+             "--eval_episodes", "4", "--eval_every", "2", "--replay", str(tiny_base / "data.jsonl"), "--replay_batch", "2", "--checkpointing", "0", "--lr", "1e-3"])
+    log, evals = read_json(tmp_path / "rl/rl_log.json"), read_json(tmp_path / "rl/evals.json")
+    assert [e["iter"] for e in log] == [1, 2] and all(e["replay_ce"] > 0 and e["kl"] >= 0 for e in log)
+    assert [(e["iter"], e["mode"]) for e in evals] == [(0, "greedy"), (0, "sampled"), (2, "greedy"), (2, "sampled")]
+    meta = read_meta(tmp_path / "rl")
+    assert meta.temperature == read_meta(tmp_path / "sft").temperature and meta.extra["rl"]["temperature_refit_needed"]
+    tok, model = Checkpoint(tmp_path / "rl").load("cpu")
+    assert any(not torch.equal(v, read_meta(tmp_path / "sft").head[k]) for k, v in model.head.state_dict().items())

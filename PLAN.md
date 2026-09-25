@@ -217,6 +217,25 @@ Reported alongside (never gating): Jev and AutoJev on the same breadth-v1 develo
 
 **Budget.** Modal: admission bounds $988 + $988 + $371 = $2,347 (expected spend ~$800-950: arms (a)/(b) ~9 h each with p_none_pair, so one automatic resume each; arm (c) ~1.5 h) (one epoch of the full mix measured at ~7.1 h / ~$293 on 8×H200; retries counted in each bound), reads ~$20 per arm; program cap $2,000 including reads and confirmation. AI Gateway: synthetic data $1,666 of the $2,460 key (spent before this registration, not training). Baseline: Modal metered $1599.26 at registration.
 
+## RL pilot 1 (registered)
+
+### RL pilot 1 - agentic RL after SFT on Kev-4B (registered 2026-09-25T23:40Z, before any training or read)
+
+**Why.** Kev has never been trained with RL, and the Laya review's argument stands for single decisions: REINFORCE against a proper score has the log loss's optimum. What SFT cannot supervise is a sequence of decisions scored only at its end. `kev.rl` trains Kev on `kev.envs.Investigation` episodes: a hidden staff directory, a task that follows 1-2 manager hops to a city or team, and one typed choice per step (open a record / answer a value / escalate). 25 % of episodes redact a record on the chain, so no answer is knowable and escalating is right. Rewards are programmatic (+1 correct, -1 wrong, 0 escalate, -0.5 over budget, -0.02 per record opened); the solver scores 0.73 on average. Kev-4B is the testbed; larger checkpoints only if this passes.
+
+**Calibration is the main risk.** Policy gradient sharpens toward whatever was rewarded. Guards: rollouts sample at the parent's served temperature (tau 2.41) and the loss uses the same tempered log-probabilities; an exact per-step KL(pi || pi_SFT); SFT replay (devtools-v1 train, the parent's own data, with kev.train's loss on raw logits). The RL checkpoint keeps the parent's temperature until it is refitted on its own development rows (`scripts/calibrate_checkpoint.py`), as every served comparison requires.
+
+**Arms** (from `jaredpalmer/kev-4b` @ `139fdd94`, LoRA r16 continued, 1×H100, 150 iterations × 16 worlds × 8 rollouts, lr 1e-5, eval on 400 held-out-seed episodes in the held-out template every 25 iterations):
+- (a) `rl-guarded`: kl_w 0.05, replay_w 0.5 (8 records per iteration) - the candidate;
+- (b) `rl-noguard` (attribution, never the candidate): kl_w 0, no replay - shows what the guards cost and what they prevent.
+
+**Rule** (candidate (a) vs parent Kev-4B, on held-out episodes and, for the panel, paired record-clustered bootstraps, 2,000 resamples):
+1. env: greedy return gain lower bound > 0 (episode bootstrap), unknowable-escalation rate not lower, answer-step ECE not above the parent's;
+2. guards, each checkpoint served at its own refitted temperature: pooled Kev development panel (transfer-v4 dev, hard-v1, devtools-v1, documents-v1) accuracy lower ≥ -1 pp, ECE ≤ parent + 0.01, Brier upper ≤ +0.01; WANLI-v2 and scienthoon lower ≥ -2 pp; fitted temperature reported next to the parent's 2.41;
+3. passing all three means RL works at 4B and earns a registered follow-up: a matched SFT-on-solver-demonstrations control, harder environments, and a larger checkpoint. Failing means the result is reported and nothing scales.
+
+**Budget.** ~2 × 1.5 h H100 ≈ $12 for training plus ~$10 for panel reads; cap $40.
+
 ## Next
 
 Goals and open questions, not registered rounds; each becomes a spec and a PLAN section before it runs.
