@@ -49,7 +49,7 @@ A round is a PLAN.md section plus a spec, committed together before any training
    rule (primary, guards with thresholds sized to each suite, rank), the confirmation stages, and the budget. Use the
    standing rules; do not invent a new statistic for one round.
 2. Write `experiments/rounds/r<N>.json` by copying the closest past spec (r15 for a joint delta, r17 for a 27B, r10 for a
-   skills round). Leave out `"archive"`: that key marks the recorded rounds 5-18. Every plan file the spec names, and every
+   skills round, r20 for post-hoc arms without training: a temperature pool, interpolated checkpoints). Leave out `"archive"`: that key marks the recorded rounds 5-18. Every plan file the spec names, and every
    parent read its rule needs, must exist in this checkout; if a parent lacks a read, `launch-reads <spec> --parents` makes it.
 3. New data is a new directory under `evals/` with a `manifest.json` (sha256 per file, inputs' hashes). Under the SFT data
    policy (PLAN.md) private corpora keep only the manifest in git, with a `"mirror"` entry pointing at the private dataset.

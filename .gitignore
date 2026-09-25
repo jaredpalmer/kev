@@ -194,3 +194,59 @@ evals/round6/b1v2/train.jsonl
 runs/documents-v2-work/
 # hard-v1 train partition (23 MB; sha256 in evals/hard-v1/manifest.json; scripts/build_hard_v1.py regenerates the same bytes)
 evals/hard-v1/train.jsonl
+# round 19's record (experiments/rounds/r19.json; tests/test_rounds.py reproduces its read-out): the read-out, the breadth
+# report, every arm read's report + rows, the three trials' result, provenance, in-trial transfer rows and calibration
+# temperature (never their 48 GB checkpoints), the parent's transfer-r3 test read. The trials' development rows carry
+# sft-v1 record ids and option keys: they are in jaredpalmer/kev-private-train (runs/r19-readout/private-rows.json)
+!runs/r19-readout/
+!runs/r19-readout/round19.json
+!runs/r19-readout/b-vs-c.json
+!runs/r19-readout/private-rows.json
+!runs/r19-breadth-report/
+!runs/r19-breadth-report/report.md
+!runs/r19-P27-r3test/
+runs/r19-P27-r3test/*
+!runs/r19-P27-r3test/report.json
+!runs/r19-P27-r3test/rows.json
+!runs/r19-27b-*/
+runs/r19-27b-*/*
+!runs/r19-27b-*/report.json
+!runs/r19-27b-*/rows.json
+!runs/r19-27b-*/00-trial-0/
+runs/r19-27b-*/00-trial-0/*
+!runs/r19-27b-*/00-trial-0/result.json
+!runs/r19-27b-*/00-trial-0/provenance.json
+!runs/r19-27b-*/00-trial-0/transfer/
+runs/r19-27b-*/00-trial-0/transfer/*
+!runs/r19-27b-*/00-trial-0/transfer/rows.json
+!runs/r19-27b-*/00-trial-0/calibration/
+runs/r19-27b-*/00-trial-0/calibration/*
+!runs/r19-27b-*/00-trial-0/calibration/temperature.json
+# Kev-27B's locked transfer-v4 rows (the parent side of rounds 19 and 20's locked stage)
+!runs/locked/kev-27b-v2-ungated/transfer/
+runs/locked/kev-27b-v2-ungated/transfer/*
+!runs/locked/kev-27b-v2-ungated/transfer/rows.json
+# round 20 (experiments/rounds/r20.json): read-out, verdicts, every read's report + rows, the interpolation reports; the
+# interpolated checkpoints stay on the kev-runs volume (/runs/r20-wise/<name>/checkpoint)
+!runs/r20-readout/
+!runs/r20-readout/round20.json
+!runs/r20-verdict/
+!runs/r20-verdict/*.json
+!runs/r20-27b-*/
+runs/r20-27b-*/*
+!runs/r20-27b-*/report.json
+!runs/r20-27b-*/rows.json
+!runs/r20c-*/
+runs/r20c-*/*
+!runs/r20c-*/report.json
+!runs/r20c-*/rows.json
+!runs/r20-wise/
+runs/r20-wise/*
+!runs/r20-wise/*/
+runs/r20-wise/*/*
+!runs/r20-wise/*/interpolation.json
+!runs/locked/kev-27b-r20-ungated/
+!runs/locked/kev-27b-r20-ungated/summary.json
+!runs/locked/kev-27b-r20-ungated/transfer/
+runs/locked/kev-27b-r20-ungated/transfer/*
+!runs/locked/kev-27b-r20-ungated/transfer/rows.json

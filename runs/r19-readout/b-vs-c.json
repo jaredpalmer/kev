@@ -1,0 +1,136 @@
+{
+ "trial": "runs/r19-27b-lr5e6/00-trial-0",
+ "parent": "runs/r19-27b-olddata/00-trial-0",
+ "temperature": 0.9548416039104165,
+ "parent_temperature": 1.0,
+ "panels": {
+  "breadth": {
+   "n": 3075,
+   "acc": {
+    "candidate": 0.750569105691057,
+    "parent": 0.7440650406504065,
+    "delta": 0.006504065040650486,
+    "ci95": [
+     -0.004843435945763949,
+     0.018265508290979417
+    ]
+   },
+   "ece": {
+    "candidate": 0.06469691984871175,
+    "parent": 0.059852155901940776,
+    "delta": 0.0048447639467711495,
+    "ci95": [
+     -0.007593960967502224,
+     0.01583804713948298
+    ]
+   }
+  },
+  "kev": {
+   "n": 3731,
+   "acc": {
+    "candidate": 0.8595550790672742,
+    "parent": 0.7681586705976949,
+    "delta": 0.0913964084695793,
+    "ci95": [
+     0.07818209385922469,
+     0.10445036951954638
+    ]
+   },
+   "ece": {
+    "candidate": 0.03733150249089613,
+    "parent": 0.06427050137664564,
+    "delta": -0.026938998885749507,
+    "ci95": [
+     -0.038419457907940005,
+     -0.014995555009864608
+    ]
+   }
+  },
+  "short": {
+   "n": 1806,
+   "acc": {
+    "candidate": 0.8665559246954596,
+    "parent": 0.8372093023255814,
+    "delta": 0.029346622369878173,
+    "ci95": [
+     0.01661129568106312,
+     0.04263565891472865
+    ]
+   },
+   "brier": {
+    "candidate": 0.20410675268753867,
+    "parent": 0.23608996335000063,
+    "delta": -0.03198321066246193,
+    "ci95": [
+     -0.04420628685453498,
+     -0.021278804905922894
+    ]
+   },
+   "confident_error_rate": {
+    "candidate": 0.03322259136212625,
+    "parent": 0.04263565891472868,
+    "delta": -0.009413067552602433,
+    "ci95": [
+     -0.016611295681063128,
+     -0.002768549280177189
+    ]
+   }
+  },
+  "scienthoon": {
+   "n": 873,
+   "acc": {
+    "candidate": 0.7605956471935853,
+    "parent": 0.7594501718213058,
+    "delta": 0.001145475372279492,
+    "ci95": [
+     -0.016036655211912998,
+     0.018327605956471982
+    ]
+   }
+  },
+  "wanli2": {
+   "n": 1002,
+   "acc": {
+    "candidate": 0.7435129740518962,
+    "parent": 0.7524950099800399,
+    "delta": -0.008982035928143728,
+    "ci95": [
+     -0.027944111776447067,
+     0.008982035928143728
+    ]
+   }
+  },
+  "pooled_external": {
+   "n": 2108,
+   "acc": {
+    "candidate": 0.7703984819734345,
+    "parent": 0.7741935483870968,
+    "delta": -0.003795066413662229,
+    "ci95": [
+     -0.015715035441657654,
+     0.008103633348058864
+    ]
+   }
+  }
+ },
+ "missing": [],
+ "unknowable": {
+  "candidate": 0.0,
+  "parent": 0.0
+ },
+ "criteria": {
+  "1_breadth_lower_above_0": false,
+  "1_kev_lower_at_least_minus_1pp": true,
+  "2_short_acc_lower_at_least_minus_2pp": true,
+  "2_short_brier_upper_at_most_0.01": true,
+  "2_short_confident_errors_upper_at_most_1pp": true,
+  "2_wanli2_lower_at_least_minus_2pp": false,
+  "2_scienthoon_lower_at_least_minus_2pp": true,
+  "2_pooled_lower_at_least_minus_1.5pp": false,
+  "2_unknowable_at_most_0.05": true,
+  "3_breadth_ece_at_most_parent_plus_0.01": true,
+  "3_kev_ece_at_most_parent_plus_0.01": true
+ },
+ "complete": true,
+ "passed": false
+}

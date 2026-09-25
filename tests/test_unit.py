@@ -449,6 +449,57 @@ def test_full_weight_warm_start(tiny_base, tmp_path, monkeypatch):
         train_tiny(tiny_base, tmp_path / "c", "--lora", "4", "--init_from", str(tmp_path / "a"), monkeypatch=monkeypatch)
 
 
+def test_interpolated_checkpoint_is_the_weighted_mean_of_sft_and_base(tiny_base, tmp_path, monkeypatch):
+    """scripts/interpolate_checkpoint.py (round 20's WiSE-FT arms): alpha 1 writes the SFT backbone, alpha 0 the base as
+    training builds it, 0.5 the fp32 midpoint rounded once to bf16; same shard files, names and dtypes; the pointer head is
+    the SFT's; head.pt records the interpolation; kev.checkpoint loads the result as a full-weight checkpoint."""
+    from safetensors.torch import load_file
+    from kev.checkpoint import Checkpoint, read_meta
+    from scripts.interpolate_checkpoint import interpolate, weight_label
+    train_tiny(tiny_base, tmp_path / "sft", *FULL, "--max_steps", "3", monkeypatch=monkeypatch)
+    alphas = [1.0, 0.0, 0.5]
+    outs = [tmp_path / f"w{weight_label(a)}" / "checkpoint" for a in alphas]
+    reports = interpolate(tmp_path / "sft", alphas, outs, log=lambda m: None)
+    sft, base = load_file(tmp_path / "sft/model.safetensors"), load_file(tiny_base / "base/model.safetensors")
+    base = {k: base["model." + k] for k in sft}   # save_pretrained of the CausalLM prefixes the backbone's names
+    one, zero, half = (load_file(o / "model.safetensors") for o in outs)
+    assert [weight_label(a) for a in alphas] == ["100", "00", "50"] and all(x.keys() == sft.keys() for x in (one, zero, half))
+    assert all(torch.equal(one[k], sft[k]) and one[k].dtype == sft[k].dtype for k in sft)
+    assert all(torch.equal(zero[k], base[k]) for k in sft)
+    assert all(torch.equal(half[k], (0.5 * sft[k].float() + 0.5 * base[k].float()).to(torch.bfloat16)) for k in sft)
+    assert any(not torch.equal(half[k], sft[k]) and not torch.equal(half[k], base[k]) for k in sft)
+    source, meta = read_meta(tmp_path / "sft"), read_meta(outs[2])
+    assert all(torch.equal(meta.head[k], source.head[k]) for k in source.head) and meta.temperature == source.temperature
+    assert meta.extra["interpolation"] == {"alpha": 0.5, "sft": {"path": str(tmp_path / "sft"), "weights_sha256": Checkpoint(tmp_path / "sft").weights_sha256()},
+                                           "base": f"{source.base}@{source.base_revision}"}
+    assert reports[2]["weights_sha256"] == Checkpoint(outs[2]).weights_sha256() and (outs[2].parent / "interpolation.json").exists()
+    assert not any((o.parent / "checkpoint.partial").exists() for o in outs) and not (outs[2] / "training_config.json").exists()
+    ck = Checkpoint(outs[2])
+    _, model = ck.load("cpu")
+    assert ck.full and all(torch.equal(model.lm.state_dict()[k], v) for k, v in half.items())
+    with pytest.raises(FileExistsError):
+        interpolate(tmp_path / "sft", [0.5], [outs[2]], log=lambda m: None)
+
+
+def test_interpolation_refuses_a_checkpoint_that_does_not_match_its_base(tiny_base, tmp_path, monkeypatch):
+    """A renamed or reshaped tensor, or a different base, stops the tool before anything is written."""
+    import shutil
+    from safetensors.torch import load_file, save_file
+    from scripts.interpolate_checkpoint import interpolate
+    train_tiny(tiny_base, tmp_path / "sft", *FULL, "--max_steps", "1", monkeypatch=monkeypatch)
+    tensors = load_file(tmp_path / "sft/model.safetensors")
+    first = next(iter(tensors))
+    for name, change in (("renamed", lambda t: {**{k: v for k, v in t.items() if k != first}, "bogus.weight": t[first]}),
+                         ("reshaped", lambda t: {**t, first: t[first].flatten()[:-1].clone()})):
+        shutil.copytree(tmp_path / "sft", tmp_path / name)
+        save_file(change(tensors), tmp_path / name / "model.safetensors", metadata={"format": "pt"})
+        with pytest.raises(ValueError, match="does not match its base"):
+            interpolate(tmp_path / name, [0.5], [tmp_path / f"{name}-out/checkpoint"], log=lambda m: None)
+        assert not (tmp_path / f"{name}-out").exists()
+    with pytest.raises(ValueError, match="was trained from"):
+        interpolate(tmp_path / "sft", [0.5], [tmp_path / "other/checkpoint"], base="Qwen/Qwen3.8-27B", log=lambda m: None)
+
+
 def test_master_adamw_is_adamw_on_fp32_masters():
     """MasterAdamW with host masters = torch AdamW after clip_grad_norm_, step for step; bf16 weights hold bf16(master)."""
     from kev.full_ft import MasterAdamW

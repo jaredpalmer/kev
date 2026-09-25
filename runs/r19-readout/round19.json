@@ -1,0 +1,424 @@
+{
+  "round": 19,
+  "registered": "PLAN.md > Round 19 - Kev-27B full-weight SFT on sft-v1 (to be registered with this spec's commit, before any training or read)",
+  "drop_ids": [
+    "codereviewer/cls-test/13657",
+    "codereviewer/cls-test/19245"
+  ],
+  "arms": {
+    "27b-lr2e6": {
+      "trial": "runs/r19-27b-lr2e6/00-trial-0",
+      "parent": "runs/r6-27b-v2/01-trial-1",
+      "temperature": 0.9548416039104165,
+      "parent_temperature": 1.381912879967776,
+      "panels": {
+        "breadth": {
+          "n": 3075,
+          "acc": {
+            "candidate": 0.7596747967479675,
+            "parent": 0.745040650406504,
+            "delta": 0.014634146341463428,
+            "ci95": [
+              0.004469429607547146,
+              0.025113174875731205
+            ]
+          },
+          "ece": {
+            "candidate": 0.058734979179815995,
+            "parent": 0.011822307606708295,
+            "delta": 0.04691267157310764,
+            "ci95": [
+              0.027918041275814168,
+              0.05253139349262255
+            ]
+          }
+        },
+        "kev": {
+          "n": 3731,
+          "acc": {
+            "candidate": 0.8627713749664969,
+            "parent": 0.7761994103457518,
+            "delta": 0.08657196462074512,
+            "ci95": [
+              0.07316890906680812,
+              0.10034490222051916
+            ]
+          },
+          "ece": {
+            "candidate": 0.03843197113064616,
+            "parent": 0.02160285900769844,
+            "delta": 0.016829112122947666,
+            "ci95": [
+              0.0020739157478808523,
+              0.027701064187940865
+            ]
+          }
+        },
+        "short": {
+          "n": 1806,
+          "acc": {
+            "candidate": 0.8576965669988926,
+            "parent": 0.8676633444075305,
+            "delta": -0.009966777408637828,
+            "ci95": [
+              -0.021594684385382035,
+              0.0016611295681062705
+            ]
+          },
+          "brier": {
+            "candidate": 0.2128411244099547,
+            "parent": 0.19893520283760574,
+            "delta": 0.01390592157234899,
+            "ci95": [
+              0.002428695699261841,
+              0.024125039190184796
+            ]
+          },
+          "confident_error_rate": {
+            "candidate": 0.043743078626799554,
+            "parent": 0.02768549280177187,
+            "delta": 0.016057585825027684,
+            "ci95": [
+              0.00830564784053156,
+              0.024363233665559248
+            ]
+          }
+        },
+        "scienthoon": {
+          "n": 873,
+          "acc": {
+            "candidate": 0.7674684994272624,
+            "parent": 0.7961053837342497,
+            "delta": -0.028636884306987298,
+            "ci95": [
+              -0.04467353951890041,
+              -0.013745704467353903
+            ]
+          }
+        },
+        "wanli2": {
+          "n": 1002,
+          "acc": {
+            "candidate": 0.7445109780439122,
+            "parent": 0.7445109780439122,
+            "delta": 0.0,
+            "ci95": [
+              -0.020958083832335328,
+              0.019960079840319334
+            ]
+          }
+        },
+        "pooled_external": {
+          "n": 2108,
+          "acc": {
+            "candidate": 0.7746679316888045,
+            "parent": 0.786527514231499,
+            "delta": -0.01185958254269448,
+            "ci95": [
+              -0.023934115438761148,
+              0.0
+            ]
+          }
+        }
+      },
+      "missing": [],
+      "unknowable": {
+        "candidate": 0.0,
+        "parent": 0.0
+      },
+      "criteria": {
+        "1_breadth_lower_above_0": true,
+        "1_kev_lower_at_least_minus_1pp": true,
+        "2_short_acc_lower_at_least_minus_2pp": false,
+        "2_short_brier_upper_at_most_0.01": false,
+        "2_short_confident_errors_upper_at_most_1pp": false,
+        "2_wanli2_lower_at_least_minus_2pp": false,
+        "2_scienthoon_lower_at_least_minus_2pp": false,
+        "2_pooled_lower_at_least_minus_1.5pp": false,
+        "2_unknowable_at_most_0.05": true,
+        "3_breadth_ece_at_most_parent_plus_0.01": false,
+        "3_kev_ece_at_most_parent_plus_0.01": false
+      },
+      "complete": true,
+      "passed": false
+    },
+    "27b-lr5e6": {
+      "trial": "runs/r19-27b-lr5e6/00-trial-0",
+      "parent": "runs/r6-27b-v2/01-trial-1",
+      "temperature": 0.9548416039104165,
+      "parent_temperature": 1.381912879967776,
+      "panels": {
+        "breadth": {
+          "n": 3075,
+          "acc": {
+            "candidate": 0.750569105691057,
+            "parent": 0.745040650406504,
+            "delta": 0.0055284552845529245,
+            "ci95": [
+              -0.006255908930223572,
+              0.0171991432667342
+            ]
+          },
+          "ece": {
+            "candidate": 0.06469691984871175,
+            "parent": 0.011822307606708295,
+            "delta": 0.0528746122420035,
+            "ci95": [
+              0.033603416276522434,
+              0.05840539233516683
+            ]
+          }
+        },
+        "kev": {
+          "n": 3731,
+          "acc": {
+            "candidate": 0.8595550790672742,
+            "parent": 0.7761994103457518,
+            "delta": 0.08335566872152245,
+            "ci95": [
+              0.0693089312067826,
+              0.09711178512790036
+            ]
+          },
+          "ece": {
+            "candidate": 0.03733150249089613,
+            "parent": 0.02160285900769844,
+            "delta": 0.015728643483197698,
+            "ci95": [
+              0.00038336401268709874,
+              0.026568211467905414
+            ]
+          }
+        },
+        "short": {
+          "n": 1806,
+          "acc": {
+            "candidate": 0.8665559246954596,
+            "parent": 0.8676633444075305,
+            "delta": -0.001107419712070845,
+            "ci95": [
+              -0.013289036544850478,
+              0.011627906976744207
+            ]
+          },
+          "brier": {
+            "candidate": 0.20410675268753867,
+            "parent": 0.19893520283760574,
+            "delta": 0.005171549849932955,
+            "ci95": [
+              -0.007133788149729328,
+              0.015727788453985227
+            ]
+          },
+          "confident_error_rate": {
+            "candidate": 0.03322259136212625,
+            "parent": 0.02768549280177187,
+            "delta": 0.005537098560354378,
+            "ci95": [
+              -0.0027685492801771856,
+              0.013289036544850499
+            ]
+          }
+        },
+        "scienthoon": {
+          "n": 873,
+          "acc": {
+            "candidate": 0.7605956471935853,
+            "parent": 0.7961053837342497,
+            "delta": -0.03550973654066436,
+            "ci95": [
+              -0.05269186712485685,
+              -0.01718213058419238
+            ]
+          }
+        },
+        "wanli2": {
+          "n": 1002,
+          "acc": {
+            "candidate": 0.7435129740518962,
+            "parent": 0.7445109780439122,
+            "delta": -0.0009980039920159944,
+            "ci95": [
+              -0.022954091816367206,
+              0.019960079840319334
+            ]
+          }
+        },
+        "pooled_external": {
+          "n": 2108,
+          "acc": {
+            "candidate": 0.7703984819734345,
+            "parent": 0.786527514231499,
+            "delta": -0.016129032258064502,
+            "ci95": [
+              -0.02937101178699803,
+              -0.0033103673218939944
+            ]
+          }
+        }
+      },
+      "missing": [],
+      "unknowable": {
+        "candidate": 0.0,
+        "parent": 0.0
+      },
+      "criteria": {
+        "1_breadth_lower_above_0": false,
+        "1_kev_lower_at_least_minus_1pp": true,
+        "2_short_acc_lower_at_least_minus_2pp": true,
+        "2_short_brier_upper_at_most_0.01": false,
+        "2_short_confident_errors_upper_at_most_1pp": false,
+        "2_wanli2_lower_at_least_minus_2pp": false,
+        "2_scienthoon_lower_at_least_minus_2pp": false,
+        "2_pooled_lower_at_least_minus_1.5pp": false,
+        "2_unknowable_at_most_0.05": true,
+        "3_breadth_ece_at_most_parent_plus_0.01": false,
+        "3_kev_ece_at_most_parent_plus_0.01": false
+      },
+      "complete": true,
+      "passed": false
+    },
+    "27b-olddata": {
+      "trial": "runs/r19-27b-olddata/00-trial-0",
+      "parent": "runs/r6-27b-v2/01-trial-1",
+      "temperature": 1.0,
+      "parent_temperature": 1.381912879967776,
+      "panels": {
+        "breadth": {
+          "n": 3075,
+          "acc": {
+            "candidate": 0.7440650406504065,
+            "parent": 0.745040650406504,
+            "delta": -0.0009756097560975618,
+            "ci95": [
+              -0.009920015873015803,
+              0.007366920921418218
+            ]
+          },
+          "ece": {
+            "candidate": 0.059852155901940776,
+            "parent": 0.011822307606708295,
+            "delta": 0.04802984829523235,
+            "ci95": [
+              0.030664264161323687,
+              0.052183879718232615
+            ]
+          }
+        },
+        "kev": {
+          "n": 3731,
+          "acc": {
+            "candidate": 0.7681586705976949,
+            "parent": 0.7761994103457518,
+            "delta": -0.008040739748056858,
+            "ci95": [
+              -0.01643836403241794,
+              0.0008056070475728482
+            ]
+          },
+          "ece": {
+            "candidate": 0.06427050137664564,
+            "parent": 0.02160285900769844,
+            "delta": 0.042667642368947205,
+            "ci95": [
+              0.028601105022212872,
+              0.05167808282965428
+            ]
+          }
+        },
+        "short": {
+          "n": 1806,
+          "acc": {
+            "candidate": 0.8372093023255814,
+            "parent": 0.8676633444075305,
+            "delta": -0.030454042081949018,
+            "ci95": [
+              -0.04263565891472865,
+              -0.018826135105204922
+            ]
+          },
+          "brier": {
+            "candidate": 0.23608996335000063,
+            "parent": 0.19893520283760574,
+            "delta": 0.037154760512394885,
+            "ci95": [
+              0.025677831637472035,
+              0.04925156411513143
+            ]
+          },
+          "confident_error_rate": {
+            "candidate": 0.04263565891472868,
+            "parent": 0.02768549280177187,
+            "delta": 0.014950166112956811,
+            "ci95": [
+              0.0071982281284606875,
+              0.022162236987818308
+            ]
+          }
+        },
+        "scienthoon": {
+          "n": 873,
+          "acc": {
+            "candidate": 0.7594501718213058,
+            "parent": 0.7961053837342497,
+            "delta": -0.03665521191294385,
+            "ci95": [
+              -0.0595647193585338,
+              -0.014891179839633506
+            ]
+          }
+        },
+        "wanli2": {
+          "n": 1002,
+          "acc": {
+            "candidate": 0.7524950099800399,
+            "parent": 0.7445109780439122,
+            "delta": 0.007984031936127733,
+            "ci95": [
+              -0.012000998003992104,
+              0.026946107784431184
+            ]
+          }
+        },
+        "pooled_external": {
+          "n": 2108,
+          "acc": {
+            "candidate": 0.7741935483870968,
+            "parent": 0.786527514231499,
+            "delta": -0.012333965844402273,
+            "ci95": [
+              -0.026091391170121492,
+              0.0009514747859181716
+            ]
+          }
+        }
+      },
+      "missing": [],
+      "unknowable": {
+        "candidate": 0.0,
+        "parent": 0.0
+      },
+      "criteria": {
+        "1_breadth_lower_above_0": false,
+        "1_kev_lower_at_least_minus_1pp": false,
+        "2_short_acc_lower_at_least_minus_2pp": false,
+        "2_short_brier_upper_at_most_0.01": false,
+        "2_short_confident_errors_upper_at_most_1pp": false,
+        "2_wanli2_lower_at_least_minus_2pp": true,
+        "2_scienthoon_lower_at_least_minus_2pp": false,
+        "2_pooled_lower_at_least_minus_1.5pp": false,
+        "2_unknowable_at_most_0.05": true,
+        "3_breadth_ece_at_most_parent_plus_0.01": false,
+        "3_kev_ece_at_most_parent_plus_0.01": false
+      },
+      "complete": true,
+      "passed": false
+    }
+  },
+  "ranking": {
+    "27b": []
+  },
+  "candidates": {
+    "27b": null
+  }
+}
