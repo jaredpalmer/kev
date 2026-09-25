@@ -10,7 +10,7 @@ whole backbone instead (kev.full_ft: bf16 weights, fp32 masters; several GPUs th
 Batch size is small (variable-length records with custom masks) and gradients are accumulated over --accum micro-batches
 (per rank: a step sees accum x batch x world size records).
 """
-import argparse, contextlib, json, math, os, random, resource, shutil, sys, time
+import argparse, contextlib, dataclasses, json, math, os, random, resource, shutil, sys, time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -355,6 +355,10 @@ def parse_args():
     ap.add_argument("--save_every_minutes", type=float, default=0, help="full-weight: write a resume point once this many minutes have passed since the last")
     ap.add_argument("--resume", type=int, choices=[0, 1], default=0, help="full-weight: continue from <out>/resume if it holds a resume point (same arguments), else start")
     ap.add_argument("--stop_after", type=int, default=0, help="full-weight: exit after this optimizer step without saving the checkpoint (a run split across containers; tests)")
+    ap.add_argument("--snapshot_fractions", default="", help="full-weight: also write a loadable checkpoint (the final one's files) after these fractions of the optimizer steps, "
+                                                             "e.g. 0.25,0.5,0.75, into <snapshot_dir>/step-<N>/checkpoint; kept, never deleted ('' or none: no snapshots)")
+    ap.add_argument("--snapshot_every_steps", type=int, default=0, help="full-weight: also write a snapshot every N optimizer steps")
+    ap.add_argument("--snapshot_dir", default="", help="where snapshots go (default <out>-snapshots; a study trial's are <trial>/snapshots)")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
     if a.shared_prefix is None: a.shared_prefix = a.full_ft
@@ -386,12 +390,29 @@ def parse_args():
                  "ranks have the memory without it)")
     if (a.save_every_steps or a.save_every_minutes or a.resume or a.stop_after) and not a.full_ft:
         ap.error("resume points are for full-weight runs (--full_ft 1)")
+    try: fractions = full_ft.snapshot_fractions(a.snapshot_fractions)
+    except ValueError as error: ap.error(str(error))
+    if a.snapshot_every_steps < 0 or ((fractions or a.snapshot_every_steps) and not a.full_ft):
+        ap.error("snapshots (--snapshot_fractions, --snapshot_every_steps >= 0) are for full-weight runs (--full_ft 1)")
     if Path(a.out).exists() and not a.resume and os.environ.get("RANK", "0") == "0":   # under torchrun rank 0 creates it; the others would race it
         ap.error("refusing to overwrite an existing run")
+    if (fractions or a.snapshot_every_steps) and not a.resume and full_ft.completed_snapshots(snapshot_root(a)):
+        ap.error(f"{snapshot_root(a)} holds another run's snapshots (a new run would skip their steps); choose another --snapshot_dir")
     return a
 
 
-RESUME_KNOBS = ("resume", "save_every_steps", "save_every_minutes", "stop_after")   # may differ between a run and its continuation
+def snapshot_root(a):
+    return Path(a.snapshot_dir or f"{a.out}-snapshots")
+
+
+def finish_checkpoint(out, meta, tok):
+    """What a checkpoint holds besides the backbone (or adapter): head.pt and the tokenizer files. The final checkpoint and
+    every snapshot are finished the same way, so a snapshot loads like the checkpoint it precedes."""
+    write_meta(out, meta)
+    tok.save_pretrained(out)
+
+
+RESUME_KNOBS = ("resume", "save_every_steps", "save_every_minutes", "stop_after", "snapshot_fractions", "snapshot_every_steps", "snapshot_dir")   # may differ between a run and its continuation
 RESUMED = ("step", "seen", "tokens_seen", "peak_mem", "optimizer_seconds", "step_seconds", "elapsed", "epoch", "microbatch", "grad_norms")   # counters a resume point carries
 
 
@@ -479,6 +500,12 @@ def main():
         run = Counter(position["run"])
         print(f"resumed from {resume_dir / position['dir']}: step {step}, epoch {start_epoch}, micro-batch {start_mb}", flush=True)
     writer = full_ft.ResumeWriter(resume_dir, background=world > 1) if a.full_ft else None   # FSDP2: state on the GPUs, written from a host copy
+    snapshots = None
+    if a.full_ft and (plan_steps := full_ft.snapshot_steps(steps, full_ft.snapshot_fractions(a.snapshot_fractions), a.snapshot_every_steps)):
+        snapshots = full_ft.SnapshotWriter(snapshot_root(a), plan_steps, background=world > 1)   # FSDP2: written from rank 0's gathered copy
+        print(f"snapshots after optimizer steps {plan_steps} of {steps} -> {snapshot_root(a)}/step-<N>/checkpoint", flush=True)
+        if position and (missed := snapshots.missed(step)):
+            print(f"!!! snapshot(s) at step(s) {missed} are missing and cannot be written: this run continues from step {step}", flush=True)
     model.train(); t0, last, saved_at, stopped = time.time() - elapsed, time.time(), time.time(), False
     for ep in range(a.epochs):
         rng.shuffle(reqs)
@@ -508,13 +535,20 @@ def main():
                     print(f"ep{ep} step {step}/{steps} loss {run['ce']/run['n']:.3f} kl {run['kl']/max(run['kl_n'],1):.3f} anchor {run['anchor']/max(run['anchor_n'],1):.3f} {(time.time()-t0)/seen:.3f}s/rec", flush=True)
                     run = Counter()
                 if step == steps: break
+                if snapshots and snapshots.due(step):
+                    info = {"step": step, "steps": steps, "epoch": round(ep + (mb + 1) / len(plan), 6), "records_seen": round(full_ft.global_sum([seen])[0])}
+                    head = {k: v.detach().to("cpu", copy=True) for k, v in model.head.state_dict().items()}   # training goes on while it is written
+                    snap_meta = dataclasses.replace(meta, head=head, extra={"args": vars(a), "suite_sha256": suite_hash, "init_source": init_source, "snapshot": info})
+                    snapshots.save(step, model.lm, lambda d, m=snap_meta: finish_checkpoint(d, m, tok), info)
+                    last = time.time()   # the time training blocked, not part of the next step's
                 if a.full_ft and full_ft.save_due(step, a.save_every_steps, a.save_every_minutes, saved_at, max(resume_seconds, default=0)):
                     values = (step, *full_ft.global_sum([seen, tokens_seen]), peak_mem, optimizer_seconds, step_seconds, time.time() - t0, ep, mb + 1, grad_norms)
-                    writer.save(step, opt, sched, {**dict(zip(RESUMED, values)), "run": dict(run), "world": world, "args": resume_args})
+                    writer.save(step, opt, sched, {**dict(zip(RESUMED, values)), "run": dict(run), "world": world, "args": resume_args}, after=snapshots)
                     resume_seconds.append(round(time.time() - last, 3)); saved_at = last = time.time()   # the time training blocked, not part of the next step's
                 if step == a.stop_after: stopped = True; break
         if step == steps or stopped: break
     if writer: writer.wait()   # a resume point being written in the background is finished (and then superseded, or continued from)
+    if snapshots: snapshots.wait()   # and the last snapshot
     if stopped:
         print(f"stopped after step {step}; continue with --resume 1", flush=True); return
     seen, tokens_seen = full_ft.global_sum([seen, tokens_seen])   # ranks' micro-batches differ in size under --length_sort
@@ -523,13 +557,14 @@ def main():
     if a.full_ft: full_ft.save_backbone(model.lm, a.out)   # every rank: FSDP2 gathers to rank 0
     else: model.lm.save_pretrained(a.out)
     if rank: return
+    backbone_seconds = time.time() - t0 - wall
     shutil.rmtree(resume_dir, ignore_errors=True)   # the checkpoint supersedes it
     meta.head, meta.extra = model.head.state_dict(), {"args": vars(a), "suite_sha256": suite_hash, "init_source": init_source}
-    write_meta(a.out, meta)
-    tok.save_pretrained(a.out)
+    finish_checkpoint(a.out, meta, tok)
     write_json(out_dir / "training_metrics.json", {"wall_seconds": wall, "records_seen": round(seen),
                "requested_records": a.epochs * len(reqs), "truncated_records": 0, "rejected_records": 0,
                "optimizer_steps": step, "forward_tokens": round(tokens_seen), "step_seconds": step_seconds, "optimizer_seconds": optimizer_seconds, "resume_seconds": resume_seconds, "resume_write_seconds": writer.seconds if writer else [], "world_size": world,
+               "backbone_save_seconds": round(backbone_seconds, 1), "snapshots": snapshots.written if snapshots else [],   # snapshots: this attempt's (each snapshot.json has its own)
                "grad_norm": grad_norm_summary(grad_norms),
                "weights": meta.weights, "peak_device_bytes": peak_mem, "device": dev, "dtype": a.dtype, "batch": a.batch,
                "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)})

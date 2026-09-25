@@ -31,7 +31,8 @@ from kev.suite import ENCODING, read_json, write_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]
 H100_RATE = 3.95
-INFRA_KEYS = ("base", "seed", "base_revision", "dtype", "checkpointing", "batch", "accum", "perm_frac", "shared_prefix")   # execution shape, not recipe
+SNAPSHOT_KEYS = ("snapshot_fractions", "snapshot_every_steps")   # when a full-weight trial saves intermediate checkpoints: not what it trains
+INFRA_KEYS = ("base", "seed", "base_revision", "dtype", "checkpointing", "batch", "accum", "perm_frac", "shared_prefix", *SNAPSHOT_KEYS)   # execution shape, not recipe
 ALL_DEFAULTS = {**DEFAULTS, **CHOICE_DEFAULTS}   # what kev.train does when a knob is not given
 
 
@@ -46,8 +47,8 @@ def knobs(cfg):
 
 
 def recipe(row):
-    """A trial's recipe identity: its config without the seed (config_sha256 hashes the seed too)."""
-    return config_digest({k: v for k, v in row["config"].items() if k != "seed"})
+    """A trial's recipe identity: its config without the seed (config_sha256 hashes the seed too) and snapshot schedule."""
+    return config_digest({k: v for k, v in row["config"].items() if k != "seed" and k not in SNAPSHOT_KEYS})
 
 
 # --- sessions --------------------------------------------------------------------------------------------------------

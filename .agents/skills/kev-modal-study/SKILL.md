@@ -24,7 +24,7 @@ All GPU work in this repo goes through `modal_app.py`. Never train large models 
        except TimeoutError: print(name, "running")
    ```
    A trial's own log: `uv run modal volume get kev-runs /X/00-trial-0/train.log /tmp/x.log --force`.
-5. **Pull** when done (safe to repeat while trials are still finishing: a second pull keeps the trial directories that have a `result.json`, deletes and re-fetches the ones that do not (copies taken mid-run), prints which are still running and re-ranks): `uv run modal run modal_app.py::pull --name X` → `runs/X/<trial>/{result.json, provenance.json, checkpoint/, transfer/rows.json}`. Then `PYTHONPATH=. uv run python scripts/compare_q35.py` or a paired bootstrap (`kev.metrics.paired_bootstrap(rows_a, rows_b, metric="acc")`) against the released checkpoint's `transfer/rows.json`.
+5. **Pull** when done (safe to repeat while trials are still finishing: a second pull keeps the trial directories that have a `result.json`, deletes and re-fetches the ones that do not (copies taken mid-run), prints which are still running and re-ranks): `uv run modal run modal_app.py::pull --name X` → `runs/X/<trial>/{result.json, provenance.json, checkpoint/, transfer/rows.json}`. Full-weight backbone shards (`model*.safetensors` in `checkpoint/` and `snapshots/`, ~51 GB each for a 27B) and resume points stay on the volume (`modal_app.pulled`); `head.pt`, configs, tokenizer, LoRA adapters, results and rows come down. `--weights` copies everything. Reads and benchmarks run on the volume paths, so nothing needs the local shards. Then `PYTHONPATH=. uv run python scripts/compare_q35.py` or a paired bootstrap (`kev.metrics.paired_bootstrap(rows_a, rows_b, metric="acc")`) against the released checkpoint's `transfer/rows.json`.
 6. **Locked test** (once per candidate, selected on dev only): `uv run modal run --detach modal_app.py::locked_test --trial X/00-trial-0 --name <candidate> --decision evals/v7/decision-v7`; result at volume `/locked/<candidate>/summary.json`. Defaults are 3,600 s and 48 GB host memory; a 27B needs `--gpu H200 --timeout 14400 --memory-mb 131072` (bf16 weights are staged through host memory while loading).
 
 Timing (H100, row-batched hybrid): 0.8B ≈ 20 min, 4B ≈ 60 min, 9B ≈ 90 min for the full v7 recipe; deltas (1 epoch over ~1k records + 2k replay) ≈ 10–20 min. Set `--timeout` with ≥ 50 % headroom; a timed-out container loses everything.
@@ -78,6 +78,14 @@ log; all three skip names that already exist locally / on the volume.
   (not raised, so not retried; the watcher reports it). The bound counts every attempt, so an 8 x H200 day is
   `--timeout 28800` (three 8 h attempts, $939). `modal_app.py::resume --study <study> --suite <suite> --gpu H200:8` also continues unfinished
   full-weight trials by hand.
+  **Snapshots**: every full-weight trial also writes loadable bf16 checkpoints after 0.25, 0.5 and 0.75 of its optimizer
+  steps (`kev.experiment.SNAPSHOT_FRACTIONS`; plan keys `snapshot_fractions` as a string, `"none"` to turn them off, and
+  `snapshot_every_steps`) to `/runs/<study>/<trial>/snapshots/step-<N>/checkpoint` (same files as the final checkpoint,
+  `head.pt["snapshot"]` has step, epoch fraction and records seen; `snapshot.json` marks it complete). The container
+  commits the volume after each one, a retry keeps them and writes the ones it has not reached, and they are never
+  deleted (a 27B trial's three are ~154 GB of volume; ask before removing any checkpoint). Read one like any checkpoint:
+  `uv run modal run --detach modal_app.py::benchmarks --jobs "/runs/<study>/00-trial-0/snapshots/step-<N>/checkpoint@evals/v9/transfer-v9@<name>" --gpu H200 --timeout 14400`
+  (the step numbers are in the train log's `snapshots after optimizer steps [...]` line, or `modal volume ls kev-runs /<study>/00-trial-0/snapshots`).
 - **GPU-only tests** (they skip without CUDA): `uv run modal run modal_app.py::gpu_tests --tests "tests/test_model.py::test_shared_prefix_matches_rows" [--gpu H100]`.
   The image has causal-conv1d, and transformers then sends even CPU tensors to its CUDA kernel, so CPU variants skip there.
 - **Does a new base fit?** (LoRA footprint, which modules it hits, peak GB, steady step time on two real records):

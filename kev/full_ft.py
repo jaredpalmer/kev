@@ -16,6 +16,10 @@ bf16(master) back after each step. Where those 12 bytes per parameter live is th
 
 Gradients accumulate in bf16 over the micro-batches of a step, as AutoJev's did. The pointer head is small and fp32; it
 is replicated on every rank and its gradient summed across ranks before the step.
+
+What a run writes besides its final checkpoint: resume points (ResumeWriter: the fp32 optimizer state, ~307 GB for a
+27B, replaced as the run goes and removed at its end) and snapshots (SnapshotWriter: loadable bf16 checkpoints at
+registered steps, the final checkpoint's files, ~51 GB for a 27B, kept).
 """
 import copy
 import datetime
@@ -203,16 +207,20 @@ WRITE_SHARE = 0.05       # at most this share of wall time may block on writing 
 PEER_WAIT = 600          # seconds rank 0 waits, after writing its own file, for the other ranks' (they write in parallel)
 
 
+def rank0_decides(value):
+    """`value` as rank 0 sees it, on every rank (a decision every rank must act on together); itself on one process."""
+    if not dist.is_initialized(): return value
+    flag = torch.tensor(float(value), device="cuda" if dist.get_backend() == "nccl" else "cpu")
+    dist.broadcast(flag, 0)
+    return bool(flag)
+
+
 def save_due(step, every_steps, every_minutes, since, blocked):
     """Whether to write a resume point after this optimizer step: every `every_steps` steps, or once `every_minutes`
     have passed since `since`, stretched so the time training has blocked on writes (`blocked` seconds per point) stays
     under WRITE_SHARE of the interval. Under torchrun rank 0's clock decides for every rank."""
     interval = max(60 * every_minutes, blocked / WRITE_SHARE)
-    due = bool(every_steps and step % every_steps == 0) or bool(every_minutes and time.time() - since >= interval)
-    if not dist.is_initialized(): return due
-    flag = torch.tensor(float(due), device="cuda" if dist.get_backend() == "nccl" else "cpu")
-    dist.broadcast(flag, 0)
-    return bool(flag)
+    return rank0_decides(bool(every_steps and step % every_steps == 0) or bool(every_minutes and time.time() - since >= interval))
 
 
 class ResumeWriter:
@@ -221,14 +229,17 @@ class ResumeWriter:
     arguments it must be resumed with), then removes earlier points. A 27B's state is ~307 GB and the runs volume writes it
     at well under 1 GB/s, so where the state lives on the GPUs (FSDP2) `save` copies it to host memory and a thread
     writes it while training goes on (the next `save`, and `wait`, join it first); where it already lives in host memory
-    (one GPU, offload) there is no room for a copy and `save` writes it before returning."""
+    (one GPU, offload) there is no room for a copy and `save` writes it before returning.
+    `after`: the SnapshotWriter; latest.json waits for a snapshot still being written (and is not written if it failed),
+    so a resume point is never committed before the snapshots of the steps it has passed: a continuation from it could
+    not write them again."""
 
     def __init__(self, resume_dir, background):
         self.dir, self.background, self.thread, self.host, self.error = Path(resume_dir), background, None, None, None
         self.seconds = []   # how long each point took to write, in the background or not
         self.rank, self.world = (dist.get_rank(), dist.get_world_size()) if dist.is_initialized() else (0, 1)
 
-    def save(self, step, opt, sched, position):
+    def save(self, step, opt, sched, position, after=None):
         self.wait()
         state = opt.state_dict()
         if self.background:   # host copies, allocated once and reused, so the optimizer may move on
@@ -241,23 +252,23 @@ class ResumeWriter:
         rng = {"torch": torch.get_rng_state(), "cuda": torch.cuda.get_rng_state() if torch.cuda.is_initialized() else None}
         payload = {"optimizer": state, "scheduler": copy.deepcopy(sched.state_dict()), "rng": rng}
         if self.background:
-            self.thread = threading.Thread(target=self._write, args=(step, payload, position), daemon=True); self.thread.start()
+            self.thread = threading.Thread(target=self._write, args=(step, payload, position, after), daemon=True); self.thread.start()
         else:
-            self._write(step, payload, position)
+            self._write(step, payload, position, after)
 
     def wait(self):
         """Join the background write; its error, if any, is raised here."""
         if self.thread is not None: self.thread.join(); self.thread = None
         if self.error is not None: raise RuntimeError("writing the resume point failed") from self.error
 
-    def _write(self, step, payload, position):
+    def _write(self, step, payload, position, after=None):
         started = time.time()
-        try: self._write_point(step, payload, position); self.seconds.append(round(time.time() - started, 1))
+        try: self._write_point(step, payload, position, after); self.seconds.append(round(time.time() - started, 1))
         except BaseException as error:
             self.error = error
             if not self.background: raise
 
-    def _write_point(self, step, payload, position):
+    def _write_point(self, step, payload, position, after=None):
         target = self.dir / f"step-{step:07d}"
         target.mkdir(parents=True, exist_ok=True)
         torch.save(payload, target / f".rank{self.rank}.pt.tmp")
@@ -269,6 +280,9 @@ class ResumeWriter:
                 raise TimeoutError(f"resume point {target.name}: rank(s) {missing} did not finish writing within {PEER_WAIT // 60} min of rank 0; "
                                    "latest.json still names the previous point")
             time.sleep(2)
+        if after is not None and (error := after.join()) is not None:   # the training thread raises it too (SnapshotWriter.wait)
+            raise RuntimeError(f"a snapshot failed to write, so resume point {target.name} is not made the latest: a continuation from "
+                               "the previous one writes that snapshot again") from error
         write_json(self.dir / LATEST, {"dir": target.name, "step": step, **position}, atomic=True)
         for old in self.dir.glob("step-*"):   # only earlier points: a rank done with this one may have started the next
             if int(old.name.removeprefix("step-")) < step: shutil.rmtree(old)
@@ -291,14 +305,118 @@ def load_resume(resume_dir, opt, sched, args):
     return position
 
 
-def save_backbone(lm, out):
-    """save_pretrained of the bf16 backbone: config.json + model-*.safetensors (+ index). Under FSDP2 every rank joins the
-    full-state-dict gather (to rank 0's host memory) and rank 0 writes (transformers strips the FSDP class prefix)."""
-    if not dist.is_initialized():
-        lm.save_pretrained(out, max_shard_size=SHARD_SIZE)
-        return
+def gather_backbone(lm):
+    """Under FSDP2: the bf16 backbone's full state dict, gathered into rank 0's host memory (every rank must call this;
+    the others get {}). On one process None: save_pretrained reads the model itself."""
+    if not dist.is_initialized(): return None
     from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
-    state = get_model_state_dict(lm, options=StateDictOptions(full_state_dict=True, cpu_offload=True))
-    if dist.get_rank() == 0:
-        lm.save_pretrained(out, state_dict=state, max_shard_size=SHARD_SIZE)
-    dist.barrier()
+    return get_model_state_dict(lm, options=StateDictOptions(full_state_dict=True, cpu_offload=True))
+
+
+def write_backbone(lm, out, state):
+    """save_pretrained of the bf16 backbone: config.json + model-*.safetensors (+ index); `state` from gather_backbone
+    (transformers strips the FSDP class prefix)."""
+    lm.save_pretrained(out, state_dict=state, max_shard_size=SHARD_SIZE)
+
+
+def save_backbone(lm, out):
+    """The final checkpoint's backbone. Under FSDP2 every rank joins the gather and rank 0 writes while the others wait."""
+    state = gather_backbone(lm)
+    if not dist.is_initialized() or dist.get_rank() == 0: write_backbone(lm, out, state)
+    if dist.is_initialized(): dist.barrier()
+
+
+# --- snapshots --------------------------------------------------------------------------------------------------------
+
+SNAPSHOT_INFO = "snapshot.json"   # written last (atomically) into a snapshot's checkpoint directory: the snapshot is complete
+
+
+def snapshot_fractions(text):
+    """--snapshot_fractions "0.25,0.5,0.75" -> (0.25, 0.5, 0.75); "" or "none" -> (). Each strictly between 0 and 1 (the
+    final checkpoint is always written)."""
+    if str(text).strip().lower() in ("", "none"): return ()
+    try: values = tuple(sorted({float(part) for part in str(text).split(",")}))
+    except ValueError: raise ValueError(f"snapshot fractions are comma-separated numbers, or none: {text!r}") from None
+    if not all(0 < v < 1 for v in values): raise ValueError(f"snapshot fractions must lie strictly between 0 and 1: {text!r}")
+    return values
+
+
+def snapshot_steps(total, fractions=(), every=0):
+    """The optimizer steps after which a run of `total` steps writes a snapshot: the first step at or past each fraction
+    of `total`, and every `every` steps; never the last step (that is the final checkpoint)."""
+    steps = {math.ceil(round(f * total, 6)) for f in fractions} | (set(range(every, total, every)) if every else set())
+    return sorted(s for s in steps if 0 < s < total)
+
+
+def snapshot_path(root, step):
+    return Path(root) / f"step-{step}" / "checkpoint"
+
+
+def completed_snapshots(root):
+    """Steps of the complete snapshots under `root` (a snapshot is complete once its SNAPSHOT_INFO exists)."""
+    return sorted(int(p.parent.parent.name.removeprefix("step-")) for p in Path(root).glob(f"step-*/checkpoint/{SNAPSHOT_INFO}"))
+
+
+class SnapshotWriter:
+    """Loadable bf16 checkpoints during a full-weight run, at registered optimizer steps, into `<root>/step-<N>/checkpoint`:
+    exactly the final checkpoint's files (save_pretrained shards + head.pt + tokenizer) plus SNAPSHOT_INFO, written last,
+    which marks the snapshot complete. Snapshots are kept (never deleted); a complete one is never written again (a
+    continued run skips it) and an incomplete one (a write the container did not finish) is replaced.
+    Under FSDP2 every rank joins the gather into rank 0's host memory (the only time training blocks), then rank 0 writes
+    from that copy in a thread while training goes on; the next `save`, `wait` and a resume point's latest.json join it
+    first. On one GPU the host holds the masters and there is no room for a copy, so `save` writes before returning."""
+
+    def __init__(self, root, steps, background):
+        self.root, self.steps, self.background, self.thread, self.error = Path(root), set(steps), background, None, None
+        self.rank = dist.get_rank() if dist.is_initialized() else 0
+        self.written = []   # this process's snapshots: {"step", "blocking_seconds", "write_seconds"}
+
+    def due(self, step):
+        """Whether to write a snapshot after this step: a registered step without a complete snapshot (rank 0 decides)."""
+        return step in self.steps and rank0_decides(step not in completed_snapshots(self.root))
+
+    def missed(self, step):
+        """Registered steps up to `step` (a resume point) without a complete snapshot: a continuation cannot write them."""
+        done = set(completed_snapshots(self.root))
+        return sorted(s for s in self.steps if s <= step and s not in done)
+
+    def save(self, step, lm, finish, info):
+        """Write the snapshot of this step: the backbone, then finish(directory) (head.pt and the tokenizer, as for the
+        final checkpoint), then SNAPSHOT_INFO with `info` and the time it took."""
+        self.wait()
+        started = time.time()
+        state = gather_backbone(lm)
+        if self.rank: return
+        blocked = time.time() - started
+        if self.background:
+            self.thread = threading.Thread(target=self._write, args=(step, lm, state, finish, info, blocked), daemon=True); self.thread.start()
+        else:
+            self._write(step, lm, state, finish, info, blocked)
+
+    def join(self):
+        """Wait for the snapshot being written, if any (any thread may); -> its error or None."""
+        thread = self.thread
+        if thread is not None: thread.join()
+        return self.error
+
+    def wait(self):
+        """Join the background write; its error, if any, is raised here."""
+        self.join(); self.thread = None
+        if self.error is not None: raise RuntimeError("writing a snapshot failed") from self.error
+
+    def _write(self, step, lm, state, finish, info, blocked):
+        started = time.time()
+        try:
+            target = snapshot_path(self.root, step)
+            if target.exists(): shutil.rmtree(target)   # an incomplete write (due() skips complete ones)
+            target.mkdir(parents=True)
+            write_backbone(lm, target, state)
+            finish(target)
+            timing = {"step": step, "blocking_seconds": round(blocked + (0 if self.background else time.time() - started), 1),
+                      "write_seconds": round(time.time() - started, 1)}
+            write_json(target / SNAPSHOT_INFO, {**info, **timing}, atomic=True)
+            self.written.append(timing)
+            print(f"snapshot step {step}: {target} (training blocked {timing['blocking_seconds']} s, written in {timing['write_seconds']} s)", flush=True)
+        except BaseException as error:
+            self.error = error
+            if not self.background: raise

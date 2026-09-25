@@ -97,7 +97,13 @@ May not, without Jared's explicit OK:
   `tests/test_rounds.py`, before any round depends on it;
 - pass `--allow-test` or run `locked_test` outside a registered confirmation stage;
 - put any Jev output, or any closed-model generation, into training data;
-- train locally (a 32 GB Mac cannot hold these models) or run two training processes on one machine.
+- train locally (a 32 GB Mac cannot hold these models) or run two training processes on one machine;
+- delete a checkpoint or a snapshot from the runs volume (`modal volume rm`, `shutil.rmtree` in a container), or turn a
+  full-weight trial's snapshots off (`"snapshot_fractions": "none"`) in a registered spec. Full-weight trials keep
+  snapshots at 0.25, 0.5 and 0.75 of their steps (`kev.experiment.SNAPSHOT_FRACTIONS`) so a read can find the best point
+  of a run after it ends: round 19 could not, because the only mid-run state was a resume point, deleted when the run
+  finished, and AutoJev's best checkpoint was at 0.7 epoch. A 27B's snapshots are ~154 GB of volume per trial; the
+  space is Jared's call, not the session's.
 
 If an arm is blocked (authentication, a spend limit, a deploy that will not work in 30 minutes), write down what happened
 and move to the next arm. Do not wait for a human.
@@ -141,6 +147,10 @@ At the end of the session (and in the state file as it goes):
   from the right, so pinned Hub revisions are safe. Suites and names must not contain `@` or `,`.
 - **One pull per study.** Concurrent pulls of the same study deleted each other's trial directories; `pull_study` now holds
   a per-study lock. A pull while trials still run is safe and refreshes only unfinished trials.
+- **Pulls leave full weights on the volume.** `::pull` (and `watch`) skips full-weight shards (`model*.safetensors`, ~51 GB
+  per 27B checkpoint or snapshot) and resume points; everything else comes down (results, rows, `head.pt`, configs).
+  Read a checkpoint or a snapshot on the volume: `::benchmarks --jobs "/runs/<study>/<trial>/snapshots/step-<N>/checkpoint@<suite>@<name>"`.
+  `::pull --weights` copies the shards when something local really needs them.
 - **Deploy after the data.** The image copies `evals/`; the launcher only checks `kev/*.py` hashes, so a trial whose data
   file was added after the deploy fails inside the container. `--gpu H200` on `study` needs an app deployed with `KEV_GPU=H200`.
 - **27B.** H200 only (bf16 backbone, 55 GB resident); study timeouts up to 28,800 s (a 1-epoch skills delta at lr 2e-5 ran

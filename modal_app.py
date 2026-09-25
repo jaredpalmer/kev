@@ -24,7 +24,7 @@ import subprocess
 import sys
 import threading
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
 import modal
@@ -127,7 +127,7 @@ def trial(study, index, label, config, suite, expected_sources, git_commit, exis
     print(f"[{label}] {torch.cuda.get_device_name(0)} torch {torch.__version__} {'continuing' if again else 'config='+json.dumps(config)}", flush=True)
     transfer = Path("/root") / transfer if transfer else None
     stop = threading.Event()
-    committer = threading.Thread(target=commit_resume_points, args=(out / "checkpoint" / "resume", stop), daemon=True)
+    committer = threading.Thread(target=commit_resume_points, args=(out / "checkpoint" / "resume", stop, out / "snapshots"), daemon=True)
     if config.get("full_ft"): committer.start()
     try:
         report, _ = (continue_trial(Path("/root") / suite, out, expected_sources, "cuda", transfer) if again
@@ -403,8 +403,38 @@ def anchors(base: str, suite: str, name: str, revision: str = "", gpu: str = GPU
     print(f"spawned anchors {name}: call {call.object_id}; result lands at /runs/anchors/{name}.json on the volume")
 
 
-def pull_volume(remote, local_parent):
-    subprocess.run([sys.executable, "-m", "modal", "volume", "get", "kev-runs", remote, str(local_parent)], check=True)
+def pulled(path, weights=False):
+    """Whether a pull copies this runs-volume file. With `weights` everything; by default not full-weight backbone shards
+    (`model*.safetensors` of a trial's checkpoint/ and snapshots/: ~51 GB per 27B checkpoint) nor resume points (resume/:
+    fp32 optimizer state, ~307 GB for a 27B). LoRA adapters (adapter_model.safetensors), head.pt, configs, tokenizers,
+    results and rows are pulled. Benchmarks and reads run on the volume paths, so nothing local needs the shards."""
+    parts = PurePosixPath(path).parts
+    shard = parts[-1].endswith(".safetensors") and not parts[-1].startswith("adapter_")
+    return weights or not (shard or "resume" in parts[:-1])
+
+
+def pull_volume(remote, local_parent, weights=True):
+    """Copy `remote` (a runs-volume path) to local_parent/<its last component>. weights=False leaves the files `pulled`
+    skips on the volume (and says how much); weights=True is `modal volume get` of everything."""
+    if weights:
+        subprocess.run([sys.executable, "-m", "modal", "volume", "get", "kev-runs", remote, str(local_parent)], check=True)
+        return
+    from concurrent.futures import ThreadPoolExecutor
+    from modal.volume import FileEntryType
+    base = PurePosixPath("/" + remote.strip("/")).parent
+    files = [e for e in runs_volume.listdir(remote, recursive=True) if e.type == FileEntryType.FILE]
+    keep = [e for e in files if pulled(e.path)]
+
+    def fetch(entry):
+        target = Path(local_parent) / PurePosixPath("/" + entry.path.lstrip("/")).relative_to(base)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("wb") as out: runs_volume.read_file_into_fileobj(entry.path, out)
+
+    (Path(local_parent) / PurePosixPath(remote).name).mkdir(parents=True, exist_ok=True)
+    with ThreadPoolExecutor(16) as pool: list(pool.map(fetch, keep))
+    left = [e for e in files if not pulled(e.path)]
+    print(f"pulled {len(keep)} file(s) of {remote} ({sum(e.size for e in keep) / 1e9:.2f} GB); left {len(left)} weight/resume file(s) "
+          f"({sum(e.size for e in left) / 1e9:.1f} GB) on the volume (pull --weights to copy them)", flush=True)
 
 
 @app.local_entrypoint()
@@ -458,8 +488,10 @@ def parse_jobs(jobs):
 def benchmarks(jobs: str, gpu: str = GPU, timeout: int = 0):
     """Score checkpoints on suites or --data .jsonl files: comma-separated run@suite@name[@flags] entries (parse_jobs), e.g.
     "jaredpalmer/kev-9b@evals/external/semif-v1@kev-9b-semif,/runs/X/00-trial-0/checkpoint@evals/v9/transfer-v9@x-v9@--date_facts".
-    Results are pulled to runs/<name>. Each job gets its suite's timeout (READ_TIMEOUTS); --timeout N sets one for all
-    of them (raise it for a 27B, whose fp32 reads run about three times longer than a 9B's)."""
+    A full-weight trial's snapshot is read the same way: /runs/X/00-trial-0/snapshots/step-<N>/checkpoint@<suite>@<name>
+    (its head.pt carries the raw temperature, 1.0, as a trial's final checkpoint does). Results are pulled to runs/<name>.
+    Each job gets its suite's timeout (READ_TIMEOUTS); --timeout N sets one for all of them (raise it for a 27B, whose
+    fp32 reads run about three times longer than a 9B's)."""
     entries = parse_jobs(jobs)
     missing = sorted({e.suite for e in entries if not (ROOT / e.suite).exists()})
     if missing: raise SystemExit(f"no such suite or data file in this checkout: {missing}")
@@ -500,24 +532,32 @@ def failed_trial(label, out):
 RESUME_COMMIT_POLL = 15   # seconds between looks at a training trial's latest.json
 
 
-def commit_resume_points(resume_dir, stop):
+def commit_resume_points(resume_dir, stop, snapshot_dir=None):
     """While a full-weight trial trains, commit the runs volume each time the trainer completes a resume point (its
-    latest.json changes). A timeout kills the container without running trial()'s `finally`, and the retry can only
-    continue from a committed point. A failed commit is reported loudly and tried again on the next look."""
-    committed = None
+    latest.json changes) or a snapshot (kev.full_ft.completed_snapshots under `snapshot_dir` gains a step). A timeout kills
+    the container without running trial()'s `finally`, and the retry can only continue from a committed point and keep
+    committed snapshots. A failed commit is reported loudly and tried again on the next look."""
+    from kev.full_ft import completed_snapshots
+    snaps = lambda: set(completed_snapshots(snapshot_dir)) if snapshot_dir else set()
+    committed, committed_snaps = None, snaps()   # snapshots already there are an earlier attempt's, committed by it
     while not stop.wait(RESUME_COMMIT_POLL):
         latest = resume_dir / "latest.json"
         marker = latest.read_text(encoding="utf-8") if latest.exists() else None
-        if marker is None or marker == committed: continue
+        new_snaps = sorted(snaps() - committed_snaps)
+        new_point = marker is not None and marker != committed
+        if not new_point and not new_snaps: continue
+        point = json.loads(marker) if new_point else None
+        what = lambda detail: " and ".join(([f"resume point {point['step']}" + (f" ({point['dir']})" if detail else "")] if point else [])
+                                           + ([f"snapshot(s) at step(s) {new_snaps}"] if new_snaps else []))
         started = time.time()
         try:
             runs_volume.commit()
         except Exception as error:   # noqa: BLE001 - loud, and retried: the point stays on disk until it is committed
-            print(f"!!! resume point {json.loads(marker)['step']} NOT committed to the runs volume ({type(error).__name__}: {str(error)[:300]}); "
+            print(f"!!! {what(False)} NOT committed to the runs volume ({type(error).__name__}: {str(error)[:300]}); "
                   f"retrying in {RESUME_COMMIT_POLL} s; a timeout before then continues from the previous point", flush=True)
             continue
-        committed = marker
-        print(f"[resume] committed resume point {json.loads(marker)['step']} ({json.loads(marker)['dir']}) to the runs volume in {time.time() - started:.0f} s", flush=True)
+        committed, committed_snaps = marker, committed_snaps | set(new_snaps)
+        print(f"[volume] committed {what(True)} to the runs volume in {time.time() - started:.0f} s", flush=True)
 
 
 def admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout):
@@ -599,23 +639,24 @@ def pull_lock(study):
     return file_lock(ROOT / "runs" / f".pull-{study}.lock")
 
 
-def pull_study(study):
+def pull_study(study, weights=False):
     """Download a study directory from the runs volume into runs/<study> and rank it. A study pulled before all its trials
-    finished is refreshed: finished trial directories (with result.json) are kept, unfinished ones are fetched again."""
+    finished is refreshed: finished trial directories (with result.json) are kept, unfinished ones are fetched again.
+    Full-weight shards and resume points stay on the volume unless `weights` (see `pulled`)."""
     with pull_lock(study):
-        return _pull_study(study)
+        return _pull_study(study, weights)
 
 
-def _pull_study(study):
+def _pull_study(study, weights=False):
     target = ROOT / "runs" / study
     if not target.exists():
-        pull_volume(f"/{study}", target.parent)   # recreates runs/<study>/... locally, checkpoints included (gitignored)
+        pull_volume(f"/{study}", target.parent, weights=weights)   # recreates runs/<study>/... locally (gitignored)
     else:
         # a local trial dir without result.json is a copy taken while the trial was still running: replace it
         for p in target.glob("*-trial-*"):
             if p.is_dir() and not (p / "result.json").exists(): shutil.rmtree(p)
         missing = sorted(d for d in volume_names(f"/{study}")[0] if not (target / d).exists())
-        for d in missing: pull_volume(f"/{study}/{d}", target)
+        for d in missing: pull_volume(f"/{study}/{d}", target, weights=weights)
         (target / "results.jsonl").unlink(missing_ok=True)   # derived from the trials' result.json; aggregate rebuilds it
         running = sorted(p.name for p in target.glob("*-trial-*") if p.is_dir() and not (p / "result.json").exists())
         print(f"{study}: fetched {len(missing)} trial dir(s) {missing or ''}" + (f"; still running (or failed, no result.json): {running}" if running else ""))
@@ -676,9 +717,11 @@ def resume(study: str, suite: str, transfer: str = "evals/v4/transfer-v4", gpu: 
 
 
 @app.local_entrypoint()
-def pull(name: str):
-    """Pull a finished (or partially finished) study from the volume and rank the trials that have a result.json."""
-    target = pull_study(name)
+def pull(name: str, weights: bool = False):
+    """Pull a finished (or partially finished) study from the volume and rank the trials that have a result.json. Without
+    --weights, full-weight backbone shards (checkpoint/ and snapshots/) and resume points stay on the volume; reads and
+    benchmarks run on the volume paths (/runs/<study>/<trial>/checkpoint, .../snapshots/step-<N>/checkpoint)."""
+    target = pull_study(name, weights)
     print(f"pulled {target}", flush=True)
 
 

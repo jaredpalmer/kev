@@ -39,8 +39,17 @@ Title Case sections, API tables, Authors + License); model cards are formal.
     split by question (27B on one H200 needs 8192; not with `--perm_kl` or `--anchor_w`). Needs torch >= 2.8. `--max_steps N` stops early. Resume: `--save_every_minutes M` /
     `--save_every_steps N` write `<out>/resume` (fp32 masters + moments per rank, scheduler, RNG, data position; under
     torchrun from a host copy in a background thread, the interval stretched so blocking stays under 5 %), `--resume 1`
-    continues bit for bit (same arguments and world size), `--stop_after N` exits after a step. `training_metrics.json`
-    has per-epoch gradient norms before clipping (`grad_norm`: mean, max, clipped steps), LoRA runs too. Trials: see Studies.
+    continues bit for bit (same arguments and world size), `--stop_after N` exits after a step. Snapshots:
+    `--snapshot_fractions 0.25,0.5,0.75` (of the optimizer steps) / `--snapshot_every_steps N` write loadable bf16 checkpoints
+    into `<snapshot_dir>/step-<N>/checkpoint` (`--snapshot_dir`, default `<out>-snapshots`; `kev.full_ft.SnapshotWriter`): the
+    final checkpoint's files (save_pretrained shards + `head.pt` + tokenizer; `head.pt["snapshot"]` = step, steps, epoch
+    fraction, records seen) plus `snapshot.json`, written last, which marks it complete. Under torchrun the ranks gather
+    into rank 0's host memory (the only blocking part) and rank 0 writes in a background thread; one GPU writes before
+    going on. Snapshots are never deleted; a continued run skips complete ones and rewrites an incomplete one, and a
+    resume point's `latest.json` waits for the snapshot being written, so no committed resume point passes a missing
+    snapshot. `training_metrics.json` has per-epoch gradient norms before clipping (`grad_norm`: mean, max, clipped
+    steps), LoRA runs too; full-weight runs also `backbone_save_seconds` (the final gather + write) and `snapshots`
+    (blocking and write seconds per snapshot of that attempt; each `snapshot.json` has its own). Trials: see Studies.
     27B, 8 H200, `--batch 8 --accum 2 --length_sort 1`, records shaped like the SFT corpus (`scripts/sft_probe.py --mix all`):
     7.6 records/s, one epoch of the corpus (192k records) ≈ 7.1 h / $293, 71 GB peak per GPU (`runs/sft-probe/sft2-*`,
     PR #125); one H200 (row form, PR #122) 0.84 records/s on ~1,000-token records.
@@ -61,9 +70,15 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   `--wait-pid` to queue behind a training job). A full-weight trial runs under torchrun on every GPU of its container,
   writes a resume point every `experiment.RESUME_MINUTES` and is retried by Modal after a timeout (`kev.budget`:
   `FULL_FT_RETRIES`, up to 24 h per attempt, $1,000 per study; the bound counts every attempt); each retry continues.
-  The container commits the runs volume after every completed resume point (a timeout skips the final commit); an attempt
+  It also keeps snapshots at `experiment.SNAPSHOT_FRACTIONS` (0.25, 0.5, 0.75 of its optimizer steps) in
+  `<trial>/snapshots/step-<N>/checkpoint` (plan keys `snapshot_fractions` (a string, `"none"` for none) and
+  `snapshot_every_steps`; neither changes the config hash of a plan that omits it, nor the recipe). A 27B snapshot is
+  ~51 GB of volume storage and never deleted: do not remove checkpoints or snapshots from the volume without asking.
+  The container commits the runs volume after every completed resume point and snapshot (a timeout skips the final commit); an attempt
   that fails with an error writes `failed.json` and returns `{"failed": ...}` instead of raising, so it is not retried
-  (`kev.rounds.poll_modal` reports it as a failure).
+  (`kev.rounds.poll_modal` reports it as a failure). `modal_app.py::pull` (and `kev.rounds watch`) leaves full-weight
+  shards (`model*.safetensors` of `checkpoint/` and `snapshots/`) and resume points on the volume (`--weights` copies them);
+  read a snapshot like any checkpoint: `::benchmarks --jobs "/runs/<study>/<trial>/snapshots/step-<N>/checkpoint@<suite>@<name>"`.
 - Rounds (every registered experiment since round 5): one spec per round, `experiments/rounds/r<N>.json`, committed before any
   training or read: studies (plan, GPU, timeout, budget), arms (`<size>-<label>`: trial + parent), parents (trial + where each
   of its reads lives), read tags -> suites (`--allow-test` for test panels, `locked_test` for the locked read), the rule

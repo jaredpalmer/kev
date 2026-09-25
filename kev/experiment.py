@@ -29,6 +29,7 @@ import torch
 from kev.benchmark import evaluate_records
 from kev.checkpoint import LoadOptions
 from kev.device import default_device, empty_cache
+from kev.full_ft import snapshot_fractions
 from kev.metrics import fit_temperature, paired_bootstrap
 from kev.model import MAX_STATE, MAX_TRAIN_STATE
 from kev.predictors import LocalPredictor
@@ -47,17 +48,27 @@ CHOICES = {"dtype": ("fp32", "bf16"), "checkpointing": (0, 1), "option_isolation
            "lora_targets": ("all", "dense", "attn", "qv"), "weights_dtype": ("fp32", "bf16"), "full_ft": (0, 1), "length_sort": (0, 1), "shared_prefix": (0, 1)}
 CHOICE_DEFAULTS = {"dtype": "fp32", "checkpointing": 0, "option_isolation": 0, "special_embeddings": 0, "head_dim": 256, "lora_targets": "all", "weights_dtype": "fp32", "full_ft": 0, "length_sort": 0, "shared_prefix": None}   # kev.train's defaults for the categorical knobs (shared_prefix: on with full_ft)
 # optional integer knobs, passed to kev.train only when a trial sets them (so existing plans keep their config hashes)
-OPTIONAL_INTS = {"max_state": (MAX_STATE, MAX_TRAIN_STATE), "row_budget": (0, 65536), "max_steps": (0, 100000), "save_every_steps": (0, 100000)}
+OPTIONAL_INTS = {"max_state": (MAX_STATE, MAX_TRAIN_STATE), "row_budget": (0, 65536), "max_steps": (0, 100000), "save_every_steps": (0, 100000),
+                 "snapshot_every_steps": (0, 100000)}
+# full-weight trials write snapshots (kev.full_ft.SnapshotWriter: loadable bf16 checkpoints, kept on the runs volume) into
+# <trial>/snapshots/step-<N>/checkpoint after these fractions of their optimizer steps, unless the trial sets
+# snapshot_fractions ("none" for none). Applied by train_checkpoint like RESUME_MINUTES, so plans keep their config hashes.
+SNAPSHOT_FRACTIONS = "0.25,0.5,0.75"
 
 
 def validated_trial(value, manifest):
-    if not isinstance(value, dict) or set(value) - (DEFAULTS.keys() | CHOICES.keys() | OPTIONAL_INTS.keys() | {"base", "train_sources", "base_revision", "anchor", "anchor_sources", "init_from", "data", "replay"}):
+    if not isinstance(value, dict) or set(value) - (DEFAULTS.keys() | CHOICES.keys() | OPTIONAL_INTS.keys() | {"base", "train_sources", "base_revision", "anchor", "anchor_sources", "init_from", "data", "replay", "snapshot_fractions"}):
         raise ValueError("trial may change only the allowlisted training parameters and base")
     result = {**DEFAULTS, **value}
     if result.get("full_ft") and result.get("weights_dtype") != "bf16":
         raise ValueError("full_ft trains bf16 weights: set weights_dtype bf16")
     if result.get("save_every_steps") and not result.get("full_ft"):
         raise ValueError("save_every_steps writes resume points, which are for full_ft trials")
+    if ("snapshot_fractions" in result or result.get("snapshot_every_steps")) and not result.get("full_ft"):
+        raise ValueError("snapshots are for full_ft trials")
+    if "snapshot_fractions" in result:
+        if not isinstance(result["snapshot_fractions"], str): raise ValueError('snapshot_fractions is a string: "0.25,0.5" or "none"')
+        snapshot_fractions(result["snapshot_fractions"])   # raises ValueError on a bad list
     if "data" in result and not re.fullmatch(r"evals/[\w./-]+\.jsonl", str(result["data"])):
         raise ValueError("data must be a .jsonl under evals/ (shipped with the image, hashed in provenance)")
     if "replay" in result and (not isinstance(result["replay"], int) or not 0 <= result["replay"] <= 20000 or "data" not in result):
@@ -245,22 +256,31 @@ def continue_trial(suite, output, expected_sources, device, transfer_suite=None)
     return score_trial(run, suite, output, expected_sources, device, provenance, transfer_suite, started, legacy=False)
 
 
+def train_args(config, suite, output, device, gpus=1):
+    """The kev.train command line of a trial (under torchrun on several GPUs)."""
+    launcher = ["-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={gpus}"] if gpus > 1 else []
+    args = [sys.executable, *launcher, "-m", "kev.train", "--suite", str(suite), "--out", str(Path(output) / "checkpoint"), "--device", device]
+    for key, value in config.items():
+        args += ["--" + key, str(value)]
+    if config.get("full_ft"):
+        args += ["--resume", "1", "--save_every_minutes", str(RESUME_MINUTES), "--snapshot_dir", str(Path(output) / "snapshots")]
+        if "snapshot_fractions" not in config: args += ["--snapshot_fractions", SNAPSHOT_FRACTIONS]
+    return args
+
+
 def train_checkpoint(config, suite, output, device):
     """Run kev.train as a subprocess on the suite's training partition; train.log is the record (appended to when a
     full-weight trial continues), stdout gets progress. A full-weight trial writes a resume point every RESUME_MINUTES and
-    starts with --resume 1, so a second call continues where the first stopped."""
+    starts with --resume 1, so a second call continues where the first stopped. It also writes snapshots (SNAPSHOT_FRACTIONS
+    unless the trial sets its own) into <trial>/snapshots, which a continuation keeps and completes."""
     run = str(Path(output) / "checkpoint")
     # a full-weight trial uses every GPU of its container: FSDP2 ranks under torchrun (kev.full_ft); one GPU runs plainly
     gpus = torch.cuda.device_count() if config.get("full_ft") and device == "cuda" else 1
-    launcher = ["-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={gpus}"] if gpus > 1 else []
-    args = [sys.executable, *launcher, "-m", "kev.train", "--suite", str(suite), "--out", run, "--device", device]
-    for key, value in config.items():
-        args += ["--" + key, str(value)]
-    if config.get("full_ft"): args += ["--resume", "1", "--save_every_minutes", str(RESUME_MINUTES)]
+    args = train_args(config, suite, output, device, gpus)
     with (Path(output) / "train.log").open("a", encoding=ENCODING) as log, subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=ROOT) as proc:
         for line in proc.stdout:
             log.write(line); log.flush()
-            if line.startswith(("ep", "saved", "device", "ablation")) or "Error" in line: print(line.rstrip(), flush=True)
+            if line.startswith(("ep", "saved", "device", "ablation", "snapshot", "resumed", "!!!")) or "Error" in line: print(line.rstrip(), flush=True)
     if proc.returncode:
         raise subprocess.CalledProcessError(proc.returncode, args)
     return run

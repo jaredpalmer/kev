@@ -637,7 +637,9 @@ LOCAL_RENDEZVOUS = ("--nnodes=1", "--rdzv-backend=c10d", "--rdzv-endpoint=127.0.
 def _run_train(args, out, ranks=1):
     import subprocess, sys
     launcher = ["-m", "torch.distributed.run", *LOCAL_RENDEZVOUS, f"--nproc_per_node={ranks}"] if ranks > 1 else []
-    subprocess.run([sys.executable, *launcher, "-m", "kev.train", *args, "--out", str(out)], check=True, capture_output=True)
+    done = subprocess.run([sys.executable, *launcher, "-m", "kev.train", *args, "--out", str(out)], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr[-3000:]
+    return done.stdout
 
 
 @pytest.mark.parametrize("ranks", [1, 2])
@@ -673,6 +675,120 @@ def test_fsdp2_ranks_train_what_one_process_trains(tiny_base, tmp_path):
     subprocess.run([sys.executable, "-m", "torch.distributed.run", *LOCAL_RENDEZVOUS, "--nproc_per_node=2", *common, "--accum", "1", "--out", str(tmp_path / "two")], check=True, capture_output=True)
     one, two = load_file(tmp_path / "one/model.safetensors"), load_file(tmp_path / "two/model.safetensors")
     assert one.keys() == two.keys() and all(torch.equal(one[k], two[k]) for k in one)
+
+
+@pytest.mark.parametrize("ranks", [1, 2])
+def test_snapshots_are_checkpoints_kept_and_completed_on_resume(tiny_base, tmp_path, ranks):
+    """--snapshot_fractions 0.25,0.5 of 8 steps writes <snapshot_dir>/step-{2,4}/checkpoint: the final checkpoint's files
+    (+ snapshot.json, written last), loadable by the full-weight loader, with head.pt recording the step, epoch fraction
+    and records seen (on two FSDP2 ranks written by rank 0 in the background). A continued run keeps a snapshot that
+    exists (not rewritten) and writes one it missed, a write left incomplete included, with the uninterrupted run's
+    bits; a snapshot before the resume point that is gone is reported, not invented."""
+    import shutil
+    from safetensors.torch import load_file
+    from kev.checkpoint import Checkpoint, read_meta
+    from kev.full_ft import SNAPSHOT_INFO, completed_snapshots, snapshot_path
+    from kev.suite import read_json
+    args = ["--base", str(tiny_base / "base"), "--data", str(tiny_base / "data.jsonl"), "--device", "cpu", "--batch", "2", "--accum", str(2 // ranks),
+            "--lr", "1e-3", "--epochs", "2", *FULL, "--snapshot_fractions", "0.25,0.5"]
+    snaps = lambda name: ["--snapshot_dir", str(tmp_path / f"{name}-snaps")]
+    _run_train([*args, *snaps("whole")], tmp_path / "whole", ranks)
+    whole = tmp_path / "whole-snaps"
+    assert completed_snapshots(whole) == [2, 4] and sorted(p.name for p in whole.iterdir()) == ["step-2", "step-4"]
+    for step, epoch in ((2, 0.5), (4, 1.0)):
+        snap = snapshot_path(whole, step)
+        final_files = {p.name for p in (tmp_path / "whole").iterdir()} - {"training_metrics.json", "training_config.json"}
+        assert {p.name for p in snap.iterdir()} == final_files | {SNAPSHOT_INFO}
+        meta = read_meta(snap)
+        assert meta.extra["snapshot"] == {"step": step, "steps": 8, "epoch": epoch, "records_seen": 4 * step} and (meta.weights, meta.lora) == ("full", 0)
+        assert read_json(snap / SNAPSHOT_INFO)["step"] == step and read_json(snap / SNAPSHOT_INFO)["write_seconds"] >= 0
+        ck = Checkpoint(snap)
+        assert ck.full and ck.load("cpu")[1].dtype == "bfloat16"
+    assert not torch.equal(load_file(snapshot_path(whole, 2) / "model.safetensors")["layers.0.mlp.up_proj.weight"],
+                           load_file(snapshot_path(whole, 4) / "model.safetensors")["layers.0.mlp.up_proj.weight"])
+    assert [s["step"] for s in read_json(tmp_path / "whole/training_metrics.json")["snapshots"]] == [2, 4]
+
+    # killed after step 5 (resume point at 3, snapshots 2 and 4 on disk): the continuation leaves snapshot 4 alone
+    _run_train([*args, *snaps("a"), "--save_every_steps", "3", "--stop_after", "5"], tmp_path / "a", ranks)
+    info = snapshot_path(tmp_path / "a-snaps", 4) / SNAPSHOT_INFO
+    written = info.stat().st_mtime_ns
+    _run_train([*args, *snaps("a"), "--resume", "1"], tmp_path / "a", ranks)
+    assert info.stat().st_mtime_ns == written and completed_snapshots(tmp_path / "a-snaps") == [2, 4]
+
+    # killed at step 3, before snapshot 4 (and with a half-written step-4 directory); snapshot 2 was lost as well
+    _run_train([*args, *snaps("b"), "--save_every_steps", "3", "--stop_after", "3"], tmp_path / "b", ranks)
+    b = tmp_path / "b-snaps"
+    assert completed_snapshots(b) == [2]
+    shutil.rmtree(b / "step-2")
+    snapshot_path(b, 4).mkdir(parents=True); (snapshot_path(b, 4) / "model.safetensors").write_bytes(b"partial")
+    out = _run_train([*args, *snaps("b"), "--resume", "1"], tmp_path / "b", ranks)
+    assert "snapshot(s) at step(s) [2] are missing and cannot be written" in out and completed_snapshots(b) == [4]
+    for name in ("whole", "a", "b"):   # the continued runs end where the uninterrupted one does
+        assert all(torch.equal(v, load_file(tmp_path / name / "model.safetensors")[k]) for k, v in load_file(tmp_path / "whole/model.safetensors").items())
+    mine, theirs = load_file(snapshot_path(b, 4) / "model.safetensors"), load_file(snapshot_path(whole, 4) / "model.safetensors")
+    assert mine.keys() == theirs.keys() and all(torch.equal(mine[k], theirs[k]) for k in mine)
+    assert all(torch.equal(v, read_meta(snapshot_path(whole, 4)).head[k]) for k, v in read_meta(snapshot_path(b, 4)).head.items())
+
+
+def test_snapshot_schedule_and_trial_knobs(monkeypatch, capsys, tmp_path):
+    """Which steps get a snapshot; kev.train and kev.experiment refuse snapshots outside full-weight runs and bad lists;
+    a full-weight trial snapshots at experiment.SNAPSHOT_FRACTIONS into <trial>/snapshots unless its plan says otherwise
+    (optional, so config hashes stay; the snapshot schedule is not part of a recipe)."""
+    import kev.experiment as E
+    from kev.autoresearch import knobs, recipe
+    from kev.full_ft import snapshot_fractions, snapshot_steps
+    assert snapshot_steps(8, (0.25, 0.5)) == [2, 4] and snapshot_steps(1553, (0.25, 0.5, 0.75)) == [389, 777, 1165]
+    assert snapshot_steps(10, (0.3,)) == [3] and snapshot_steps(10, (0.99,)) == [] and snapshot_steps(10, (), 4) == [4, 8] and snapshot_steps(10, (0.5,), 5) == [5]
+    assert snapshot_fractions("0.5,0.25") == (0.25, 0.5) and snapshot_fractions("none") == snapshot_fractions("") == ()
+    for bad in ("1", "0", "0.5,x"):
+        with pytest.raises(ValueError): snapshot_fractions(bad)
+    with pytest.raises(SystemExit):
+        _parse_train(monkeypatch, "--snapshot_fractions", "0.5")
+    assert "snapshots (--snapshot_fractions" in capsys.readouterr().err
+    assert _parse_train(monkeypatch, *FULL, "--snapshot_fractions", "0.5").snapshot_fractions == "0.5"
+    manifest = {"base_revisions": {"b": "0" * 40}, "trainable_sources": []}
+    full = {"base": "b", "full_ft": 1, "weights_dtype": "bf16"}
+    assert E.validated_trial({**full, "snapshot_fractions": "none", "snapshot_every_steps": 50}, manifest)["snapshot_every_steps"] == 50
+    assert "snapshot_fractions" not in E.validated_trial(full, manifest)
+    for bad in ({"base": "b", "snapshot_fractions": "0.5"}, {"base": "b", "snapshot_every_steps": 5}, {**full, "snapshot_fractions": "1.5"}, {**full, "snapshot_fractions": [0.5]}):
+        with pytest.raises(ValueError): E.validated_trial(bad, manifest)
+    flag = lambda args, name: [args[i + 1] for i, a in enumerate(args) if a == name]
+    trial = tmp_path / "00-trial-0"
+    default = E.train_args(full, "suite", trial, "cuda")
+    assert flag(default, "--snapshot_fractions") == [E.SNAPSHOT_FRACTIONS] == ["0.25,0.5,0.75"] and flag(default, "--snapshot_dir") == [str(trial / "snapshots")]
+    assert flag(E.train_args({**full, "snapshot_fractions": "none"}, "suite", trial, "cuda"), "--snapshot_fractions") == ["none"]
+    assert not flag(E.train_args({"base": "b", "lora": 16}, "suite", trial, "cuda"), "--snapshot_fractions")
+    row = lambda cfg: {"config": cfg}
+    assert recipe(row(full)) == recipe(row({**full, "snapshot_fractions": "none"})) and "snapshot_fractions" not in knobs({**full, "snapshot_fractions": "none"})
+
+
+def test_pull_leaves_full_weights_and_resume_points_on_the_volume(tmp_path, monkeypatch, capsys):
+    """modal_app.pull (and kev.rounds' watcher, through pull_study) copies a study without full-weight shards (the final
+    checkpoint's and every snapshot's) and resume points; head.pt, configs, tokenizer, snapshot.json, results, rows and
+    LoRA adapters come down. --weights copies everything (modal volume get)."""
+    import modal_app
+    from modal.volume import FileEntryType
+    trial = "s/00-trial-0"
+    files = {f"{trial}/result.json": b"{}", f"{trial}/development/rows.json": b"[]", f"{trial}/checkpoint/head.pt": b"h",
+             f"{trial}/checkpoint/config.json": b"{}", f"{trial}/checkpoint/model.safetensors.index.json": b"{}",
+             f"{trial}/checkpoint/model-00001-of-00002.safetensors": b"w" * 100, f"{trial}/checkpoint/resume/latest.json": b"{}",
+             f"{trial}/checkpoint/resume/step-0000003/rank0.pt": b"o" * 100, f"{trial}/snapshots/step-4/checkpoint/model.safetensors": b"w" * 50,
+             f"{trial}/snapshots/step-4/checkpoint/head.pt": b"h", f"{trial}/snapshots/step-4/checkpoint/snapshot.json": b"{}",
+             "s/01-trial-1/checkpoint/adapter_model.safetensors": b"a"}
+    volume = SimpleNamespace(listdir=lambda path, recursive: [SimpleNamespace(path=p, type=FileEntryType.FILE, size=len(b)) for p, b in files.items() if p.startswith(path.strip("/") + "/")],
+                             read_file_into_fileobj=lambda path, out: out.write(files[path]))
+    monkeypatch.setattr(modal_app, "runs_volume", volume)
+    modal_app.pull_volume("/s", tmp_path, weights=False)
+    local = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*") if p.is_file())
+    assert local == sorted(p for p in files if "resume/" not in p and not (p.endswith(".safetensors") and "adapter_" not in p))
+    assert (tmp_path / trial / "checkpoint/head.pt").read_bytes() == b"h" and "left 4 weight/resume file(s)" in capsys.readouterr().out
+    assert all(modal_app.pulled(p, weights=True) for p in files)
+    modal_app.pull_volume("/s/01-trial-1", tmp_path / "again", weights=False)   # one trial directory under an existing study
+    assert (tmp_path / "again/01-trial-1/checkpoint/adapter_model.safetensors").exists()
+    calls = []
+    monkeypatch.setattr(modal_app.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    modal_app.pull_volume("/s", tmp_path / "all")
+    assert calls[0][-4:] == ["get", "kev-runs", "/s", str(tmp_path / "all")]
 
 
 def test_full_ft_plumbing():
@@ -854,6 +970,31 @@ def test_resume_points_are_committed_as_they_complete(tmp_path, monkeypatch, cap
     stop.set(); thread.join()
     out = capsys.readouterr().out
     assert len(commits) == 2 and "resume point 5 NOT committed" in out and "committed resume point 5 (step-0000005)" in out
+
+
+def test_snapshots_are_committed_as_they_complete(tmp_path, monkeypatch, capsys):
+    """The same watcher commits the runs volume once a snapshot is complete (its snapshot.json exists), so a snapshot
+    survives a timeout; snapshots an earlier attempt left are not committed again, an incomplete one is not committed."""
+    import threading
+    import modal_app
+    from kev.full_ft import SNAPSHOT_INFO, snapshot_path
+    from kev.suite import write_json
+    commits, snaps = [], tmp_path / "snapshots"
+    snapshot_path(snaps, 2).mkdir(parents=True); write_json(snapshot_path(snaps, 2) / SNAPSHOT_INFO, {"step": 2})   # an earlier attempt's
+    monkeypatch.setattr(modal_app, "runs_volume", SimpleNamespace(commit=lambda: commits.append(1)))
+    monkeypatch.setattr(modal_app, "RESUME_COMMIT_POLL", 0.05)
+    stop = threading.Event()
+    thread = threading.Thread(target=modal_app.commit_resume_points, args=(tmp_path / "resume", stop, snaps)); thread.start()
+    snapshot_path(snaps, 4).mkdir(parents=True)   # being written
+    threading.Event().wait(0.3)
+    assert commits == []
+    write_json(snapshot_path(snaps, 4) / SNAPSHOT_INFO, {"step": 4})
+    for _ in range(100):
+        if commits: break
+        threading.Event().wait(0.05)
+    threading.Event().wait(0.2)
+    stop.set(); thread.join()
+    assert commits == [1] and "committed snapshot(s) at step(s) [4]" in capsys.readouterr().out
 
 
 def test_score_trial_uses_the_suites_admission_context(monkeypatch, tmp_path):

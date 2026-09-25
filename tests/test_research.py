@@ -593,7 +593,8 @@ def test_repeat_pull_refetches_trial_dirs_copied_mid_run(monkeypatch, tmp_path, 
     volume = {"00-trial-0": True, "01-trial-1": True, "02-trial-2": True, "03-trial-3": False}   # name -> finished on the volume
     fetched, aggregated = [], []
 
-    def pull_volume(remote, local_parent):
+    def pull_volume(remote, local_parent, weights=True):
+        assert weights is False   # a study pull leaves full-weight shards on the volume by default
         name = remote.rsplit("/", 1)[1]
         fetched.append(name)
         (local_parent / name).mkdir()

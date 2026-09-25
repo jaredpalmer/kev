@@ -5,9 +5,11 @@ GPU_HOURLY = {"H100": 3.95, "H200": 4.54, "B200": 6.25, "T4": 0.59}   # USD per 
 # Full-weight trials (kev.train --full_ft, kev.full_ft). One GPU keeps the fp32 masters and AdamW moments in host memory:
 # 12 bytes per parameter, ~310 GB for a 27B, plus the staging buffers and the loader; the CPU runs the AdamW step. Several
 # GPUs (FSDP2) keep that state on the GPUs; host memory holds the copy of it a resume point is written from in the
-# background (~307 GB over the ranks) and the gathered checkpoint rank 0 writes (~51 GB). Disk: the runs volume stages
-# what a container writes on its local disk, up to two resume points (the new one is complete before the old one goes)
-# and the checkpoint, beyond Modal's default 512 GiB quota.
+# background (~307 GB over the ranks) and the gathered checkpoint rank 0 writes (~51 GB; a snapshot being written holds
+# the same, one at a time). Disk: the runs volume stages what a container writes on its local disk, up to two resume
+# points (the new one is complete before the old one goes), the checkpoint and the snapshots (kept: 3 by default, ~51 GB
+# each for a 27B): 2 x 307 + 4 x 51 ≈ 820 GB, beyond Modal's default 512 GiB quota and inside 1 TiB with ~280 GB spare
+# (about five more 27B snapshots, if the volume keeps committed files staged).
 FULL_FT_SINGLE = 24, (368640, 409600)          # 360 / 400 GiB
 FULL_FT_SHARDED = 16, (409600, 471040)         # 400 / 460 GiB
 FULL_FT_DISK = 1048576                         # MiB of ephemeral disk (1 TiB); Modal bills disk as memory at 20:1

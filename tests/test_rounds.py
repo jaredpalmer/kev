@@ -495,7 +495,7 @@ def test_concurrent_pulls_of_one_study_run_one_at_a_time(tmp_path, monkeypatch):
     import modal_app
     inside, overlaps = [], []
 
-    def pull_volume(remote, local_parent):
+    def pull_volume(remote, local_parent, weights=True):
         inside.append(remote)
         if len(inside) > 1: overlaps.append(list(inside))
         time.sleep(0.05)
