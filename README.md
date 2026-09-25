@@ -84,7 +84,7 @@ Example response from Kev-4B, running in bf16 on an Apple M5:
     "department":  { "type": "choice", "choice": "returns", "confidence": 0.21,
                      "probabilities": { "returns": 0.47, "shipping": 0.28, "billing": 0.25 } },
     "escalate":    { "type": "noul", "noul": 0.93 },
-    "frustration": { "type": "score", "score": 1.44, "confidence": 0.78,
+    "frustration": { "type": "score", "score": 1.44, "confidence": 0.34,
                      "legend": { "0": "Calm", "1": "Frustrated", "2": "Very angry" },
                      "probabilities": { "0": 0.00, "1": 0.56, "2": 0.44 } }
   },
@@ -237,7 +237,7 @@ There's a [chess demo](http://localhost:3001/chess), too. The board is the input
 | `choice` | 1–255 option names, each with a description or `null` | `choice`: most likely option; `probabilities` and `confidence` |
 | `score` | 1–255 descriptions, ordered from lowest to highest | `score`: mean level index, starting at 0; `legend`, `probabilities`, and `confidence` |
 
-For Choice with `K > 1` options, confidence is `(p_max − 1/K) / (1 − 1/K)`. A single option has confidence 1. Score confidence measures how close the distribution is to its most likely level. It's an approximation of TypeSafe's formula, which isn't public. Neither field is a measured accuracy rate.
+For Choice with `K > 1` options, confidence is `(p_max − 1/K) / (1 − 1/K)`. A single option has confidence 1. Score confidence is `max(0, 1 − E|level − mode| / D)`: `mode` is the most likely level and `D` is the mean distance of a uniform distribution over the levels from its middle (2/3 for three levels), so all probability on one level gives 1 and a uniform or wider spread gives 0. Both formulas are the ones in TypeSafe's reference adapter ([`system-one-adapter`](https://github.com/typesafe-ai/system-one-adapter-python) 0.2.1). Neither field is a measured accuracy rate.
 
 Objects and arrays are converted to labeled text. Delimiter-like strings in user input are escaped before tokenization. Invalid requests return `422`. `usage.output_tokens` counts tokens in the serialized answers, not generated tokens.
 

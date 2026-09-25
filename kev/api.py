@@ -117,16 +117,27 @@ def to_record(req: SystemOneRequest):
     return {"state": render(req.state), "questions": qs}, meta
 
 
+# Both confidence formulas mirror TypeSafe's reference adapter, system-one-adapter 0.2.1
+# (src/system_one_adapter/_utils/confidence_metrics.py): p is normalised to sum 1 (all zeros -> uniform), one option -> 1.
+def _normalize(p: list[float]) -> list[float]:
+    t = sum(p)
+    return [1 / len(p)] * len(p) if t == 0 else [x / t for x in p]
+
+
 def choice_confidence(p: list[float]) -> float:
+    """(p_max - 1/K) / (1 - 1/K): 0 at uniform, 1 at certainty."""
     K = len(p)
-    return 1.0 if K == 1 else (max(p) - 1 / K) / (1 - 1 / K)
+    return 1.0 if K == 1 else (max(_normalize(p)) - 1 / K) / (1 - 1 / K)
 
 
 def score_confidence(p: list[float]) -> float:
-    """Approximation of TypeSafe's 'distance from the modal level' statistic (exact formula unpublished):
-    1 - E|level - mode| / (L - 1)."""
-    L = len(p); mode = max(range(L), key=lambda i: p[i])
-    return 1.0 if L == 1 else 1.0 - sum(pi * abs(i - mode) for i, pi in enumerate(p)) / (L - 1)
+    """max(0, 1 - E|level - mode| / D), D = mean absolute deviation of a uniform distribution over the L levels around its
+    mean (L-1)/2; mode = first most likely level. 1 when all mass is on one level, 0 at uniform or anything as spread."""
+    L = len(p)
+    if L == 1: return 1.0
+    p = _normalize(p); mode = max(range(L), key=p.__getitem__)
+    D = sum(abs(i - (L - 1) / 2) for i in range(L)) / L
+    return max(0.0, 1.0 - sum(pi * abs(i - mode) for i, pi in enumerate(p)) / D)
 
 
 def round_prob(x: float) -> float:

@@ -167,7 +167,7 @@ Fit on even-indexed records, tested on odd-indexed: `T = 1.47`. Held-out NLL 0.5
 - **Small backbone.** 0.5B parameters. On the TypeSafe docs' structured-criteria example the model picks `return_policy` where Jev picks `return_status`. Reading comprehension (BoolQ 0.75, MNLI 0.75) is far below state of the art.
 - **Narrow task coverage.** Six datasets and about ten instruction templates. Code, tables, multi-turn chat, arithmetic, and multi-step conditions are untrained.
 - **Order sensitivity remains.** 7% argmax flips and a p90 probability spread of 0.25 under option reordering. A threshold near a decision boundary can change the action.
-- **Score confidence is a stand-in.** `1 − E|level − mode| / (L − 1)`; TypeSafe's formula is unpublished.
+- **Score confidence** is computed by the serving code, not the checkpoint. It was `1 − E|level − mode| / (L − 1)` when this card was written; it is now `max(0, 1 − E|level − mode| / D)`, D the mean absolute deviation of a uniform distribution over the levels, as in TypeSafe's reference adapter (`system-one-adapter` 0.2.1).
 - **Calibration is not a guarantee.** ECE 0.03 after temperature scaling on these sources says nothing about calibration on a new workflow. Proper scoring rules give the right *incentive*; they do not remove the need for outcome data.
 - **Inherited limitations** from Qwen2.5-0.5B and from the datasets, including their label noise, demographic skews (e.g. Yelp, banking intents), and English-only coverage.
 
