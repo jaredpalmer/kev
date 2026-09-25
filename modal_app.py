@@ -614,7 +614,7 @@ def run_resume(study, trial, suite, transfer, expected_sources, git_commit):
 def resume(study: str, suite: str, transfer: str = "evals/v4/transfer-v4", gpu: str = GPU, timeout: int = 28800):
     """Spawn evaluation for every trial in a study that has checkpoint/head.pt but no result.json, and continue every
     unfinished full-weight trial (no head.pt, no failed.json) from its last resume point on the deployed run_trial."""
-    fn = modal.Function.from_name(APP_NAME, "run_resume").with_options(gpu=gpu)
+    fn = modal.Function.from_name(APP_NAME, "run_resume").with_options(gpu=gpu, timeout=timeout, memory=(65536, 196608))   # a full-weight 27B checkpoint (51 GB) is staged through host memory; its long-state scoring can outlast 2 h
     sources, commit = local_source_hashes(), local_git_commit()
     for t in sorted(volume_names(f"/{study}")[0]):
         dirs, files = volume_names(f"/{study}/{t}")
