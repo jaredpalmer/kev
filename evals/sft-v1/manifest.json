@@ -1,0 +1,352 @@
+{
+  "version": "sft-v1",
+  "description": "Kev-27B's full-weight SFT suite (private mirror; only this manifest is public): licence-checked public train splits with native labels, the existing Kev training data (Kev-27B's own b1v2 set, documents-v1, hard-v1 and a fresh-seed hard-v1 set, devtools-v1) and open-weight-teacher synthetic records, screened against every Kev evaluation item.",
+  "seed": "sft-v1-assemble-20260925",
+  "partitions": [
+    "train",
+    "calibration",
+    "development"
+  ],
+  "eval_only": false,
+  "roles": {
+    "train": "training",
+    "calibration": "never trained on; kev.experiment fits the in-trial temperature on it",
+    "development": "never trained on; scored per trial; kev.rounds serves each side at the temperature fitted on these rows"
+  },
+  "files": {
+    "train.jsonl": {
+      "sha256": "334c18b8bd70ff5145694826b86243b25d9e003e119ef56dcb32a53d4a16346e",
+      "records": 198691,
+      "questions": 337406,
+      "bytes": 853485732,
+      "soft_target_questions": 11872,
+      "by_part": {
+        "component": 37540,
+        "public": 93798,
+        "synthetic": 67353
+      },
+      "by_group": {
+        "component:b1v2-train": 15401,
+        "component:devtools-v1-train": 5062,
+        "component:documents-v1-train": 5077,
+        "component:hard-v1-extra-train": 6000,
+        "component:hard-v1-train": 6000,
+        "public:aqua_rat": 3720,
+        "public:arc": 2991,
+        "public:casehold": 3720,
+        "public:cosmos_qa": 3720,
+        "public:csqa": 3720,
+        "public:esci": 4650,
+        "public:gsm8k": 4650,
+        "public:helpsteer2": 4650,
+        "public:helpsteer3": 5580,
+        "public:hotpotqa": 4650,
+        "public:ledgar": 4650,
+        "public:massive": 5580,
+        "public:math_qa": 3720,
+        "public:medmcqa": 3720,
+        "public:multiwoz": 5580,
+        "public:nq": 4650,
+        "public:openbookqa": 3720,
+        "public:poem_sentiment": 762,
+        "public:qasc": 3720,
+        "public:quartz": 2340,
+        "public:siqa": 3720,
+        "public:snli": 4650,
+        "public:strategyqa": 1215,
+        "public:winogrande": 3720,
+        "synthetic:abstention": 6235,
+        "synthetic:abstention:soft": 824,
+        "synthetic:intent": 9696,
+        "synthetic:long_doc": 12086,
+        "synthetic:numeric": 7367,
+        "synthetic:retrieval": 5543,
+        "synthetic:rubric_judge": 9140,
+        "synthetic:rubric_judge:soft": 5435,
+        "synthetic:tool_routing": 11027
+      },
+      "state_tokens": {
+        "min": 2,
+        "median": 192,
+        "mean": 594.1,
+        "p90": 1565,
+        "p99": 4374,
+        "max": 7484
+      }
+    },
+    "calibration.jsonl": {
+      "sha256": "c011d6d9c1f3f05b4e36b0a5bea130c9a9585a8a53b11e50cf260237bab36bf9",
+      "records": 8470,
+      "questions": 14960,
+      "bytes": 37318067,
+      "soft_target_questions": 0,
+      "by_part": {
+        "public": 5200,
+        "synthetic": 3270
+      },
+      "by_group": {
+        "public:aqua_rat": 200,
+        "public:arc": 200,
+        "public:casehold": 200,
+        "public:cosmos_qa": 200,
+        "public:csqa": 200,
+        "public:esci": 250,
+        "public:gsm8k": 250,
+        "public:helpsteer2": 250,
+        "public:helpsteer3": 300,
+        "public:hotpotqa": 250,
+        "public:ledgar": 250,
+        "public:massive": 300,
+        "public:math_qa": 200,
+        "public:medmcqa": 200,
+        "public:multiwoz": 300,
+        "public:nq": 250,
+        "public:openbookqa": 200,
+        "public:poem_sentiment": 50,
+        "public:qasc": 200,
+        "public:quartz": 200,
+        "public:siqa": 200,
+        "public:snli": 250,
+        "public:strategyqa": 100,
+        "public:winogrande": 200,
+        "synthetic:abstention": 333,
+        "synthetic:intent": 507,
+        "synthetic:long_doc": 649,
+        "synthetic:numeric": 398,
+        "synthetic:retrieval": 298,
+        "synthetic:rubric_judge": 491,
+        "synthetic:tool_routing": 594
+      },
+      "state_tokens": {
+        "min": 2,
+        "median": 205,
+        "mean": 601.6,
+        "p90": 1591,
+        "p99": 4008,
+        "max": 7244
+      }
+    },
+    "development.jsonl": {
+      "sha256": "a5941af2227d513f823b2d24aee5840d5ece0d419e6a95e3748d5ad4da07b104",
+      "records": 3483,
+      "questions": 6146,
+      "bytes": 15102200,
+      "soft_target_questions": 0,
+      "by_part": {
+        "public": 2180,
+        "synthetic": 1303
+      },
+      "by_group": {
+        "public:aqua_rat": 80,
+        "public:arc": 80,
+        "public:casehold": 80,
+        "public:cosmos_qa": 80,
+        "public:csqa": 80,
+        "public:esci": 100,
+        "public:gsm8k": 100,
+        "public:helpsteer2": 100,
+        "public:helpsteer3": 120,
+        "public:hotpotqa": 100,
+        "public:ledgar": 100,
+        "public:massive": 120,
+        "public:math_qa": 80,
+        "public:medmcqa": 80,
+        "public:multiwoz": 120,
+        "public:nq": 100,
+        "public:openbookqa": 80,
+        "public:poem_sentiment": 80,
+        "public:qasc": 80,
+        "public:quartz": 80,
+        "public:siqa": 80,
+        "public:snli": 100,
+        "public:strategyqa": 80,
+        "public:winogrande": 80,
+        "synthetic:abstention": 131,
+        "synthetic:intent": 199,
+        "synthetic:long_doc": 260,
+        "synthetic:numeric": 160,
+        "synthetic:retrieval": 120,
+        "synthetic:rubric_judge": 197,
+        "synthetic:tool_routing": 236
+      },
+      "state_tokens": {
+        "min": 3,
+        "median": 179,
+        "mean": 584.7,
+        "p90": 1596,
+        "p99": 3995,
+        "max": 5655
+      }
+    }
+  },
+  "trainable_sources": [
+    "aegis",
+    "agnews",
+    "amazon",
+    "aqua_rat",
+    "arc",
+    "banking77",
+    "boolq",
+    "casehold",
+    "cfpb",
+    "codereviewer",
+    "commitpackft",
+    "compositional",
+    "cosmos_qa",
+    "csqa",
+    "dbpedia14",
+    "esci",
+    "flakeflagger",
+    "gsm8k",
+    "hard_ambiguous",
+    "hard_judge",
+    "hard_long_policy",
+    "hard_multi_hop",
+    "hard_probability",
+    "hard_temporal_numeric",
+    "hard_tradeoff",
+    "helpsteer2",
+    "helpsteer3",
+    "hotpotqa",
+    "imdb",
+    "ledgar",
+    "legacy_policy",
+    "longstate",
+    "massive",
+    "math_qa",
+    "medmcqa",
+    "mnli",
+    "multiwoz",
+    "night2_dates",
+    "night2_unknowable",
+    "night2_unknowable_control",
+    "nq",
+    "openbookqa",
+    "poem_sentiment",
+    "qasc",
+    "quartz",
+    "siqa",
+    "snli",
+    "sst5",
+    "strategyqa",
+    "synthetic-v1/abstention",
+    "synthetic-v1/intent",
+    "synthetic-v1/long_doc",
+    "synthetic-v1/numeric",
+    "synthetic-v1/retrieval",
+    "synthetic-v1/rubric_judge",
+    "synthetic-v1/tool_routing",
+    "trec",
+    "winogrande",
+    "yelp"
+  ],
+  "eval_only_sources": [],
+  "holdout_sources": [],
+  "base_revisions": {
+    "Qwen/Qwen3.8-27B": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "context": {
+    "max_state": 7552,
+    "max_branch": 8192,
+    "max_packed": 9216,
+    "truncate": false,
+    "admission_branch_headroom": 64,
+    "tokenizer": {
+      "model": "Qwen/Qwen3.8-27B",
+      "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+    },
+    "note": "train with --max_state 7552"
+  },
+  "composition": {
+    "train": "public train + components b1v2-train, documents-v1-train, hard-v1-train, hard-v1-extra-train, devtools-v1-train + synthetic train (hard pool) + synthetic soft pool",
+    "calibration": "public calibration + synthetic calibration",
+    "development": "public development_seen + development_heldout + synthetic development"
+  },
+  "excluded_component_records": {
+    "documents-v1-train": 142,
+    "devtools-v1-train": 258
+  },
+  "exclusion_rule": "the public build's screen (common/screen.py) matched them to documents-v1 development/test or documents-v2 test (documents-v1-train) and devtools-v1 development/test (devtools-v1-train); ids and record digests in kev-sft assemble/excluded_components.json",
+  "dedupe": {
+    "development_states_also_in_calibration": 0,
+    "train_states_in_calibration_or_development": {},
+    "of_which_exact_rendered_text": 0,
+    "repeated_states_within_partition": {
+      "train": 6299,
+      "calibration": 0,
+      "development": 0
+    }
+  },
+  "selection": "cross-partition deduplication on the normalised rendered state (kev.suite.text_digest); every record materializes and is admitted strictly in the long-state training context under the Kev-27B tokenizer; soft targets checked; seeded order",
+  "record_changes": "synthetic abstention twins: _meta.variant present/absent moved to _meta.twin, variant set to clean; nothing else",
+  "inputs": {
+    "public": {
+      "manifest": "sft-v1/public/sft-v1-public.manifest.json",
+      "manifest_sha256": "9040cd17802fe09c309a4a65209f58dc0aaa6f3975d13a133b3f945ade31f932",
+      "mirror_revision": "6f681dc074c364edb9e8f0b14e3e39496c0ce01d",
+      "code_commit": "83113cc9c08b28dd5cbd15bd3a551d4c93936bff"
+    },
+    "components": {
+      "b1v2-train": {
+        "path": "sft-v1/components/b1v2-train/train.jsonl",
+        "sha256": "fb86543b3baccb5aff9355065821e8481a083b874521637dc2f3a5cb06faa56a"
+      },
+      "documents-v1-train": {
+        "path": "sft-v1/components/documents-v1-train/train.jsonl",
+        "sha256": "2d7e4c4360d642a382d55425d7f34ffa2f46d00ca39a9bae31acaf82b178ee69"
+      },
+      "hard-v1-train": {
+        "path": "sft-v1/components/hard-v1-train/train.jsonl",
+        "sha256": "a08ca9c5ba5d365967876d7d88753cf876624be8553df5af3dca8973e4a1aa4d"
+      },
+      "hard-v1-extra-train": {
+        "path": "sft-v1/components/hard-v1-extra-train/train.jsonl",
+        "sha256": "337d0bd132f90493ce43dd6e6ab1dae303f7e2de43c58860b646cf9769805fe9"
+      },
+      "devtools-v1-train": {
+        "path": "sft-v1/components/devtools-v1-train/train.jsonl",
+        "sha256": "587682c145cbbc0c8c990e9d649da7b972853a9eaaef71e9b7b0fa18163b962c"
+      }
+    },
+    "synthetic": {
+      "manifest_sha256": "1b366a4ad47c70e00d9b6a03b7003ff2e8e8a62842a95dd7969c3d05938f6445",
+      "mirror_revision": "95ecb1c3972d9be83dec5acd4ebbe8db680acb09",
+      "code_commit": "9df2c0b87d7f5870969df55269183ddb0bc553ac",
+      "files": {
+        "train.jsonl": "17b19ebfa014c5538611c0bf9f3a52e660ede85c213a2bcb7ccc6dfc343c6ff9",
+        "soft.jsonl": "24bdcd84a1bf245bf780d172170944b21f947449b0e88293cb7c77cf197c88f6",
+        "calibration.jsonl": "c8b1abecc2914428637a504604ab6fc36127fa78e0373e4ad46c3ef4348c0f41",
+        "development.jsonl": "e76e38dbe3276b3778baa8f12dc6f52d2feac1ea966246bc684b66c123c84528"
+      }
+    }
+  },
+  "licences": "per source in the public and synthetic manifests (private mirror); share-alike sources: see sft-v1-public.manifest.json",
+  "code": {
+    "repository": "jaredpalmer/kev-sft (private)",
+    "branch": "assemble-v1",
+    "commit": "ac0fb2a37bcee42f7d3dadb5b289b6abd1c18a93",
+    "dirty": false,
+    "files_sha256": {
+      "assemble/__init__.py": "07b2d8f66fdb3f9bcde6dab77f7a6b83ca3bf5f8f9f5b82f8401c0aada2c1ed7",
+      "assemble/build.py": "3b800bf5f80c9d77f47edb8b1b1c4208c8b3f85ef402235b3f856fa9a2dd15f3",
+      "assemble/screen_breadth.py": "0c71380692f80cecf134e13838a52a2ea44d40af63c9b310d670bdc8ccdb1a9c",
+      "assemble/screen_components.py": "e05f251e730049b8e60e69f1f77b74adcb2230f941902c49a1d8271ca430fc69",
+      "common/__init__.py": "30f75923540794caec9fd6335fdb903eaf8bd1bd7e15d5ee318ae06add5501d7",
+      "common/admission.py": "ffbf0781b9145859d37dda320686c09fca760c6e02e85c9b0cf74ba2f47ffee9",
+      "common/hub.py": "de285c05340d2833c20ffd90599a7e30a8f735086e31381e00939ce1c62e0d54",
+      "common/records.py": "e1bad5c362edf2e11e63c1a2132e75a5f53f0bb4a7dc04bddc3c55745cbaae40",
+      "common/screen.py": "6965e4c3b604267ecf4fbcaf0f538b7b51caedd0218fcfb484338a7294413270"
+    },
+    "code_sha256": "ac8dc3dabe3fb95e9cd0b2a79a7f6bf87e350663a8d5ac84f529a6f24b47d0da"
+  },
+  "kev_package": {
+    "kev/api.py": "7bffacfb762c626b8bc2f670f350295af5ccb0883dbe90239c7d2f8e5ef56582",
+    "kev/data.py": "e77a2fffeb8ee7e05b118893be8e38b8358aef97c3ca2e143cdce208201b92f9",
+    "kev/model.py": "de7de6bfc5616ccfd9ef2d01f1a7be3954fc892366a6607b14a39ef659cc839f",
+    "kev/suite.py": "707fe4520e93e63f833834080b1d4271a69df8a234814445ca3eeb2a5d0605bc"
+  },
+  "mirror": {
+    "dataset": "jaredpalmer/kev-private-train",
+    "revision": "119c1e7da94e763d912025585b9a85ecf207e0c1"
+  }
+}

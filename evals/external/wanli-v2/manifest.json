@@ -1,0 +1,62 @@
+{
+  "version": 2,
+  "external": {
+    "repo": "https://huggingface.co/datasets/alisawuffles/WANLI",
+    "revision": "61c95318fd71c55b6ba355d76253254615f387ec",
+    "split": "test",
+    "license": "CC-BY-4.0",
+    "source_sha256": "4276e0af7fcdf657d1ab7beb54eaf025fda592a76c9ee86b63b7871953fc74fd",
+    "rows_in_source": 5000
+  },
+  "disjoint_from": {
+    "path": "evals/external/wanli-v1/development.jsonl",
+    "sha256": "ab732d761daf51aa859263bb402fcc8e880bd801a21e3b882464a7766e8d1b5d",
+    "by": "source id, premise text, hypothesis text (case- and whitespace-normalised)"
+  },
+  "selection": {
+    "seed": "wanli-v2",
+    "per_label": 334,
+    "eligible": 4744,
+    "code_sha256": "65b781ded649febe07280e034ef9af50248f12faac7ccdb0c3b2256afa1a70bb"
+  },
+  "base_revisions": {},
+  "dataset_revisions": {
+    "alisawuffles/WANLI": "61c95318fd71c55b6ba355d76253254615f387ec"
+  },
+  "holdout_sources": [],
+  "trainable_sources": [],
+  "eval_only_sources": [
+    "wanli"
+  ],
+  "context": {
+    "max_state": 384,
+    "max_branch": 1024,
+    "max_packed": 2048,
+    "truncate": false
+  },
+  "files": {
+    "development.jsonl": {
+      "sha256": "80216665abca483b8a0a197e073b69683ce3615c30fc5fc95d05848ae44a796e",
+      "records": 1002
+    },
+    "train.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "records": 0
+    },
+    "calibration.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "records": 0
+    },
+    "test.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "records": 0
+    }
+  },
+  "eval_only": true,
+  "tasks": [
+    "wanli_nli"
+  ],
+  "protocol": {
+    "note": "Rendered as wanli-v1 (SemIf's rendering); a guard panel for round 6: paired accuracy interval against the parent, margin -2 pp (n >= 500)."
+  }
+}
