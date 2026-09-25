@@ -85,7 +85,14 @@ log; all three skip names that already exist locally / on the volume.
   commits the volume after each one, a retry keeps them and writes the ones it has not reached, and they are never
   deleted (a 27B trial's three are ~154 GB of volume; ask before removing any checkpoint). Read one like any checkpoint:
   `uv run modal run --detach modal_app.py::benchmarks --jobs "/runs/<study>/00-trial-0/snapshots/step-<N>/checkpoint@evals/v9/transfer-v9@<name>" --gpu H200 --timeout 14400`
-  (the step numbers are in the train log's `snapshots after optimizer steps [...]` line, or `modal volume ls kev-runs /<study>/00-trial-0/snapshots`).
+  (the step numbers are in the train log's `snapshots after optimizer steps [...]` line, or `modal volume ls kev-runs /<study>/00-trial-0/snapshots`;
+  directories are zero-padded, `step-0000389`). At most `kev.budget.MAX_SNAPSHOTS` = 8 per run (`snapshot_every_steps`
+  needs `max_steps`): the disk math in `kev/budget.py`. **Where they live:** the runs volume is primary. Optional
+  long-term copy: `"snapshot_hub_repo": "jaredpalmer/kev-snapshots"` in a plan mirrors each committed snapshot and the final
+  checkpoint to that PRIVATE Hub repo from a CPU container (`run_mirror`, token from the Modal secret `huggingface-secret`;
+  a public repo is refused; failures are logged, never fatal; commit in `snapshot.json["hub"]` / `checkpoint/hub.json`).
+  Existing ones: `uv run modal run modal_app.py::mirror_snapshots --study <study> --dry-run` lists targets and sizes, then
+  without `--dry-run` (and `--detach` for 27B, ~51 GB each; ask first) uploads to `<study>/<trial>/<step-N | final>/`.
 - **GPU-only tests** (they skip without CUDA): `uv run modal run modal_app.py::gpu_tests --tests "tests/test_model.py::test_shared_prefix_matches_rows" [--gpu H100]`.
   The image has causal-conv1d, and transformers then sends even CPU tensors to its CUDA kernel, so CPU variants skip there.
 - **Does a new base fit?** (LoRA footprint, which modules it hits, peak GB, steady step time on two real records):

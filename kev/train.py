@@ -394,6 +394,9 @@ def parse_args():
     except ValueError as error: ap.error(str(error))
     if a.snapshot_every_steps < 0 or ((fractions or a.snapshot_every_steps) and not a.full_ft):
         ap.error("snapshots (--snapshot_fractions, --snapshot_every_steps >= 0) are for full-weight runs (--full_ft 1)")
+    # kev.budget.MAX_SNAPSHOTS; an every-N plan without --max_steps is checked in main, once the run's steps are known
+    if not (a.snapshot_every_steps and not a.max_steps) and (problem := full_ft.too_many_snapshots(fractions, a.snapshot_every_steps, a.max_steps or None)):
+        ap.error(problem)
     if Path(a.out).exists() and not a.resume and os.environ.get("RANK", "0") == "0":   # under torchrun rank 0 creates it; the others would race it
         ap.error("refusing to overwrite an existing run")
     if (fractions or a.snapshot_every_steps) and not a.resume and full_ft.completed_snapshots(snapshot_root(a)):
@@ -489,6 +492,8 @@ def main():
     per_epoch = microbatch_plan(reqs, a, world, rank)   # counts only: they depend on len(reqs), not on the shuffle
     steps = a.epochs * sum(ends for _, _, ends in per_epoch)
     steps = min(steps, a.max_steps) if a.max_steps else steps
+    if a.full_ft and (problem := full_ft.too_many_snapshots(full_ft.snapshot_fractions(a.snapshot_fractions), a.snapshot_every_steps, steps)):
+        raise SystemExit(f"kev.train: {problem}")   # before the first step (and before a resume point is read): nothing to lose yet
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=[a.lr, a.head_lr or a.lr], total_steps=max(steps, 1), pct_start=0.1)
     step = seen = tokens_seen = peak_mem = optimizer_seconds = elapsed = start_epoch = start_mb = 0; step_seconds, resume_seconds = [], []; run = Counter()
     grad_norms = []   # per epoch, each optimizer step's global gradient norm before clipping

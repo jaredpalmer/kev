@@ -13,8 +13,9 @@ The same `kev.experiment.execute_trial` runs here and on the MBP; only the devic
 the local git commit (KEV_GIT_COMMIT), the suite hash, and the hashes of the kev/*.py files that were shipped, and
 `kev.experiment --aggregate` ranks the study locally afterwards so the ledger is produced by one code path.
 
-Volumes: kev-hf-cache (base weights, downloaded once), kev-runs (trial outputs). Secrets: none required; set
-KEV_HF_SECRET=<modal secret name> to attach a Secret carrying HF_TOKEN for gated bases.
+Volumes: kev-hf-cache (base weights, downloaded once), kev-runs (trial outputs). Secrets: set KEV_HF_SECRET=<modal secret
+name> to attach a Secret carrying HF_TOKEN for gated bases; run_mirror (the private Hub copy of snapshots and final
+checkpoints, kev.mirror) always mounts that Secret, `huggingface-secret` unless KEV_HF_SECRET names another.
 """
 import json
 import os
@@ -73,6 +74,7 @@ image = (
 hf_cache = modal.Volume.from_name("kev-hf-cache", create_if_missing=True)
 runs_volume = modal.Volume.from_name("kev-runs", create_if_missing=True)
 secrets = [modal.Secret.from_name(os.environ["KEV_HF_SECRET"])] if os.environ.get("KEV_HF_SECRET") else []
+MIRROR_SECRET = os.environ.get("KEV_HF_SECRET") or "huggingface-secret"   # run_mirror's HF_TOKEN (the same name in the container: KEV_HF_SECRET is in the image env)
 
 
 def local_git_commit():
@@ -127,7 +129,9 @@ def trial(study, index, label, config, suite, expected_sources, git_commit, exis
     print(f"[{label}] {torch.cuda.get_device_name(0)} torch {torch.__version__} {'continuing' if again else 'config='+json.dumps(config)}", flush=True)
     transfer = Path("/root") / transfer if transfer else None
     stop = threading.Event()
-    committer = threading.Thread(target=commit_resume_points, args=(out / "checkpoint" / "resume", stop, out / "snapshots"), daemon=True)
+    repo = config.get("snapshot_hub_repo")   # a private Hub mirror of each committed snapshot and the final checkpoint (off unless set)
+    committer = threading.Thread(target=commit_resume_points, args=(out / "checkpoint" / "resume", stop, out / "snapshots"),
+                                 kwargs={"final_dir": out / "checkpoint", "mirror": (lambda path: spawn_mirror([path], repo)) if repo else None}, daemon=True)
     if config.get("full_ft"): committer.start()
     try:
         report, _ = (continue_trial(Path("/root") / suite, out, expected_sources, "cuda", transfer) if again
@@ -233,6 +237,24 @@ def run_bench(run, suite, name, flags=""):
     out = Path(RUNS_MOUNT) / "bench" / name
     source = ["--data", f"/root/{suite}"] if suite.endswith(".jsonl") else ["--suite", f"/root/{suite}"]
     return run_tool([sys.executable, "-m", "kev.benchmark", "--run", run, *source, "--out", out, "--device", "cuda", *flags.split()], out)
+
+
+MIRROR_TIMEOUT = 4 * 3600   # a 27B checkpoint is ~51 GB; several per call when mirror_snapshots uploads a whole study
+
+
+@app.function(image=image, cpu=4, memory=(16384, 65536), retries=0, timeout=MIRROR_TIMEOUT,
+              volumes={RUNS_MOUNT: runs_volume}, secrets=[modal.Secret.from_name(MIRROR_SECRET)])
+def run_mirror(paths, repo, force=False):
+    """Upload complete checkpoint directories on the volume (/runs/..., snapshots or final checkpoints) to a PRIVATE Hub
+    model repo (kev.mirror: refuses a public repo, creates a missing one private, retries once, never raises for an upload)
+    and commit the records it writes next to them. CPU only; spawned by a full-weight trial whose plan sets
+    snapshot_hub_repo, or by mirror_snapshots. -> {path: record or None}."""
+    from kev.mirror import mirror
+    runs_volume.reload()
+    try:
+        return {str(p): mirror(p, repo, force=force) for p in paths}
+    finally:
+        runs_volume.commit()
 
 
 @app.function(image=image, gpu=GPU, cpu=2, memory=(32768, 131072), retries=0, timeout=3600,
@@ -404,12 +426,14 @@ def anchors(base: str, suite: str, name: str, revision: str = "", gpu: str = GPU
 
 
 def pulled(path, weights=False):
-    """Whether a pull copies this runs-volume file. With `weights` everything; by default not full-weight backbone shards
-    (`model*.safetensors` of a trial's checkpoint/ and snapshots/: ~51 GB per 27B checkpoint) nor resume points (resume/:
-    fp32 optimizer state, ~307 GB for a 27B). LoRA adapters (adapter_model.safetensors), head.pt, configs, tokenizers,
-    results and rows are pulled. Benchmarks and reads run on the volume paths, so nothing local needs the shards."""
+    """Whether a pull copies this runs-volume file. With `weights` everything. By default not:
+    - backbone shards: a `model*.safetensors` file directly in a directory named `checkpoint` (a trial's final checkpoint,
+      <trial>/checkpoint, and every snapshot, <trial>/snapshots/step-<N>/checkpoint): ~51 GB per 27B checkpoint;
+    - resume points: anything under a `resume/` directory (fp32 optimizer state, ~307 GB for a 27B).
+    Everything else is pulled: LoRA adapters (adapter_model.safetensors), head.pt, configs, tokenizers, snapshot.json,
+    results, rows. Benchmarks and reads run on the volume paths, so nothing local needs the shards."""
     parts = PurePosixPath(path).parts
-    shard = parts[-1].endswith(".safetensors") and not parts[-1].startswith("adapter_")
+    shard = len(parts) > 1 and parts[-2] == "checkpoint" and parts[-1].startswith("model") and parts[-1].endswith(".safetensors")
     return weights or not (shard or "resume" in parts[:-1])
 
 
@@ -503,6 +527,39 @@ def benchmarks(jobs: str, gpu: str = GPU, timeout: int = 0):
         print(f"{name}: acc {result['acc']:.3f} brier {result['brier']:.3f}")
 
 
+def mirror_targets(study):
+    """The complete checkpoint directories of a study on the volume: each trial's final checkpoint (checkpoint/head.pt)
+    and its complete snapshots (snapshots/step-*/checkpoint/snapshot.json), as /runs paths."""
+    from kev.full_ft import SNAPSHOT_INFO
+    targets = []
+    for trial in sorted(volume_names(f"/{study}")[0]):
+        dirs, _ = volume_names(f"/{study}/{trial}")
+        if "snapshots" in dirs:
+            for step in sorted(volume_names(f"/{study}/{trial}/snapshots")[0], key=lambda s: int(s.removeprefix("step-"))):
+                if SNAPSHOT_INFO in volume_names(f"/{study}/{trial}/snapshots/{step}/checkpoint")[1]: targets.append(f"{RUNS_MOUNT}/{study}/{trial}/snapshots/{step}/checkpoint")
+        if "checkpoint" in dirs and "head.pt" in volume_names(f"/{study}/{trial}/checkpoint")[1]: targets.append(f"{RUNS_MOUNT}/{study}/{trial}/checkpoint")
+    return targets
+
+
+@app.local_entrypoint()
+def mirror_snapshots(study: str = "", paths: str = "", repo: str = "jaredpalmer/kev-snapshots", force: bool = False, dry_run: bool = False):
+    """(Re)upload complete snapshots and final checkpoints from the runs volume to a PRIVATE Hub repo (kev.mirror; the
+    volume copy stays primary): every one of a study's (--study X) and/or explicit checkpoint directories (--paths
+    /runs/a/checkpoint,...). Prints what it would upload with sizes; --dry-run stops there. A directory already
+    recorded for this repo is skipped unless --force. A 27B checkpoint is ~51 GB: run with --detach."""
+    from kev.mirror import destination
+    targets = (mirror_targets(study) if study else []) + [p for p in paths.split(",") if p]
+    if not targets: raise SystemExit("nothing to mirror: give --study and/or --paths (complete checkpoint directories under /runs)")
+    for t in targets:
+        size = sum(e.size for e in runs_volume.listdir(t.removeprefix(RUNS_MOUNT), recursive=True))
+        print(f"{t} -> {repo}/{destination(t, RUNS_MOUNT)} ({size / 1e9:.1f} GB)", flush=True)
+    if dry_run: return
+    call = run_mirror.spawn(targets, repo, force)
+    print(f"mirroring {len(targets)} checkpoint(s) to private {repo}: call {call.object_id}", flush=True)
+    for path, entry in call.get().items():
+        print(f"{path}: {'commit ' + entry['commit'] if entry else 'NOT uploaded (see the call log)'}", flush=True)
+
+
 @app.local_entrypoint()
 def smoke_base(base: str, revision: str, gpu: str = "H200"):
     """Memory and step-time check for a base that has not been trained yet (LoRA footprint, which modules it hits, peak GB)."""
@@ -532,33 +589,53 @@ def failed_trial(label, out):
 RESUME_COMMIT_POLL = 15   # seconds between looks at a training trial's latest.json
 
 
-def commit_resume_points(resume_dir, stop, snapshot_dir=None):
+def commit_resume_points(resume_dir, stop, snapshot_dir=None, final_dir=None, mirror=None):
     """While a full-weight trial trains, commit the runs volume each time the trainer completes a resume point (its
-    latest.json changes) or a snapshot (kev.full_ft.completed_snapshots under `snapshot_dir` gains a step). A timeout kills
-    the container without running trial()'s `finally`, and the retry can only continue from a committed point and keep
-    committed snapshots. A failed commit is reported loudly and tried again on the next look."""
-    from kev.full_ft import completed_snapshots
+    latest.json changes), a snapshot (kev.full_ft.completed_snapshots under `snapshot_dir` gains a step) or the final
+    checkpoint (`final_dir`/training_metrics.json, written last, appears). A timeout kills the container without running
+    trial()'s `finally`, and the retry can only continue from a committed point and keep committed snapshots. A failed
+    commit is reported loudly and tried again on the next look; after `stop` it looks once more. `mirror(path)`, when
+    given, is called for each newly committed snapshot and final checkpoint (spawn_mirror: the private Hub copy)."""
+    from kev.full_ft import completed_snapshot_dirs
     latest = resume_dir / "latest.json"
     read = lambda: latest.read_text(encoding="utf-8") if latest.exists() else None
-    snaps = lambda: set(completed_snapshots(snapshot_dir)) if snapshot_dir else set()
-    committed, committed_snaps = read(), snaps()   # what a new container finds on the volume is committed already
-    while not stop.wait(RESUME_COMMIT_POLL):
-        marker = read()
-        new_snaps = sorted(snaps() - committed_snaps)
-        new_point = marker is not None and marker != committed
-        if not new_point and not new_snaps: continue
-        point = json.loads(marker) if new_point else None
-        what = lambda detail: " and ".join(([f"resume point {point['step']}" + (f" ({point['dir']})" if detail else "")] if point else [])
-                                           + ([f"snapshot(s) at step(s) {new_snaps}"] if new_snaps else []))
-        started = time.time()
-        try:
-            runs_volume.commit()
-        except Exception as error:   # noqa: BLE001 - loud, and retried: the point stays on disk until it is committed
-            print(f"!!! {what(False)} NOT committed to the runs volume ({type(error).__name__}: {str(error)[:300]}); "
-                  f"retrying in {RESUME_COMMIT_POLL} s; a timeout before then continues from the previous point", flush=True)
-            continue
-        committed, committed_snaps = marker, committed_snaps | set(new_snaps)
-        print(f"[volume] committed {what(True)} to the runs volume in {time.time() - started:.0f} s", flush=True)
+    snaps = lambda: completed_snapshot_dirs(snapshot_dir) if snapshot_dir else {}
+    final = lambda: bool(final_dir) and (final_dir / "training_metrics.json").exists()
+    committed, committed_snaps, committed_final = read(), set(snaps()), final()   # what a new container finds on the volume is committed already
+    while True:
+        stopping = stop.wait(RESUME_COMMIT_POLL)
+        marker, found = read(), snaps()
+        new_snaps = sorted(set(found) - committed_snaps)
+        new_point, new_final = marker is not None and marker != committed, final() and not committed_final
+        if new_point or new_snaps or new_final:
+            point = json.loads(marker) if new_point else None
+            what = lambda detail: " and ".join(([f"resume point {point['step']}" + (f" ({point['dir']})" if detail else "")] if point else [])
+                                               + ([f"snapshot(s) at step(s) {new_snaps}"] if new_snaps else []) + (["the final checkpoint"] if new_final else []))
+            started = time.time()
+            try:
+                runs_volume.commit()
+            except Exception as error:   # noqa: BLE001 - loud, and retried: the point stays on disk until it is committed
+                print(f"!!! {what(False)} NOT committed to the runs volume ({type(error).__name__}: {str(error)[:300]}); "
+                      f"retrying in {RESUME_COMMIT_POLL} s; a timeout before then continues from the previous point", flush=True)
+                if stopping: break
+                continue
+            committed, committed_snaps, committed_final = marker, committed_snaps | set(new_snaps), committed_final or new_final
+            print(f"[volume] committed {what(True)} to the runs volume in {time.time() - started:.0f} s", flush=True)
+            if mirror:
+                for s in new_snaps: mirror(found[s])
+                if new_final: mirror(final_dir)
+        if stopping: break
+
+
+def spawn_mirror(paths, repo):
+    """Start run_mirror for committed checkpoint directories on the volume; a failure to start it is logged, never raised
+    (the volume copy is primary; modal_app.py::mirror_snapshots uploads them later)."""
+    try:
+        call = run_mirror.spawn([str(p) for p in paths], repo)
+        print(f"[mirror] {len(paths)} checkpoint(s) -> private {repo}: call {call.object_id}", flush=True)
+    except Exception as error:   # noqa: BLE001
+        print(f"!!! [mirror] could not start the upload of {[str(p) for p in paths]} to {repo} ({type(error).__name__}: {str(error)[:300]}); "
+              "the volume copy is unaffected (retry: modal_app.py::mirror_snapshots)", flush=True)
 
 
 def admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout):

@@ -31,7 +31,7 @@ from kev.suite import ENCODING, read_json, write_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]
 H100_RATE = 3.95
-SNAPSHOT_KEYS = ("snapshot_fractions", "snapshot_every_steps")   # when a full-weight trial saves intermediate checkpoints: not what it trains
+SNAPSHOT_KEYS = ("snapshot_fractions", "snapshot_every_steps", "snapshot_hub_repo")   # when and where a full-weight trial saves intermediate checkpoints: not what it trains
 INFRA_KEYS = ("base", "seed", "base_revision", "dtype", "checkpointing", "batch", "accum", "perm_frac", "shared_prefix", *SNAPSHOT_KEYS)   # execution shape, not recipe
 ALL_DEFAULTS = {**DEFAULTS, **CHOICE_DEFAULTS}   # what kev.train does when a knob is not given
 

@@ -41,7 +41,9 @@ Title Case sections, API tables, Authors + License); model cards are formal.
     torchrun from a host copy in a background thread, the interval stretched so blocking stays under 5 %), `--resume 1`
     continues bit for bit (same arguments and world size), `--stop_after N` exits after a step. Snapshots:
     `--snapshot_fractions 0.25,0.5,0.75` (of the optimizer steps) / `--snapshot_every_steps N` write loadable bf16 checkpoints
-    into `<snapshot_dir>/step-<N>/checkpoint` (`--snapshot_dir`, default `<out>-snapshots`; `kev.full_ft.SnapshotWriter`): the
+    into `<snapshot_dir>/step-<N>/checkpoint` (N zero-padded to 7 digits like resume points, `step-0000389`; `--snapshot_dir`,
+    default `<out>-snapshots`; `kev.full_ft.SnapshotWriter`; at most `kev.budget.MAX_SNAPSHOTS` = 8 per run, the disk they
+    may take next to two resume points, refused at parse time or before the first step): the
     final checkpoint's files (save_pretrained shards + `head.pt` + tokenizer; `head.pt["snapshot"]` = step, steps, epoch
     fraction, records seen) plus `snapshot.json`, written last, which marks it complete. Under torchrun the ranks gather
     into rank 0's host memory (the only blocking part) and rank 0 writes in a background thread; one GPU writes before
@@ -72,12 +74,19 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   `FULL_FT_RETRIES`, up to 24 h per attempt, $1,000 per study; the bound counts every attempt); each retry continues.
   It also keeps snapshots at `experiment.SNAPSHOT_FRACTIONS` (0.25, 0.5, 0.75 of its optimizer steps) in
   `<trial>/snapshots/step-<N>/checkpoint` (plan keys `snapshot_fractions` (a string, `"none"` for none) and
-  `snapshot_every_steps`; neither changes the config hash of a plan that omits it, nor the recipe). A 27B snapshot is
-  ~51 GB of volume storage and never deleted: do not remove checkpoints or snapshots from the volume without asking.
+  `snapshot_every_steps`, which needs `max_steps` so `validated_trial` can check `MAX_SNAPSHOTS`; neither changes the
+  config hash of a plan that omits it, nor the recipe). A 27B snapshot is ~51 GB of volume storage and never deleted: do
+  not remove checkpoints or snapshots from the volume without asking. The volume copy is primary; a plan key
+  `snapshot_hub_repo` (off by default) also mirrors each committed snapshot and the final checkpoint to that PRIVATE Hub
+  model repo (`kev.mirror`, `modal_app.run_mirror`: a CPU container spawned after the commit, HF token from the Modal
+  secret `huggingface-secret` or `KEV_HF_SECRET`; refuses a public repo, retries once, never fails training; the commit is
+  recorded in `snapshot.json["hub"]` / `checkpoint/hub.json`, at `<study>/<trial>/<step-N | final>/` in the repo).
+  `modal_app.py::mirror_snapshots --study X [--paths /runs/...checkpoint] [--repo jaredpalmer/kev-snapshots] [--dry-run]`
+  (re)uploads existing ones (a 27B checkpoint is ~51 GB; ask before mirroring those).
   The container commits the runs volume after every completed resume point and snapshot (a timeout skips the final commit); an attempt
   that fails with an error writes `failed.json` and returns `{"failed": ...}` instead of raising, so it is not retried
   (`kev.rounds.poll_modal` reports it as a failure). `modal_app.py::pull` (and `kev.rounds watch`) leaves full-weight
-  shards (`model*.safetensors` of `checkpoint/` and `snapshots/`) and resume points on the volume (`--weights` copies them);
+  shards (`model*.safetensors` directly in a `checkpoint/` directory: final and snapshots) and resume points on the volume (`--weights` copies them);
   read a snapshot like any checkpoint: `::benchmarks --jobs "/runs/<study>/<trial>/snapshots/step-<N>/checkpoint@<suite>@<name>"`.
 - Rounds (every registered experiment since round 5): one spec per round, `experiments/rounds/r<N>.json`, committed before any
   training or read: studies (plan, GPU, timeout, budget), arms (`<size>-<label>`: trial + parent), parents (trial + where each

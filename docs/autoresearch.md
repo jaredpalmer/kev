@@ -103,7 +103,10 @@ May not, without Jared's explicit OK:
   snapshots at 0.25, 0.5 and 0.75 of their steps (`kev.experiment.SNAPSHOT_FRACTIONS`) so a read can find the best point
   of a run after it ends: round 19 could not, because the only mid-run state was a resume point, deleted when the run
   finished, and AutoJev's best checkpoint was at 0.7 epoch. A 27B's snapshots are ~154 GB of volume per trial; the
-  space is Jared's call, not the session's.
+  space is Jared's call, not the session's. Snapshots live on the runs volume (primary); a private Hub mirror
+  (`snapshot_hub_repo` in a plan, or `modal_app.py::mirror_snapshots`) is long-term storage for a checkpoint worth
+  keeping, not a replacement: mirroring 27B checkpoints (~51 GB each, into a private repo such as
+  `jaredpalmer/kev-snapshots`) is also Jared's call, and never to a public repo.
 
 If an arm is blocked (authentication, a spend limit, a deploy that will not work in 30 minutes), write down what happened
 and move to the next arm. Do not wait for a human.

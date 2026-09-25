@@ -348,13 +348,33 @@ def snapshot_steps(total, fractions=(), every=0):
     return sorted(s for s in steps if 0 < s < total)
 
 
+def too_many_snapshots(fractions=(), every=0, total=None):
+    """Why this snapshot plan exceeds kev.budget.MAX_SNAPSHOTS (the disk a run's kept snapshots may take), or None.
+    `total`: the run's optimizer steps, or an upper bound on them (a trial's max_steps); None = unknown, which an
+    every-N plan cannot be checked against."""
+    from .budget import MAX_SNAPSHOTS
+    if every and total is None:
+        return "snapshot_every_steps needs the run's step count to be bounded (max_steps), so its snapshot count can be checked"
+    count = len(snapshot_steps(total, fractions, every)) if total is not None else len(fractions)
+    if count > MAX_SNAPSHOTS:
+        return (f"{count} snapshots planned (fractions {list(fractions)}, every {every} of {total} steps): at most kev.budget.MAX_SNAPSHOTS = "
+                f"{MAX_SNAPSHOTS} fit the container disk next to the resume points (a full disk fails the trial)")
+    return None
+
+
 def snapshot_path(root, step):
-    return Path(root) / f"step-{step}" / "checkpoint"
+    return Path(root) / f"step-{step:07d}" / "checkpoint"   # zero-padded like resume points (ResumeWriter)
+
+
+def completed_snapshot_dirs(root):
+    """{step: checkpoint directory} of the complete snapshots under `root` (a snapshot is complete once its SNAPSHOT_INFO
+    exists); step-<N> directories are read by number, padded or not (the first snapshots, before padding, were not)."""
+    return {int(p.parent.parent.name.removeprefix("step-")): p.parent for p in Path(root).glob(f"step-*/checkpoint/{SNAPSHOT_INFO}")}
 
 
 def completed_snapshots(root):
-    """Steps of the complete snapshots under `root` (a snapshot is complete once its SNAPSHOT_INFO exists)."""
-    return sorted(int(p.parent.parent.name.removeprefix("step-")) for p in Path(root).glob(f"step-*/checkpoint/{SNAPSHOT_INFO}"))
+    """Steps of the complete snapshots under `root`."""
+    return sorted(completed_snapshot_dirs(root))
 
 
 class SnapshotWriter:
@@ -400,15 +420,19 @@ class SnapshotWriter:
         return self.error
 
     def wait(self):
-        """Join the background write; its error, if any, is raised here."""
+        """Join the background write; its error, if any, is raised here, on every rank at once (every rank calls wait:
+        in save and at the end of training), so ranks 1..N do not go on into the next gather and hang on rank 0."""
         self.join(); self.thread = None
-        if self.error is not None: raise RuntimeError("writing a snapshot failed") from self.error
+        if rank0_decides(self.error is not None):
+            raise RuntimeError("writing a snapshot failed" + ("" if self.error else " on rank 0")) from self.error
 
     def _write(self, step, lm, state, finish, info, blocked):
         started = time.time()
         try:
             target = snapshot_path(self.root, step)
-            if target.exists(): shutil.rmtree(target)   # an incomplete write (due() skips complete ones)
+            if (target / SNAPSHOT_INFO).exists():   # complete (a racing writer, or an earlier attempt): never deleted or rewritten
+                print(f"snapshot step {step}: {target} is complete already; left as it is", flush=True); return
+            if target.exists(): shutil.rmtree(target)   # an incomplete write
             target.mkdir(parents=True)
             write_backbone(lm, target, state)
             finish(target)
