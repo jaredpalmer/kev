@@ -345,7 +345,7 @@ def test_server_recovers_when_a_pass_runs_out_of_memory():
     qs = [{"instr": "Which team should handle this?", "options": ["returns", "shipping", "billing", "other"], "label": 0},
           {"instr": "Is a refund owed?", "options": ["yes", "no"], "label": 0}]
     # states past the graphed state pass (an eager state pass, the path a long document takes) that still fit a bank
-    # entry (graphed question rows); ~41 MiB of prefix each on Kev-0.8B
+    # entry (graphed question rows); ~46 MiB of prefix each on Kev-0.8B
     rec = lambda i: {"state": f"Ticket {i}. " + f"Order {4400 + i} arrived late and the box was crushed. Two charges appear on the card. " * 170, "questions": qs}
     fills, target, after = [rec(i) for i in range(16)], rec(100), rec(101)
     enc = lambda r: m.encode(tok, r, max_state=SERVE_MAX_STATE, max_branch=SERVE_MAX_BRANCH)
