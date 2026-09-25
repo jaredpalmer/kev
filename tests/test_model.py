@@ -171,7 +171,9 @@ def test_hybrid_rows_isolation_and_prefix(monkeypatch):
 
 def _exact_kernels(mp):
     """transformers' PyTorch code for the Gated DeltaNet rule and its short convolution in place of fla's Triton kernels and
-    causal-conv1d, TF32 off: fp32-exact on any device (fla rounds its fp32 dots like TF32 on CUDA)."""
+    causal-conv1d, TF32 off: fp32-exact on any device (fla rounds its fp32 dots like TF32 on CUDA). Patching the module works
+    because Qwen3_5GatedDeltaNet.forward looks these names up in the module at call time (the recurrent rule only serves
+    one-token steps; patched for completeness)."""
     import inspect
     import torch
     from transformers.models.qwen3_5 import modeling_qwen3_5 as Q
@@ -250,8 +252,9 @@ def _prefix_checks(exact, kernels=None):
         worst = lambda k: max(abs(r[k]) for r in rows)
         failed += [f"kernels {k}" for k in ("logit", "grad", "gnorm") if prefix[k] > 2 * worst(k)]
         failed += [f"kernels {k}" for k in ("mean", "along") if abs(prefix[k]) > 2 * worst(k) + 3 * max(r[f"sd_{k}"] for r in rows)]
-        failed += ["kernels galong"] * (abs(prefix["galong"]) > 2 * worst("galong") + 0.5 * worst("gnorm"))
-        failed += ["kernels keys"] * (not prefix["keys"])
+        if abs(prefix["galong"]) > 2 * worst("galong") + 0.5 * worst("gnorm"):   # |galong| <= gnorm always; a scaling puts the error along the gradient, noise almost none of it
+            failed.append("kernels galong")
+        if not prefix["keys"]: failed.append("kernels keys")
     return failed
 
 
