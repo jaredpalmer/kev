@@ -129,7 +129,7 @@ class Server:
             try:
                 with self.lock: results = self._run([enc for enc, _ in batch])
             except Exception as e:   # every request of the batch gets the error; the thread lives on
-                traceback.clear_frames(e.__traceback__)   # its frames held the failed pass's tensors until the next batch replaced `results` (142 MiB, a 3,578-token state on Kev-0.8B); the traceback keeps its lines
+                traceback.clear_frames(e.__traceback__)   # the batch's futures keep the exception, and its frames held the failed pass's tensors (142 MiB, a 3,578-token state on Kev-0.8B); the traceback keeps its lines
                 results = [e] * len(batch)
             for (_, done), result in zip(batch, results):
                 (done.set_exception if isinstance(result, Exception) else done.set_result)(result)

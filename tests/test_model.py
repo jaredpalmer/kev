@@ -9,6 +9,7 @@ import os
 import pytest
 
 SMOKE = "runs/smoke-hl/00-trial-0/checkpoint"
+KEV_08B = "jaredpalmer/kev-0.8b@9a45d25eb2ab761841196625383fa1dff0e56c1e"   # pinned (round 15): the bf16 bars below are per checkpoint
 
 
 @pytest.fixture
@@ -221,7 +222,7 @@ def test_cuda_graphs_match_eager():
     from kev.checkpoint import Checkpoint, LoadOptions
     from kev import cuda_graphs
     from kev.model import SERVE_MAX_BRANCH, SERVE_MAX_STATE
-    tok, m = Checkpoint("jaredpalmer/kev-0.8b").load("cuda", LoadOptions(dtype=torch.bfloat16, cuda_graphs=True, fused=True))
+    tok, m = Checkpoint(KEV_08B).load("cuda", LoadOptions(dtype=torch.bfloat16, cuda_graphs=True, fused=True))
     q = {"instr": "Which team should handle this?", "options": ["returns", "shipping", "billing", "other"], "label": 0}
     recs = [{"state": "Order 4411 arrived late and the box was crushed. Two charges appear on the card." * k, "questions": [q] * n}
             for k, n in ((1, 1), (1, 3), (4, cuda_graphs.GRAPH_ROWS + 3), (20, 2), (300, 2))]
@@ -259,7 +260,7 @@ def test_server_recovers_when_a_pass_runs_out_of_memory():
     from kev.device import empty_cache, sync
     from kev.model import SERVE_MAX_BRANCH, SERVE_MAX_STATE
     from kev.serve import Server
-    ck = Checkpoint("jaredpalmer/kev-0.8b")
+    ck = Checkpoint(KEV_08B)
     tok, m = ck.load("cuda", LoadOptions(dtype=torch.bfloat16, cuda_graphs=True, fused=True))
     qs = [{"instr": "Which team should handle this?", "options": ["returns", "shipping", "billing", "other"], "label": 0},
           {"instr": "Is a refund owed?", "options": ["yes", "no"], "label": 0}]
@@ -270,7 +271,7 @@ def test_server_recovers_when_a_pass_runs_out_of_memory():
     enc = lambda r: m.encode(tok, r, max_state=SERVE_MAX_STATE, max_branch=SERVE_MAX_BRANCH)
     n = enc(target)["seg"].count(0)
     assert cuda_graphs.GRAPH_STATE < n <= cuda_graphs.BANK_WIDTH, n
-    total = torch.cuda.get_device_properties(0).total_memory
+    total = torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory
     s = Server(ck, tok, m, "cuda")
     attempts = []   # per probs_batch call: [bytes allocated when it starts, the type of the exception it raised or None]
     def probs_batch(self, *a):   # keeps only the type: an exception kept would keep its pass's tensors
