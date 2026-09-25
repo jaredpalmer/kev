@@ -4,9 +4,19 @@ TRIAL_CPU, TRIAL_MEMORY = 4, (65536, 196608)   # cores, (request, limit) MiB
 GPU_HOURLY = {"H100": 3.95, "H200": 4.54, "B200": 6.25, "T4": 0.59}   # USD per GPU hour
 # Full-weight trials (kev.train --full_ft, kev.full_ft). One GPU keeps the fp32 masters and AdamW moments in host memory:
 # 12 bytes per parameter, ~310 GB for a 27B, plus the staging buffers and the loader; the CPU runs the AdamW step. Several
-# GPUs (FSDP2) keep that state on the GPUs, and host memory only has to hold the gathered checkpoint rank 0 writes (~51 GB).
+# GPUs (FSDP2) keep that state on the GPUs; host memory holds the copy of it a resume point is written from in the
+# background (~307 GB over the ranks) and the gathered checkpoint rank 0 writes (~51 GB). Disk: the runs volume stages
+# what a container writes on its local disk, up to two resume points (the new one is complete before the old one goes)
+# and the checkpoint, beyond Modal's default 512 GiB quota.
 FULL_FT_SINGLE = 24, (368640, 409600)          # 360 / 400 GiB
-FULL_FT_SHARDED = 16, (131072, 262144)         # 128 / 256 GiB
+FULL_FT_SHARDED = 16, (409600, 471040)         # 400 / 460 GiB
+FULL_FT_DISK = 1048576                         # MiB of ephemeral disk (1 TiB); Modal bills disk as memory at 20:1
+# A study's limits. Full-weight trials may run to Modal's 24 h cap per attempt and are retried after a timeout (each
+# retry continues from the trial's last resume point, kev.experiment.continue_trial), so their bound counts every attempt
+# and their budget cap covers one 8 x H200 day (a LoRA study keeps the $250 cap).
+MAX_TIMEOUT = {False: 28800, True: 86400}
+MAX_BUDGET = {False: 250, True: 1000}
+FULL_FT_RETRIES = 2
 
 
 def gpu_count(gpu):
@@ -20,11 +30,21 @@ def trial_resources(gpu, full_ft=False):
     return FULL_FT_SHARDED if gpu_count(gpu) > 1 else FULL_FT_SINGLE
 
 
-def compute_bound(gpu, timeout, trials, full_ft=False):
-    """The most `trials` containers of `gpu` ("H200", or "H200:8" for 8 in one container) can cost if each runs to
-    `timeout` seconds (GPU + CPU + memory rates, at the resources trial_resources gives them)."""
+def trial_disk(full_ft=False):
+    """ephemeral_disk (MiB) for one trial container; None keeps Modal's default."""
+    return FULL_FT_DISK if full_ft else None
+
+
+def hourly_rate(gpu, full_ft=False):
+    """USD per hour of one trial container of `gpu` ("H200", or "H200:8" for 8 in one container): GPU + CPU + memory at
+    the resources trial_resources gives it."""
     kind = gpu.partition(":")[0]
-    if kind not in GPU_HOURLY or timeout <= 0 or trials < 1 or gpu_count(gpu) < 1:
-        raise ValueError("invalid GPU, timeout, or trial count")
+    if kind not in GPU_HOURLY or gpu_count(gpu) < 1: raise ValueError(f"invalid GPU {gpu!r}")
     cpu, memory = trial_resources(gpu, full_ft)
-    return (GPU_HOURLY[kind] * gpu_count(gpu) + cpu * 0.04730 + memory[1] / 1024 * 0.008) * timeout / 3600 * trials
+    return GPU_HOURLY[kind] * gpu_count(gpu) + cpu * 0.04730 + (memory[1] + (trial_disk(full_ft) or 0) / 20) / 1024 * 0.008
+
+
+def compute_bound(gpu, timeout, trials, full_ft=False):
+    """The most `trials` containers can cost if each runs to `timeout` seconds, counting a full-weight trial's retries."""
+    if timeout <= 0 or trials < 1: raise ValueError("invalid GPU, timeout, or trial count")
+    return hourly_rate(gpu, full_ft) * timeout / 3600 * trials * (1 + FULL_FT_RETRIES if full_ft else 1)

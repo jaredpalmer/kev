@@ -57,14 +57,27 @@ log; all three skip names that already exist locally / on the volume.
   `uv run modal run --detach modal_app.py::benchmarks --jobs "jaredpalmer/kev-9b@evals/external/semif-v1@kev-9b-semif,/runs/X/00-trial-0/checkpoint@evals/v9/transfer-v9@x-v9@--date_facts"`
   Output pulled to `runs/<name>/report.json`. This is how the external evals (SemIf, MMLU-Pro sample) and delta benches were scored.
   Each job gets its suite's timeout (`modal_app.READ_TIMEOUTS`: long-state panels 7,200 s, documents 5,400 s, transfer-v9 3,600 s, else 1,800 s); `--timeout N` sets one for every job (a 27B's fp32 reads run about three times longer than a 9B's).
-- **Full-weight training probe** (`scripts/sft_probe.py`: ~1,000-token records built from decision-v7, `kev.train --full_ft 1` for
-  `--max_steps`, peak GPU / host memory, s/step, tokens/s, projected hours and dollars for 50k / 100k / 200k records, optional
-  bf16-vs-fp32 loader check on the checkpoint it writes to scratch disk):
-  `uv run modal run --detach modal_app.py::sft_probe --name <name> --gpu H200 --train "--batch 8 --accum 4 --max_steps 20 --row_budget 8192"`
-  (`--gpu H200:8 --train "--batch 4 --accum 4 --length_sort 1 ..."` runs FSDP2 under torchrun; `--row_budget` is one-GPU only;
-  without `--length_sort` eight ranks wait on whichever holds a long record). Report in `runs/sft-probe/<name>/report.json`.
-  Full-weight studies: plans set `full_ft: 1, weights_dtype: bf16`; `admit_study` asks for `kev.budget.trial_resources` (one GPU:
-  24 CPU, 360-400 GiB for the host-side masters; `--gpu H200:8`: 16 CPU, 128-256 GiB) and prices the bound per GPU.
+- **Full-weight training probe** (`scripts/sft_probe.py`: records shaped like the SFT corpus, from the token shapes in
+  `experiments/sft-v1-lengths.json` (`--flags "--mix all"` in the corpus's proportions, or one part: `public`, `components`,
+  `synthetic`), `kev.train --full_ft 1` for `--max_steps` (at least 12: OneCycleLR's 10 % warm-up must be a step long),
+  peak GPU / host memory, s/step, tokens/s, the hours and dollars of one and two epochs of that part of the corpus, the
+  seconds each resume point took to write to the runs volume (`--train "... --save_every_steps N"`), optional
+  bf16-vs-fp32 loader check on the checkpoint it writes to scratch disk; `--flags "--no_conv_kernel"` hides causal-conv1d
+  for an A/B): `uv run modal run --detach modal_app.py::sft_probe --name <name> --gpu H200:8 --flags "--mix all" --train "--batch 8 --accum 2 --length_sort 1 --max_steps 14"`
+  (`--gpu H200` runs one GPU with the masters in host memory and needs `--row_budget 8192`; without `--length_sort`
+  eight ranks wait on whichever holds a long record). `--detach`: a probe outlives a dropped connection (its report is
+  written to the volume either way). Report in `runs/sft-probe/<name>/report.json` (`modal volume get` it if the local
+  client died).
+  Full-weight studies: plans set `full_ft: 1, weights_dtype: bf16` (the trainer then shares each state across its
+  questions, `shared_prefix`, and writes a resume point every `kev.experiment.RESUME_MINUTES`); `admit_study` asks for
+  `kev.budget.trial_resources` (one GPU: 24 CPU, 360-400 GiB for the host-side masters; `--gpu H200:8`: 16 CPU,
+  128-256 GiB), allows `--timeout` up to 86,400 s and a $1,000 budget, and gives each trial `FULL_FT_RETRIES` Modal
+  retries: a timed-out trial is called again and continues from its last resume point (`kev.experiment.continue_trial`);
+  an attempt that raised writes `failed.json` and is not continued. The bound counts every attempt, so an 8 x H200 day is
+  `--timeout 28800` (three 8 h attempts, $939). `modal_app.py::resume --study <study> --suite <suite> --gpu H200:8` also continues unfinished
+  full-weight trials by hand.
+- **GPU-only tests** (they skip without CUDA): `uv run modal run modal_app.py::gpu_tests --tests "tests/test_model.py::test_shared_prefix_matches_rows" [--gpu H100]`.
+  The image has causal-conv1d, and transformers then sends even CPU tensors to its CUDA kernel, so CPU variants skip there.
 - **Does a new base fit?** (LoRA footprint, which modules it hits, peak GB, steady step time on two real records):
   `uv run modal run modal_app.py::smoke_base --base Qwen/X-Base --revision <sha> [--gpu H200]`
 - Always give the entrypoint (`::base_probe`, `::benchmarks`, `::smoke_base`): the file has several.

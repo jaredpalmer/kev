@@ -30,13 +30,19 @@ Title Case sections, API tables, Authors + License); model cards are formal.
     (frozen backbone; bf16 is required by the fused MoE experts of 35B-A3B).
   - full-weight: `--full_ft 1 --weights_dtype bf16` trains the whole text backbone (vision tower, LM head and MTP are never
     loaded) plus the head, with `kev.full_ft.MasterAdamW` (fp32 masters + moments; one GPU: in host memory, AutoJev's
-    technique; under `torchrun`: FSDP2 shards, state on the GPUs, the head replicated). `--row_budget N` (one GPU):
-    padded row tokens per forward/backward pass, a record whose rows do not fit is split by question (27B on one H200
-    needs 8192); `--length_sort 1` orders each step's records longest first across ranks (less padding, no rank waiting
-    on another's long record); `--max_steps N` stops early. `experiment.train_checkpoint` launches a full-weight trial
-    under torchrun on every GPU of its container (`--gpu H200:8`). 27B, ~1,000-token records (`runs/sft-probe/`): one
-    H200 `--batch 8 --accum 4 --row_budget 8192` 0.84 records/s; 8 H200 `--batch 4 --accum 4 --length_sort 1` 3.4
-    records/s (121 GB peak per GPU). Memory plan and projections: PR #122.
+    technique; under `torchrun`: FSDP2 shards, state on the GPUs, the head replicated). `--shared_prefix` (default on with
+    `--full_ft 1`; hybrid backbones) runs each record's state once and its question branches from it (`kev.shared_prefix`:
+    the DeltaNet recurrent and conv state and the attention keys/values of the state, functional, one checkpointed step per
+    layer), exact to the row form (tests/test_unit.py, tests/test_model.py). `--length_sort 1` deals each step's records
+    into micro-batches of neighbours in length balanced by padded cost (`--batch` becomes the average), so no rank waits
+    long on another. `--row_budget N` (one GPU): padded tokens per forward/backward pass, a record that does not fit is
+    split by question (27B on one H200 needs 8192). `--max_steps N` stops early. Resume: `--save_every_minutes M` /
+    `--save_every_steps N` write `<out>/resume` (fp32 masters + moments per rank, scheduler, RNG, data position; under
+    torchrun from a host copy in a background thread, the interval stretched so blocking stays under 5 %), `--resume 1`
+    continues bit for bit (same arguments and world size), `--stop_after N` exits after a step. Trials: see Studies.
+    27B, 8 H200, `--batch 8 --accum 2 --length_sort 1`, records shaped like the SFT corpus (`scripts/sft_probe.py --mix all`):
+    7.6 records/s, one epoch of the corpus (192k records) ≈ 7.1 h / $293, 71 GB peak per GPU (`runs/sft-probe/sft2-*`,
+    PR #125); one H200 (row form, PR #122) 0.84 records/s on ~1,000-token records.
   - Only one training process at a time: two on MPS slow each other ~10x.
 - Smoke: `uv run python -m kev.train --n_per_source 40 --accum 4 --out runs/smoke` (~1 min).
 - Benchmark (the eval path for everything current): `uv run python -m kev.benchmark --run <run dir | Hub id[@rev]>
@@ -50,7 +56,10 @@ Title Case sections, API tables, Authors + License); model cards are formal.
 - Studies: `kev.experiment --plan experiments/*.json --suite <suite> --out runs/<study>` runs config-only trials
   (allowlist + ranges in `experiment.py: DEFAULTS/CHOICES/validated_trial`, provenance, coverage/isolation gates,
   `results.jsonl` ledger, `--transfer <suite>` for an OOD read per trial, `--aggregate` to rank an existing directory,
-  `--resume` for interrupted trials, `--wait-pid` to queue behind a training job).
+  `--resume` for interrupted trials (evaluation; unfinished full-weight trials continue training from their resume point),
+  `--wait-pid` to queue behind a training job). A full-weight trial runs under torchrun on every GPU of its container,
+  writes a resume point every `experiment.RESUME_MINUTES` and is retried by Modal after a timeout (`kev.budget`:
+  `FULL_FT_RETRIES`, up to 24 h per attempt, $1,000 per study; the bound counts every attempt); each retry continues.
 - Rounds (every registered experiment since round 5): one spec per round, `experiments/rounds/r<N>.json`, committed before any
   training or read: studies (plan, GPU, timeout, budget), arms (`<size>-<label>`: trial + parent), parents (trial + where each
   of its reads lives), read tags -> suites (`--allow-test` for test panels, `locked_test` for the locked read), the rule
@@ -112,8 +121,9 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   access (`hf auth login` / `HF_TOKEN`; Modal images already carry a locally fetched copy under `evals/`) and raises a
   PermissionError naming the repo for everyone else; `tests/test_conventions.py` fails if such a suite tracks a partition.
 - Modal (default for anything beyond smoke): `modal_app.py`; `uv run modal run modal_app.py::{smoke,study,pull,resume,
-  locked_test,evaluate,base_probe,benchmarks,smoke_base,anchors,sft_probe}`; `uv run modal deploy modal_app.py` once so studies
-  survive a disconnect. Image = `uv_sync` of pyproject/uv.lock (Linux torch wheel is CUDA) + `kev/` + `evals/`; Volumes
+  locked_test,evaluate,base_probe,benchmarks,smoke_base,anchors,sft_probe,gpu_tests}`; `uv run modal deploy modal_app.py` once so studies
+  survive a disconnect. Image = `uv_sync` of pyproject/uv.lock (Linux torch wheel is CUDA) + fla, triton>=3.7.1 and the
+  causal-conv1d wheel (`--no-deps`, or it reinstalls torch's triton 3.4) + `kev/` + `evals/` + `tests/`; Volumes
   `kev-hf-cache` (HF_HOME) and `kev-runs` (trial outputs, pulled to `runs/<study>` then ranked by
   `kev.experiment --aggregate`). `KEV_GPU` picks the GPU type (H100 default; T4 for the free tier), `KEV_APP_NAME`
   isolates a research deployment, `worker_environment` propagates app/GPU/secret settings (a dependency list that

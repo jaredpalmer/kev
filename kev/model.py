@@ -330,10 +330,17 @@ class DecisionModel(nn.Module):
             out += [h[i, : len(row_ids)] for i, (row_ids, _) in enumerate(part)]
         return out
 
-    def forward_rows_batch(self, encs):
+    def forward_rows_batch(self, encs, shared_prefix=False):
         """Row form: every question of every record is one causal row = state tokens + its branch tokens. Returns the same
         nested logits as forward_batch. Exact isolation by construction (rows are independent); the state is recomputed
-        per row (Q x state tokens), which training accepts; serving uses the prefix cache instead."""
+        per row (Q x state tokens), which training accepts; serving uses the prefix cache instead. shared_prefix (training,
+        hybrid Qwen3.5): the same rows computed with each state run once and its branches continuing from it, gradients
+        included (kev.shared_prefix)."""
+        if shared_prefix:
+            from .shared_prefix import branch_hidden   # here, not at the top: the HF Space vendors model.py alone
+            splits = [rows_of(e) for e in encs]
+            return [[self.head(h[r["decide"]], h[torch.tensor(r["opts"], device=self.device)]) for h, r in zip(hs, rows)]
+                    for hs, (_, _, rows) in zip(branch_hidden(self.lm, splits, self.pad_id, self.device), splits)]
         rows, readouts = [], []   # one causal row per question; readouts[i] = (record, <decide> offset, option offsets)
         for b, e in enumerate(encs):
             S, Sp, brs = rows_of(e)
@@ -348,9 +355,10 @@ class DecisionModel(nn.Module):
         """Returns list of logits tensors, one per question."""
         return self.forward_batch([enc])[0]
 
-    def forward_batch(self, encs):
-        """List (per record) of lists (per question) of logits. Row form or packed block-causal mask, see rows_form."""
-        if self.rows_form(encs): return self.forward_rows_batch(encs)
+    def forward_batch(self, encs, shared_prefix=False):
+        """List (per record) of lists (per question) of logits. Row form or packed block-causal mask, see rows_form
+        (the packed mask already runs each state once; shared_prefix does that for the row form of a hybrid backbone)."""
+        if self.rows_form(encs): return self.forward_rows_batch(encs, shared_prefix and self.hybrid)
         hs = self.hidden_batch(encs)
         return [self._readout(hs[b], e) for b, e in enumerate(encs)]
 

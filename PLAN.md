@@ -197,11 +197,14 @@ Goals and open questions, not registered rounds; each becomes a spec and a PLAN 
    - Method: full-weight SFT against the current LoRA recipe on the same data, so method and data are separated (the
      AutoJev comparison confounds them). The trainer exists (`kev.train --full_ft 1`, PR #122; checkpoints are a
      `save_pretrained` bf16 backbone of 51 GB plus `head.pt`, loaded by the same `kev.checkpoint` path, fused kernels and
-     CUDA graphs included). Measured on Qwen3.8-27B with ~1,000-token records (`runs/sft-probe/`): one H200 with the fp32
-     masters in host memory runs 0.84 records/s (100k records ≈ 30 h, $268); 8 H200s with FSDP2 and length-balanced
-     micro-batches 3.4 records/s (≈ 7.5 h, $294). Neither fits 100k records plus the in-trial reads inside today's 8 h study
-     cap, and there is no resume yet. Open: the 27B served path at the release isolation tolerance, and the prefix-sharing
-     cost (the row form repeats a state once per question in training too).
+     CUDA graphs included). The follow-up (PR #125) added the shared prefix in training (each state once, its questions
+     from it; exact to the row form), micro-batches balanced by padded length, resume points (bit-identical continuation;
+     full-weight trials are retried after a timeout and continue) and 24 h full-weight studies. Measured on Qwen3.8-27B,
+     8 H200s, records shaped like the SFT corpus (`experiments/sft-v1-lengths.json`, `runs/sft-probe/sft2-*`): the whole
+     mix (public 94k + components 38k + synthetic 60k) at 7.6 records/s, one epoch ≈ 7.1 h and $293, two ≈ 14.1 h and
+     $582, before the in-trial reads; a resume point (~307 GB) blocks training ~23 s and writes in ~2.5 min behind it. The
+     synthetic part alone runs 7.3 records/s shared against 2.7 in the row form (same balanced batching). Open: the 27B
+     served path at the release isolation tolerance.
    - Calibration: fit the served temperature on a mixed development pool (decision-v7 + hard-v1 + devtools-v1) and gate on
      hard-set calibration, not only on easy rows (finding 5).
    - Evaluation: every existing short-state confirmation panel has been read at least once, so the round needs a new frozen

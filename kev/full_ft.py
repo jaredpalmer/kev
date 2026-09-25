@@ -17,12 +17,20 @@ bf16(master) back after each step. Where those 12 bytes per parameter live is th
 Gradients accumulate in bf16 over the micro-batches of a step, as AutoJev's did. The pointer head is small and fp32; it
 is replicated on every rank and its gradient summed across ranks before the step.
 """
+import copy
 import datetime
 import os
+import shutil
+import threading
+import time
+from pathlib import Path
 
 import torch
 import torch.distributed as dist
 from torch.optim.adamw import adamw
+
+from .device import sync
+from .suite import read_json, write_json
 
 SHARD_SIZE = "5GB"   # save_pretrained shards: model-00001-of-000NN.safetensors + model.safetensors.index.json
 
@@ -86,6 +94,26 @@ class MasterAdamW(torch.optim.Optimizer):
         buf.copy_(master); w.copy_(buf, non_blocking=True)
         self.uploads[slot] = torch.cuda.Event(); self.uploads[slot].record()
 
+    def state_dict(self):
+        """This rank's optimizer state for a resume point: the group hyperparameters (the lr scheduler moves them) and, per
+        parameter in order, its fp32 master, moments and step. The bf16 weights are not saved: they are bf16(master)."""
+        return {"groups": [{k: v for k, v in g.items() if k != "params"} for g in self.param_groups],
+                "state": [self.state[p] for g in self.param_groups for p in g["params"]]}
+
+    @torch.no_grad()
+    def load_state_dict(self, saved):
+        """Restore state_dict() in place (torch.optim.Optimizer's own would cast the fp32 masters to the parameters' bf16)
+        and write bf16(master) back into the weights, which reproduces them bit for bit."""
+        params = [p for g in self.param_groups for p in g["params"]]
+        if len(saved["state"]) != len(params) or len(saved["groups"]) != len(self.param_groups):
+            raise ValueError("resume point does not match this model's parameters")
+        for group, hyper in zip(self.param_groups, saved["groups"]): group.update(hyper)
+        for p, s in zip(params, saved["state"]):
+            for key, value in s.items():
+                if self.state[p][key].shape != value.shape: raise ValueError(f"resume point: {key} shape {tuple(value.shape)} for {tuple(self.state[p][key].shape)}")
+                self.state[p][key].copy_(value)
+            local(p).copy_(self.state[p]["master"])
+
     @torch.no_grad()
     def step(self):
         work = [(g, p) for g in self.param_groups for p in g["params"] if p.grad is not None]
@@ -142,6 +170,103 @@ def rank_share(items, rank, world):
     if world == 1: return items
     padded = items + items[: -len(items) % world]
     return padded[rank::world]
+
+
+def global_sum(values):
+    """Per-rank counters summed over the ranks (as they are on one process)."""
+    if not dist.is_initialized(): return values
+    total = torch.tensor(values, dtype=torch.float64, device="cuda" if dist.get_backend() == "nccl" else "cpu")
+    dist.all_reduce(total)
+    return total.tolist()
+
+
+# --- resume points ----------------------------------------------------------------------------------------------------
+
+LATEST = "latest.json"   # the resume point to continue from; written last (atomically) by rank 0, after every rank's file
+WRITE_SHARE = 0.05       # at most this share of wall time may block on writing resume points
+
+
+def save_due(step, every_steps, every_minutes, since, blocked):
+    """Whether to write a resume point after this optimizer step: every `every_steps` steps, or once `every_minutes`
+    have passed since `since`, stretched so the time training has blocked on writes (`blocked` seconds per point) stays
+    under WRITE_SHARE of the interval. Under torchrun rank 0's clock decides for every rank."""
+    interval = max(60 * every_minutes, blocked / WRITE_SHARE)
+    due = bool(every_steps and step % every_steps == 0) or bool(every_minutes and time.time() - since >= interval)
+    if not dist.is_initialized(): return due
+    flag = torch.tensor(float(due), device="cuda" if dist.get_backend() == "nccl" else "cpu")
+    dist.broadcast(flag, 0)
+    return bool(flag)
+
+
+class ResumeWriter:
+    """Writes resume points: each rank's optimizer state (its shard's fp32 masters and moments), the lr scheduler and the
+    RNG states to `step-N/rank<r>.pt`, then rank 0's `latest.json` with the position (the data order, counters, the
+    arguments it must be resumed with), then removes earlier points. A 27B's state is ~307 GB and the runs volume writes it
+    at well under 1 GB/s, so where the state lives on the GPUs (FSDP2) `save` copies it to host memory and a thread
+    writes it while training goes on (the next `save`, and `wait`, join it first); where it already lives in host memory
+    (one GPU, offload) there is no room for a copy and `save` writes it before returning."""
+
+    def __init__(self, resume_dir, background):
+        self.dir, self.background, self.thread, self.host, self.error = Path(resume_dir), background, None, None, None
+        self.seconds = []   # how long each point took to write, in the background or not
+        self.rank, self.world = (dist.get_rank(), dist.get_world_size()) if dist.is_initialized() else (0, 1)
+
+    def save(self, step, opt, sched, position):
+        self.wait()
+        state = opt.state_dict()
+        if self.background:   # host copies, allocated once and reused, so the optimizer may move on
+            tensors = [t for s in state["state"] for t in s.values()]
+            if self.host is None: self.host = [torch.empty(t.shape, dtype=t.dtype, device="cpu") for t in tensors]
+            for h, t in zip(self.host, tensors): h.copy_(t, non_blocking=True)
+            sync(tensors[0].device.type)
+            copies = iter(self.host)
+            state = {"groups": state["groups"], "state": [{k: next(copies) for k in s} for s in state["state"]]}
+        rng = {"torch": torch.get_rng_state(), "cuda": torch.cuda.get_rng_state() if torch.cuda.is_initialized() else None}
+        payload = {"optimizer": state, "scheduler": copy.deepcopy(sched.state_dict()), "rng": rng}
+        if self.background:
+            self.thread = threading.Thread(target=self._write, args=(step, payload, position), daemon=True); self.thread.start()
+        else:
+            self._write(step, payload, position)
+
+    def wait(self):
+        """Join the background write; its error, if any, is raised here."""
+        if self.thread is not None: self.thread.join(); self.thread = None
+        if self.error is not None: raise RuntimeError("writing the resume point failed") from self.error
+
+    def _write(self, step, payload, position):
+        started = time.time()
+        try: self._write_point(step, payload, position); self.seconds.append(round(time.time() - started, 1))
+        except BaseException as error:
+            self.error = error
+            if not self.background: raise
+
+    def _write_point(self, step, payload, position):
+        target = self.dir / f"step-{step:07d}"
+        target.mkdir(parents=True, exist_ok=True)
+        torch.save(payload, target / f".rank{self.rank}.pt.tmp")
+        os.replace(target / f".rank{self.rank}.pt.tmp", target / f"rank{self.rank}.pt")
+        if self.rank: return
+        while not all((target / f"rank{r}.pt").exists() for r in range(self.world)): time.sleep(2)   # the ranks share one filesystem
+        write_json(self.dir / LATEST, {"dir": target.name, "step": step, **position}, atomic=True)
+        for old in self.dir.glob("step-*"):   # only earlier points: a rank done with this one may have started the next
+            if int(old.name.removeprefix("step-")) < step: shutil.rmtree(old)
+
+
+def load_resume(resume_dir, opt, sched, args):
+    """-> the saved position (or None when there is no resume point), after restoring this rank's optimizer state, the
+    weights, the scheduler and the RNG states. Refuses a point written with other arguments or another world size."""
+    resume_dir = Path(resume_dir)
+    if not (resume_dir / LATEST).exists(): return None
+    position = read_json(resume_dir / LATEST)
+    world, rank = dist.get_world_size() if dist.is_initialized() else 1, dist.get_rank() if dist.is_initialized() else 0
+    if position["world"] != world or position["args"] != args:
+        changed = sorted(k for k in set(args) | set(position["args"]) if args.get(k) != position["args"].get(k))
+        raise ValueError(f"resume point {resume_dir} was written by {position['world']} rank(s) with other arguments: {changed or 'world size'}")
+    saved = torch.load(resume_dir / position["dir"] / f"rank{rank}.pt", map_location="cpu", mmap=True, weights_only=True)
+    opt.load_state_dict(saved["optimizer"]); sched.load_state_dict(saved["scheduler"])
+    torch.set_rng_state(saved["rng"]["torch"])
+    if saved["rng"]["cuda"] is not None: torch.cuda.set_rng_state(saved["rng"]["cuda"])
+    return position
 
 
 def save_backbone(lm, out):

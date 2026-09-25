@@ -1,50 +1,62 @@
 """Full-weight training probe: peak memory, seconds per optimizer step and throughput of `kev.train --full_ft 1` on
-realistic record lengths, the wall time and cost that implies for 50k / 100k / 200k records, and a loader check of the
-checkpoint it writes (bf16 and fp32 eval memory, their parity).
+records shaped like the SFT corpus, the wall time and cost that implies for one and two epochs of it, the time a resume
+point takes to write, and a loader check of the checkpoint it writes (bf16 and fp32 eval memory, their parity).
 
-    KEV_GPU=H200 uv run modal run modal_app.py::sft_probe --name sft-probe-27b-h200 --gpu H200 --train "--batch 1 --accum 32 ..."
-    python scripts/sft_probe.py --base Qwen/Qwen3.8-27B --revision <sha> --gpu H200 --out runs/x --train "..."   # on a GPU box
+    uv run modal run modal_app.py::sft_probe --name sft-probe-27b-8xh200-all --gpu H200:8 --mix all --train "--batch 4 --accum 4 --length_sort 1 ..."
+    python scripts/sft_probe.py --base Qwen/Qwen3.8-27B --revision <sha> --gpu H200 --out runs/x --mix synthetic --train "..."   # on a GPU box
 
-Data: decision-v7 training records whose states are lengthened, by appending other training records' states, to a
-length drawn per record (60 % as they are, 30 % 1.2-1.8k tokens, 10 % 3k tokens up to kev.model.MAX_TRAIN_STATE), so a
-record averages about 1,000 tokens with a tail at the longest state Kev trains on. Record tokens are the packed encoding
-(the state once); forward tokens are what the row form runs (the state once per question, kev.model.rows_of).
-Throughput is measured after the first `--warmup` steps (Triton autotuning, allocator growth). Writes report.json.
+Data: `experiments/sft-v1-lengths.json` holds token shapes (state tokens, branch tokens of each question) sampled from
+the three parts of the private SFT corpus, counts only. A probe record draws a shape (from one part with `--mix <part>`,
+or from all three in the corpus's proportions with `--mix all`), fills its state with decision-v7 training text to that
+length and takes, for each question, the decision-v7 question whose branch is nearest in length. Record tokens are the
+packed encoding, the state once, which is also what a shared prefix runs (kev.shared_prefix); row tokens are what the
+row form runs (the state once per question). Throughput is the mean step after `--warmup` steps.
+`--no_conv_kernel` hides causal-conv1d from the trainer (transformers then runs its PyTorch convolution), for an A/B.
+Writes report.json.
 """
-import argparse, copy, os, random, shlex, statistics, subprocess, sys, threading, time
+import argparse, bisect, os, random, shlex, statistics, subprocess, sys, threading, time
 from pathlib import Path
 
 import torch
 
 from kev.api import render
-from kev.budget import GPU_HOURLY, compute_bound, gpu_count
+from kev.budget import GPU_HOURLY, gpu_count, hourly_rate
 from kev.checkpoint import Checkpoint, LoadOptions
 from kev.data import materialize
 from kev.device import allocated_bytes, empty_cache
 from kev.model import MAX_TRAIN_STATE, encode, load_tokenizer, rows_of, training_context
 from kev.suite import load_split, read_json, write_json, write_jsonl
 
-SUITE = Path(__file__).resolve().parents[1] / "evals/v7/decision-v7"
-CORPUS = (50_000, 100_000, 200_000)   # records of ~1,000 tokens each: the SFT corpus sizes being planned
+ROOT = Path(__file__).resolve().parents[1]
+SUITE, PROFILE = ROOT / "evals/v7/decision-v7", ROOT / "experiments/sft-v1-lengths.json"
 
 
-def build(tok, n, seed):
-    """-> (labelled requests, per-record (record tokens, forward tokens, questions))."""
-    pool, rng, context = load_split(SUITE, "train"), random.Random(seed), training_context(MAX_TRAIN_STATE)
-    count = lambda text: len(tok(text, add_special_tokens=False).input_ids)
+def build(tok, n, seed, mix):
+    """-> (labelled requests, per record (record tokens, row tokens, questions), records in the corpus part(s)), shaped like `mix`."""
+    profile, rng, context = read_json(PROFILE), random.Random(seed), training_context(MAX_TRAIN_STATE)
+    parts = list(profile["parts"]) if mix == "all" else [mix]
+    pool = load_split(SUITE, "train")
+    shape_of = lambda r: rows_of(encode(tok, materialize(r), max_state=context["max_state"], max_branch=context["max_branch"]))
+    questions = sorted(((len(shape_of({"state": "", "questions": {"q": q}})[2][0]["ids"]), i, j), q) for i, r in enumerate(pool) for j, q in enumerate(r["questions"].values()))
+    lengths = [key[0] for key, _ in questions]
+
+    def nearest(b):   # a question of the available length closest to b, at random among those of that length
+        at = bisect.bisect_left(lengths, b)
+        length = min(lengths[max(at - 1, 0):at + 1], key=lambda n: abs(n - b))
+        return questions[rng.randrange(bisect.bisect_left(lengths, length), bisect.bisect_right(lengths, length))][1]
+    text = "\n\n".join(render(r["state"]) for r in rng.sample(pool, 400))
+    words = tok(text, add_special_tokens=False).input_ids
     out, stats = [], []
-    for i in rng.sample(range(len(pool)), n):
-        r = copy.deepcopy(pool[i]); u = rng.random()
-        target = 0 if u < 0.6 else rng.randint(1200, 1800) if u < 0.9 else rng.randint(3000, MAX_TRAIN_STATE - 300)
-        if target:
-            state = render(r["state"])
-            while count(state) < target: state += "\n\n" + render(pool[rng.randrange(len(pool))]["state"])
-            r["state"] = tok.decode(tok(state, add_special_tokens=False).input_ids[:target])
-        try: enc = encode(tok, materialize(r), max_state=context["max_state"], max_branch=context["max_branch"], strict=True)
-        except ValueError: continue
-        S, _, rows = rows_of(enc)
-        out.append(r); stats.append((len(enc["ids"]), sum(len(S) + len(row["ids"]) for row in rows), len(rows)))
-    return out, stats
+    for i in range(n):
+        part = rng.choices(parts, weights=[profile["records"][p] for p in parts])[0]
+        state, branches = rng.choice(profile["parts"][part]["shapes"])
+        start = rng.randrange(len(words) - state)
+        picks = [nearest(b) for b in branches]
+        r = {"state": tok.decode(words[start:start + max(state - 1, 1)]), "questions": {f"q{j}": q for j, q in enumerate(picks)},
+             "_meta": {"source": "probe", "id": f"probe/{i}", "part": part}}
+        S, _, rows = shape_of(r)
+        out.append(r); stats.append((len(S) + sum(len(x["ids"]) for x in rows), sum(len(S) + len(x["ids"]) for x in rows), len(rows)))
+    return out, stats, sum(profile["records"][p] for p in parts)
 
 
 class GpuMemory(threading.Thread):
@@ -77,35 +89,42 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", required=True); ap.add_argument("--revision", required=True)
     ap.add_argument("--out", required=True); ap.add_argument("--gpu", required=True, help="the Modal GPU spec this runs on (H200, H200:8): prices the projections")
+    ap.add_argument("--mix", default="all", help="a part of experiments/sft-v1-lengths.json, or all (the corpus's proportions)")
     ap.add_argument("--records", type=int, default=2000); ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--train", default="", help="extra kev.train arguments (batch, accum, max_steps, lr, row_budget, ...)")
+    ap.add_argument("--train", default="", help="extra kev.train arguments (batch, accum, max_steps, lr, row_budget, shared_prefix, save_every_steps, ...)")
     ap.add_argument("--warmup", type=int, default=3); ap.add_argument("--check_load", type=int, default=0, help="questions for the bf16/fp32 loader check (0 = skip)")
+    ap.add_argument("--resume_dir", default="", help="write the resume points here (e.g. on the runs volume, to time them) instead of the scratch checkpoint")
+    ap.add_argument("--no_conv_kernel", action="store_true")
     a = ap.parse_args()
     out = Path(a.out); out.mkdir(parents=True)
     tok = load_tokenizer(a.base, revision=a.revision)
-    recs, stats = build(tok, a.records, a.seed)
+    recs, stats, corpus = build(tok, a.records, a.seed, a.mix)
     write_jsonl(out / "probe.jsonl", recs)
-    record_tokens, forward_tokens = statistics.mean(s[0] for s in stats), statistics.mean(s[1] for s in stats)
-    data = {"records": len(recs), "record_tokens_mean": record_tokens, "record_tokens_p50": statistics.median(s[0] for s in stats),
-            "record_tokens_max": max(s[0] for s in stats), "forward_tokens_mean": forward_tokens, "questions_mean": statistics.mean(s[2] for s in stats)}
+    mean = lambda i: statistics.mean(s[i] for s in stats)
+    data = {"mix": a.mix, "records": len(recs), "record_tokens_mean": mean(0), "record_tokens_max": max(s[0] for s in stats), "row_tokens_mean": mean(1),
+            "questions_mean": mean(2), "corpus_records": corpus}
     print(data, flush=True)
 
-    gpus = gpu_count(a.gpu)
+    env, gpus = {**os.environ, "PYTHONUNBUFFERED": "1"}, gpu_count(a.gpu)
+    if a.no_conv_kernel:   # an importable stub that raises makes transformers fall back, as without the package
+        (out / "stub/causal_conv1d").mkdir(parents=True); (out / "stub/causal_conv1d/__init__.py").write_text("raise ImportError('hidden by sft_probe')\n", encoding="utf-8")
+        env["PYTHONPATH"] = f"{out / 'stub'}:{env.get('PYTHONPATH', '')}"
+    if a.resume_dir:   # the trainer writes <out>/resume; point it at the requested directory
+        (out / "checkpoint").mkdir(); (out / "checkpoint/resume").symlink_to(a.resume_dir, target_is_directory=True)
     launcher = [sys.executable, "-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={gpus}"] if gpus > 1 else [sys.executable]
     cmd = [*launcher, "-m", "kev.train", "--base", a.base, "--base_revision", a.revision, "--data", str(out / "probe.jsonl"),
            "--full_ft", "1", "--weights_dtype", "bf16", "--dtype", "bf16", "--checkpointing", "1", "--device", "cuda",
-           "--max_state", str(MAX_TRAIN_STATE), "--out", str(out / "checkpoint"), *shlex.split(a.train)]
+           "--max_state", str(MAX_TRAIN_STATE), "--out", str(out / "checkpoint"), *(["--resume", "1"] if a.resume_dir else []), *shlex.split(a.train)]
     memory = GpuMemory(); memory.start(); started = time.time()
-    with (out / "train.log").open("w", encoding="utf-8") as log, subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as proc:
+    with (out / "train.log").open("w", encoding="utf-8") as log, subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env) as proc:
         for line in proc.stdout:   # the whole log to train.log, progress to the container log
             log.write(line)
             if line.startswith(("ep", "device", "saved")) or "Error" in line: print(line.rstrip(), flush=True)
-    code = proc.returncode
     memory.running = False
-    if code: raise SystemExit(f"kev.train failed ({code}); see {out / 'train.log'}")
+    if proc.returncode: raise SystemExit(f"kev.train failed ({proc.returncode}); see {out / 'train.log'}")
     metrics = read_json(out / "checkpoint/training_metrics.json")
-    report = {"gpu": a.gpu, "base": a.base, "revision": a.revision, "train_args": a.train, "data": data, "warmup": a.warmup,
-              "fixed_overhead_seconds": round((time.time() - started) - sum(metrics["step_seconds"])),   # load, optimizer setup, save
+    report = {"gpu": a.gpu, "base": a.base, "revision": a.revision, "train_args": a.train, "conv_kernel": not a.no_conv_kernel, "data": data, "warmup": a.warmup,
+              "fixed_overhead_seconds": round((time.time() - started) - sum(metrics["step_seconds"]) - sum(metrics["resume_seconds"])),   # load, optimizer setup, save
               "peak_nvidia_smi_gb": round(memory.peak / 1024, 1), "training_metrics": metrics}
     report.update(throughput(report))
     if a.check_load: report["load_check"] = load_check(str(out / "checkpoint"), recs, a.check_load)
@@ -115,19 +134,19 @@ def main():
 
 def throughput(report):
     """The derived numbers of a report: the mean steady step (after `warmup` steps; the mean, not the median, because the
-    slow steps are the long records a real run also meets), rates, memory, and the projections: n records of 1,000 record
-    tokens at the measured record-token rate (so at the probe's questions per record) plus the fixed overhead."""
+    slow steps are the long records a real run also meets), rates, memory, and the projections for one and two epochs of
+    the corpus part(s) the mix draws from (`corpus_records` records at the measured records/s, plus the fixed overhead)."""
     metrics, data, gpu = report["training_metrics"], report["data"], report["gpu"]
     per_step = statistics.mean(metrics["step_seconds"][report["warmup"]:] or metrics["step_seconds"])
     records_per_step = metrics["records_seen"] / metrics["optimizer_steps"]
-    rate, hourly = records_per_step / per_step, compute_bound(gpu, 3600, 1, full_ft=True)
-    seconds = lambda n: n * 1000 / (rate * data["record_tokens_mean"]) + report["fixed_overhead_seconds"]
+    rate, hourly = records_per_step / per_step, hourly_rate(gpu, full_ft=True)
+    hours = lambda epochs: (epochs * data["corpus_records"] / rate + report["fixed_overhead_seconds"]) / 3600
     return {"seconds_per_step": per_step, "records_per_step": records_per_step, "records_per_second": rate,
-            "record_tokens_per_second": rate * data["record_tokens_mean"], "forward_tokens_per_second": rate * data["forward_tokens_mean"],
-            "optimizer_seconds_per_step": metrics["optimizer_seconds"] / metrics["optimizer_steps"],
+            "record_tokens_per_second": rate * data["record_tokens_mean"], "row_tokens_per_second": rate * data["row_tokens_mean"],
+            "optimizer_seconds_per_step": metrics["optimizer_seconds"] / metrics["optimizer_steps"], "resume_blocking_seconds": metrics["resume_seconds"], "resume_write_seconds": metrics.get("resume_write_seconds", []),
             "peak_allocated_gb_rank0": round(metrics["peak_device_bytes"] / 1e9, 1), "peak_host_rss_gb_rank0": round(metrics["peak_rss_bytes"] / 1e9, 1),
             "usd_per_hour": round(hourly, 2), "gpu_usd_per_hour": GPU_HOURLY[gpu.partition(":")[0]] * gpu_count(gpu),
-            "projections_1000_token_records": {n: {"hours": round(seconds(n) / 3600, 2), "usd": round(seconds(n) / 3600 * hourly, 2)} for n in CORPUS}}
+            "projections": {f"{e} epoch{'s' * (e > 1)}": {"records": e * data["corpus_records"], "hours": round(hours(e), 2), "usd": round(hours(e) * hourly, 2)} for e in (1, 2)}}
 
 
 if __name__ == "__main__":

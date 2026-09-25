@@ -1,0 +1,76 @@
+{
+  "gpu": "H200:8",
+  "base": "Qwen/Qwen3.8-27B",
+  "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "train_args": "--batch 1 --accum 16 --length_sort 1 --max_steps 14 --lr 1e-5 --shared_prefix 0",
+  "conv_kernel": true,
+  "data": {
+    "mix": "synthetic",
+    "records": 2000,
+    "record_tokens_mean": 1484.312,
+    "record_tokens_max": 6945,
+    "row_tokens_mean": 4322.166,
+    "questions_mean": 2.7555,
+    "corpus_records": 60000
+  },
+  "warmup": 3,
+  "fixed_overhead_seconds": 178,
+  "peak_nvidia_smi_gb": 95.3,
+  "training_metrics": {
+    "wall_seconds": 731.7607545852661,
+    "records_seen": 1792,
+    "requested_records": 2000,
+    "truncated_records": 0,
+    "rejected_records": 0,
+    "optimizer_steps": 14,
+    "forward_tokens": 3041448,
+    "step_seconds": [
+      67.382,
+      57.8,
+      49.667,
+      57.117,
+      47.336,
+      53.313,
+      49.71,
+      56.514,
+      50.507,
+      51.576,
+      48.692,
+      45.555,
+      49.299,
+      47.293
+    ],
+    "optimizer_seconds": 2.394737482070923,
+    "resume_seconds": [],
+    "world_size": 8,
+    "weights": "full",
+    "peak_device_bytes": 89070690816,
+    "device": "cuda",
+    "dtype": "bf16",
+    "batch": 1,
+    "peak_rss_bytes": 61388230656
+  },
+  "seconds_per_step": 50.62836363636364,
+  "records_per_step": 128.0,
+  "records_per_second": 2.5282270807596174,
+  "record_tokens_per_second": 3752.677794696469,
+  "row_tokens_per_second": 10927.417128738472,
+  "optimizer_seconds_per_step": 0.1710526772907802,
+  "resume_write_seconds": [],
+  "peak_allocated_gb_rank0": 89.1,
+  "peak_host_rss_gb_rank0": 61.4,
+  "usd_per_hour": 39.12,
+  "gpu_usd_per_hour": 36.32,
+  "projections": {
+    "1 epoch": {
+      "records": 60000,
+      "hours": 6.64,
+      "usd": 259.85
+    },
+    "2 epochs": {
+      "records": 120000,
+      "hours": 13.23,
+      "usd": 517.77
+    }
+  }
+}

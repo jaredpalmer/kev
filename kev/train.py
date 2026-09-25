@@ -10,7 +10,7 @@ whole backbone instead (kev.full_ft: bf16 weights, fp32 masters; several GPUs th
 Batch size is small (variable-length records with custom masks) and gradients are accumulated over --accum micro-batches
 (per rank: a step sees accum x batch x world size records).
 """
-import argparse, contextlib, json, math, os, random, resource, sys, time
+import argparse, contextlib, json, math, os, random, resource, shutil, sys, time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -149,46 +149,95 @@ class Variant:
         return len(self.enc["ids"]) + (len(self.permuted[0]["ids"]) if self.permuted else 0)
 
 
-def row_lengths(enc):
-    """The causal rows a hybrid backbone runs for this encoding: the state plus one question each (kev.model.rows_of)."""
+def shape(enc):
+    """(state tokens, branch tokens of each question) of an encoding (kev.model.rows_of)."""
     state, _, rows = rows_of(enc)
-    return [len(state) + len(r["ids"]) for r in rows]
+    return len(state), [len(r["ids"]) for r in rows]
 
 
-def question_parts(enc, budget):
-    """--row_budget: a record's questions in consecutive groups whose rows, padded to the group's longest, fit `budget`
-    tokens (a single row always fits: it is at most kev.model.MAX_TRAIN_STATE + a branch); one group without a budget."""
-    if not budget: return [list(range(len(enc["decide_idx"])))]
-    lengths, parts = row_lengths(enc), [[]]
-    for q, n in enumerate(lengths):
-        if parts[-1] and (len(parts[-1]) + 1) * max(n, *(lengths[i] for i in parts[-1])) > budget: parts.append([])
+def pass_tokens(shapes, shared):
+    """Padded tokens of one forward pass over records of these shapes: in the row form, rows x the longest row (the state
+    once per question); with a shared prefix (kev.shared_prefix), states x the longest state + branches x the longest branch."""
+    if shared: return len(shapes) * max(s for s, _ in shapes) + sum(len(b) for _, b in shapes) * max(x for _, b in shapes for x in b)
+    rows = [s + x for s, branches in shapes for x in branches]
+    return len(rows) * max(rows)
+
+
+def question_parts(enc, budget, shared):
+    """--row_budget: a record's questions in consecutive groups whose pass fits `budget` tokens (a single question always
+    fits: its row is at most kev.model.MAX_TRAIN_STATE + a branch); one group without a budget."""
+    state, branches = shape(enc)
+    if not budget: return [list(range(len(branches)))]
+    parts = [[]]
+    for q in range(len(branches)):
+        if parts[-1] and pass_tokens([(state, [branches[i] for i in parts[-1] + [q]])], shared) > budget: parts.append([])
         parts[-1].append(q)
     return parts
 
 
-def length_sorted_steps(reqs, per_step):
-    """--length_sort: each optimizer step's records (consecutive slices of `per_step`, over all ranks) ordered longest
-    first. A step still sees the same records (the same gradient up to summation order); only which micro-batch, and which
-    rank, carries which record changes. Length = the rows' characters (state once per question, plus the questions). FSDP2
-    ranks wait for the slowest at every layer, and the longest 10 % of records carry half the tokens: a 27B on 8 H200s
-    ran 2.3 records/s at batch 1 unsorted, 1.05 at batch 4 unsorted, 3.4 at batch 4 sorted (one H200: 0.84)."""
-    size = lambda r: len(json.dumps(r["state"], ensure_ascii=False)) * len(r["questions"]) + len(json.dumps(r["questions"], ensure_ascii=False))
-    return [r for i in range(0, len(reqs), per_step) for r in sorted(reqs[i:i + per_step], key=size, reverse=True)]
+def microbatch_plan(reqs, a, world, rank):
+    """This rank's micro-batches for one epoch of `reqs` (already shuffled), in order: (records, records in its optimizer
+    step over all ranks, whether that step ends after it). Every rank gets the same number of micro-batches (FSDP2's
+    collectives line up) and each record is seen once per epoch (the last step wraps around to fill every rank, as
+    full_ft.rank_share does).
+    Plain: `--batch` consecutive records of this rank's share per micro-batch, `--accum` micro-batches per step.
+    --length_sort 1: each step's records (batch x accum x world) are cut, in length order, into accum x world runs of
+    neighbours whose largest padded cost (pass_tokens) is as small as possible (sizes vary: one long record, or many short
+    ones), and the k-th micro-batch of every rank is one of the k-th costliest runs, so micro-batches pad little and the
+    ranks, which wait for the slowest at every layer, run similar loads. A step still sees the same records (the same
+    gradient up to summation order). Characters stand in for tokens (known before encoding). On the SFT corpus's shapes
+    (8 ranks, 128 records per step) the ranks' critical path is 1.4x the real tokens; plain length order, a fixed --batch
+    of neighbours, left it 4.3x (a few 6k-token states among many short public records)."""
+    if not a.length_sort:
+        mine = full_ft.rank_share(reqs, rank, world)
+        n = math.ceil(len(mine) / a.batch)
+        return [(mine[mb * a.batch:(mb + 1) * a.batch], world * accumulation_records(len(mine), a.batch, a.accum, mb), (mb + 1) % a.accum == 0 or mb + 1 == n)
+                for mb in range(n)]
+    shapes = {id(r): (len(json.dumps(r["state"], ensure_ascii=False)), [len(json.dumps(q, ensure_ascii=False)) for q in r["questions"].values()]) for r in reqs}
+    cost = lambda rs: pass_tokens([shapes[id(r)] for r in rs], a.shared_prefix)
+    plan, per_step = [], a.batch * a.accum * world
+    for start in range(0, len(reqs), per_step):
+        step = reqs[start:start + per_step]
+        m = math.ceil(len(step) / (world * a.batch))   # micro-batches per rank: accum, fewer in a short last step
+        step += step[:max(0, world * m - len(step))]    # so no micro-batch is empty
+        runs = sorted(balanced_runs(sorted(step, key=lambda r: cost([r]), reverse=True), world * m, cost), key=cost, reverse=True)
+        plan += [(runs[k * world + rank], len(step), k == m - 1) for k in range(m)]
+    return plan
 
 
-def row_passes(batch, budget):
-    """--row_budget: a micro-batch's variants in forward/backward passes of at most `budget` padded row tokens, longest
-    first; [batch] without a budget. The loss is a sum over variants (a split record's parts carry their share of its
-    mean), so the gradient is the same sum, but only one pass's activations are alive at a time: on one H200 a 27B's
+def balanced_runs(items, n, cost):
+    """`items` cut into exactly n consecutive non-empty runs, the costliest as cheap as a greedy cut allows (binary search
+    on the cap); when the cap leaves fewer runs, the costliest splittable run is halved until there are n."""
+    def cut(cap):
+        runs = [[]]
+        for item in items:
+            if runs[-1] and cost(runs[-1] + [item]) > cap: runs.append([])
+            runs[-1].append(item)
+        return runs
+    low, high = max(cost([item]) for item in items), cost(items)
+    while low < high:
+        mid = (low + high) // 2
+        if len(cut(mid)) <= n: high = mid
+        else: low = mid + 1
+    runs = cut(low)
+    while len(runs) < n:
+        run = max((r for r in runs if len(r) > 1), key=cost)
+        at = runs.index(run); runs[at:at + 1] = [run[:len(run) // 2], run[len(run) // 2:]]
+    return runs
+
+
+def row_passes(batch, budget, shared):
+    """--row_budget: a micro-batch's variants in forward/backward passes of at most `budget` padded tokens (pass_tokens),
+    longest first; [batch] without a budget. The loss is a sum over variants (a split record's parts carry their share of
+    its mean), so the gradient is the same sum, but only one pass's activations are alive at a time: on one H200 a 27B's
     bf16 weights and gradients leave ~35 GB; the first probe, with passes of up to 16k tokens, ran out of memory."""
     if not budget: return [batch]
-    passes = []   # [variants, rows, longest row]
-    for v in sorted(batch, key=lambda v: max(row_lengths(v.enc)), reverse=True):
-        lengths = row_lengths(v.enc)
-        if passes and (passes[-1][1] + len(lengths)) * passes[-1][2] <= budget:
-            passes[-1][0].append(v); passes[-1][1] += len(lengths)
+    passes = []   # [variants, their shapes]
+    for v in sorted(batch, key=lambda v: pass_tokens([shape(v.enc)], shared), reverse=True):
+        if passes and pass_tokens(passes[-1][1] + [shape(v.enc)], shared) <= budget:
+            passes[-1][0].append(v); passes[-1][1].append(shape(v.enc))
         else:
-            passes.append([[v], len(lengths), max(lengths)])
+            passes.append([[v], [shape(v.enc)]])
     return [p[0] for p in passes]
 
 
@@ -207,7 +256,7 @@ def encode_batch(model, tok, a, chunk, epoch):
             enc = model.encode(tok, rec, strict=True, **limits)
             if len(enc["ids"]) > c["max_packed"]:
                 raise ValueError(f"training request exceeds {c['max_packed']} packed tokens")
-            parts = question_parts(enc, a.row_budget)
+            parts = question_parts(enc, a.row_budget, a.shared_prefix)
             for part in parts:   # one part unless --row_budget splits a record whose rows do not fit one pass
                 sub = rec if len(parts) == 1 else {**rec, "questions": [rec["questions"][q] for q in part]}
                 out.append(Variant(sub, enc if sub is rec else model.encode(tok, sub, strict=True, **limits), req["_meta"]["id"], req["_meta"]["source"],
@@ -224,8 +273,8 @@ def batch_loss(model, a, batch, dev, anchors, anchor_sources, autocast):
     terms = Counter()
     permuted = [v for v in batch if v.permuted]
     with autocast:
-        logits_b = model.forward_batch([v.enc for v in batch])
-        logits2_b = model.forward_batch([v.permuted[0] for v in permuted]) if permuted else []
+        logits_b = model.forward_batch([v.enc for v in batch], a.shared_prefix)
+        logits2_b = model.forward_batch([v.permuted[0] for v in permuted], a.shared_prefix) if permuted else []
     loss = 0.0
     for v, logits in zip(batch, logits_b):
         ce = sum(question_loss(z.float(), q, dev, a.ord_w, a.label_smoothing, a.brier_w, a.focal_gamma)
@@ -296,10 +345,18 @@ def parse_args():
                                                                           "needs --weights_dtype bf16. One GPU: masters in host memory. Under torchrun: FSDP2 across the GPUs")
     ap.add_argument("--row_budget", type=int, default=0, help="padded row tokens per forward/backward pass (0 = the whole micro-batch at once); a micro-batch over it "
                                                               "runs in several passes, a record whose rows do not fit is split by question (long states x many questions)")
-    ap.add_argument("--length_sort", type=int, choices=[0, 1], default=0, help="order each optimizer step's records by length before cutting micro-batches (less padding when --batch > 1; same records per step)")
+    ap.add_argument("--shared_prefix", type=int, choices=[0, 1], default=None, help="hybrid backbones: run each record's state once and its question branches from it "
+                                                                                  "(kev.shared_prefix; exact) instead of one row per question; default on with --full_ft 1, off otherwise")
+    ap.add_argument("--length_sort", type=int, choices=[0, 1], default=0, help="deal each optimizer step's records into micro-batches balanced by padded length "
+                                                                               "(--batch becomes the average; same records per step; see microbatch_plan)")
     ap.add_argument("--max_steps", type=int, default=0, help="stop after this many optimizer steps (0 = every epoch); the lr schedule spans them")
+    ap.add_argument("--save_every_steps", type=int, default=0, help="full-weight: write a resume point (<out>/resume) every N optimizer steps")
+    ap.add_argument("--save_every_minutes", type=float, default=0, help="full-weight: write a resume point once this many minutes have passed since the last")
+    ap.add_argument("--resume", type=int, choices=[0, 1], default=0, help="full-weight: continue from <out>/resume if it holds a resume point (same arguments), else start")
+    ap.add_argument("--stop_after", type=int, default=0, help="full-weight: exit after this optimizer step without saving the checkpoint (a run split across containers; tests)")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
+    if a.shared_prefix is None: a.shared_prefix = a.full_ft
     if min(a.epochs, a.accum, a.n_per_source, a.lora, a.batch, a.synthetic_repeat) < 1 or not 0 < a.public_frac <= 1:
         ap.error("epochs, accum, n_per_source, lora, batch and synthetic_repeat must be positive; 0 < public_frac <= 1")
     if a.dtype == "bf16" and a.device != "cuda":
@@ -322,9 +379,15 @@ def parse_args():
     if a.row_budget and (a.perm_kl > 0 or int(os.environ.get("WORLD_SIZE", "1")) > 1):
         ap.error("--row_budget splits micro-batches into passes: not with --perm_kl (a record and its permuted copy share a loss term), "
                  "nor under torchrun (FSDP2 ranks must run the same number of backward passes; sharded ranks have the memory without it)")
-    if Path(a.out).exists() and os.environ.get("RANK", "0") == "0":   # under torchrun rank 0 creates it; the others would race it
+    if (a.save_every_steps or a.save_every_minutes or a.resume or a.stop_after) and not a.full_ft:
+        ap.error("resume points are for full-weight runs (--full_ft 1)")
+    if Path(a.out).exists() and not a.resume and os.environ.get("RANK", "0") == "0":   # under torchrun rank 0 creates it; the others would race it
         ap.error("refusing to overwrite an existing run")
     return a
+
+
+RESUME_KNOBS = ("resume", "save_every_steps", "save_every_minutes", "stop_after")   # may differ between a run and its continuation
+RESUMED = ("step", "seen", "tokens_seen", "peak_mem", "optimizer_seconds", "step_seconds", "elapsed", "epoch", "microbatch")   # counters a resume point carries
 
 
 def pinned_revision(a, manifest):
@@ -344,7 +407,7 @@ def main():
     rank, world = full_ft.init_distributed(dev) if a.full_ft else (0, 1)   # torchrun: each rank's "cuda" is its own GPU
     out_dir = Path(a.out)
     if rank: sys.stdout = open(os.devnull, "w", encoding="utf-8")   # one log: rank 0's (errors still reach stderr)
-    else: out_dir.mkdir(parents=True)
+    else: out_dir.mkdir(parents=True, exist_ok=bool(a.resume))
     torch.manual_seed(a.seed); rng = random.Random(a.seed)
     if dev == "cuda":
         torch.backends.cuda.matmul.allow_tf32 = True; torch.backends.cudnn.allow_tf32 = True
@@ -388,29 +451,37 @@ def main():
               {"params": head_params, "lr": a.head_lr or a.lr}]
     # full weights: one GPU keeps the fp32 masters and moments in host memory; FSDP2 ranks keep their shard's on the GPU
     opt = full_ft.MasterAdamW(groups, lr=a.lr, weight_decay=a.weight_decay, offload=world == 1) if a.full_ft else torch.optim.AdamW(groups, lr=a.lr, weight_decay=a.weight_decay)
-    micro_per_epoch = math.ceil(len(full_ft.rank_share(reqs, rank, world)) / a.batch)
-    steps = a.epochs * math.ceil(micro_per_epoch / a.accum)
+    per_epoch = microbatch_plan(reqs, a, world, rank)   # counts only: they depend on len(reqs), not on the shuffle
+    steps = a.epochs * sum(ends for _, _, ends in per_epoch)
     steps = min(steps, a.max_steps) if a.max_steps else steps
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=[a.lr, a.head_lr or a.lr], total_steps=max(steps, 1), pct_start=0.1)
-    model.train(); t0 = last = time.time(); run = Counter(); step = seen = tokens_seen = peak_mem = optimizer_seconds = 0; step_seconds = []
+    step = seen = tokens_seen = peak_mem = optimizer_seconds = elapsed = start_epoch = start_mb = 0; step_seconds, resume_seconds = [], []; run = Counter()
+    resume_dir, resume_args = out_dir / "resume", {k: v for k, v in vars(a).items() if k not in RESUME_KNOBS}
+    position = full_ft.load_resume(resume_dir, opt, sched, resume_args) if a.resume else None
+    if position:
+        step, seen, tokens_seen, peak_mem, optimizer_seconds, step_seconds, elapsed, start_epoch, start_mb = (position[k] for k in RESUMED)
+        seen, tokens_seen = seen / world, tokens_seen / world   # saved as sums over the ranks (global_sum below adds them back)
+        run = Counter(position["run"])
+        print(f"resumed from {resume_dir / position['dir']}: step {step}, epoch {start_epoch}, micro-batch {start_mb}", flush=True)
+    writer = full_ft.ResumeWriter(resume_dir, background=world > 1) if a.full_ft else None   # FSDP2: state on the GPUs, written from a host copy
+    model.train(); t0, last, saved_at, stopped = time.time() - elapsed, time.time(), time.time(), False
     for ep in range(a.epochs):
         rng.shuffle(reqs)
-        # every record once per epoch across the ranks (all of them on one GPU); sorted, each rank's k-th micro-batch holds
-        # the k-th longest records of the step, so no micro-batch pads much and no rank waits long for the slowest one
-        mine = full_ft.rank_share(length_sorted_steps(reqs, a.batch * a.accum * world) if a.length_sort else reqs, rank, world)
-        for mb in range(micro_per_epoch):
-            chunk = mine[mb * a.batch : (mb + 1) * a.batch]
+        if ep < start_epoch: continue   # the finished epochs' shuffles are replayed, so the interrupted epoch's order returns
+        plan = microbatch_plan(reqs, a, world, rank)   # every record once per epoch across the ranks (all of them on one GPU)
+        for mb in range(start_mb if ep == start_epoch else 0, len(plan)):
+            chunk, step_records, ends_step = plan[mb]
             batch = encode_batch(model, tok, a, chunk, ep)
             variants = sum(v.share for v in batch)   # a record split by --row_budget counts once
             # weight by source records in the accumulation group (over all ranks) so none-pair siblings do not inflate a record's share
-            group_records = world * accumulation_records(len(mine), a.batch, a.accum, mb) * (variants / len(chunk))
-            for part in row_passes(batch, a.row_budget):
+            group_records = step_records * (variants / len(chunk))
+            for part in row_passes(batch, a.row_budget, a.shared_prefix):
                 loss, terms = batch_loss(model, a, part, dev, anchors, anchor_sources, autocast)
                 (loss / group_records).backward()
                 run += terms
             run["n"] += variants; seen += round(variants); tokens_seen += sum(v.tokens for v in batch)
             peak_mem = max(peak_mem, allocated_bytes(dev))
-            if (mb + 1) % a.accum == 0 or mb + 1 == micro_per_epoch:
+            if ends_step:
                 if not a.full_ft: torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), 1.0)   # MasterAdamW clips by the global norm itself
                 started = time.time(); opt.step(); sync(dev); optimizer_seconds += time.time() - started
                 sched.step(); opt.zero_grad(); step += 1
@@ -420,18 +491,28 @@ def main():
                     print(f"ep{ep} step {step}/{steps} loss {run['ce']/run['n']:.3f} kl {run['kl']/max(run['kl_n'],1):.3f} anchor {run['anchor']/max(run['anchor_n'],1):.3f} {(time.time()-t0)/seen:.3f}s/rec", flush=True)
                     run = Counter()
                 if step == steps: break
-        if step == steps: break
+                if a.full_ft and full_ft.save_due(step, a.save_every_steps, a.save_every_minutes, saved_at, max(resume_seconds, default=0)):
+                    values = (step, *full_ft.global_sum([seen, tokens_seen]), peak_mem, optimizer_seconds, step_seconds, time.time() - t0, ep, mb + 1)
+                    writer.save(step, opt, sched, {**dict(zip(RESUMED, values)), "run": dict(run), "world": world, "args": resume_args})
+                    resume_seconds.append(round(time.time() - last, 3)); saved_at = last = time.time()   # the time training blocked, not part of the next step's
+                if step == a.stop_after: stopped = True; break
+        if step == steps or stopped: break
+    if writer: writer.wait()   # a resume point being written in the background is finished (and then superseded, or continued from)
+    if stopped:
+        print(f"stopped after step {step}; continue with --resume 1", flush=True); return
+    seen, tokens_seen = full_ft.global_sum([seen, tokens_seen])   # ranks' micro-batches differ in size under --length_sort
 
     wall = time.time() - t0
     if a.full_ft: full_ft.save_backbone(model.lm, a.out)   # every rank: FSDP2 gathers to rank 0
     else: model.lm.save_pretrained(a.out)
     if rank: return
+    shutil.rmtree(resume_dir, ignore_errors=True)   # the checkpoint supersedes it
     meta.head, meta.extra = model.head.state_dict(), {"args": vars(a), "suite_sha256": suite_hash, "init_source": init_source}
     write_meta(a.out, meta)
     tok.save_pretrained(a.out)
-    write_json(out_dir / "training_metrics.json", {"wall_seconds": wall, "records_seen": seen * world,
+    write_json(out_dir / "training_metrics.json", {"wall_seconds": wall, "records_seen": round(seen),
                "requested_records": a.epochs * len(reqs), "truncated_records": 0, "rejected_records": 0,
-               "optimizer_steps": step, "forward_tokens": tokens_seen * world, "step_seconds": step_seconds, "optimizer_seconds": optimizer_seconds, "world_size": world,
+               "optimizer_steps": step, "forward_tokens": round(tokens_seen), "step_seconds": step_seconds, "optimizer_seconds": optimizer_seconds, "resume_seconds": resume_seconds, "resume_write_seconds": writer.seconds if writer else [], "world_size": world,
                "weights": meta.weights, "peak_device_bytes": peak_mem, "device": dev, "dtype": a.dtype, "batch": a.batch,
                "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)})
     print("saved", a.out, flush=True)

@@ -1,0 +1,80 @@
+{
+  "gpu": "H200:8",
+  "base": "Qwen/Qwen3.8-27B",
+  "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "train_args": "--batch 4 --accum 4 --length_sort 1 --max_steps 14 --lr 1e-5 --shared_prefix 1",
+  "conv_kernel": true,
+  "data": {
+    "mix": "synthetic",
+    "records": 2000,
+    "record_tokens_mean": 1484.312,
+    "record_tokens_max": 6945,
+    "row_tokens_mean": 4322.166,
+    "questions_mean": 2.7555,
+    "corpus_records": 60000
+  },
+  "warmup": 3,
+  "fixed_overhead_seconds": 177,
+  "peak_nvidia_smi_gb": 69.4,
+  "training_metrics": {
+    "wall_seconds": 255.40572118759155,
+    "records_seen": 1792,
+    "requested_records": 2000,
+    "truncated_records": 0,
+    "rejected_records": 0,
+    "optimizer_steps": 14,
+    "forward_tokens": 2829792,
+    "step_seconds": [
+      25.555,
+      18.799,
+      17.733,
+      18.972,
+      16.791,
+      17.951,
+      18.663,
+      18.591,
+      16.913,
+      17.678,
+      17.126,
+      16.667,
+      16.928,
+      17.039
+    ],
+    "optimizer_seconds": 3.052130937576294,
+    "resume_seconds": [],
+    "resume_write_seconds": [],
+    "world_size": 8,
+    "weights": "full",
+    "peak_device_bytes": 67417979392,
+    "device": "cuda",
+    "dtype": "bf16",
+    "batch": 4,
+    "peak_rss_bytes": 61383827456
+  },
+  "seconds_per_step": 17.574454545454547,
+  "records_per_step": 128.0,
+  "records_per_second": 7.283298589378178,
+  "record_tokens_per_second": 10810.687495797101,
+  "row_tokens_per_second": 31479.62553085832,
+  "optimizer_seconds_per_step": 0.218009352684021,
+  "peak_allocated_gb_rank0": 67.4,
+  "peak_host_rss_gb_rank0": 61.4,
+  "usd_per_hour": 41.17,
+  "gpu_usd_per_hour": 36.32,
+  "projections": {
+    "1 epoch": {
+      "records": 60000,
+      "hours": 2.34,
+      "usd": 96.23
+    },
+    "2 epochs": {
+      "records": 120000,
+      "hours": 4.63,
+      "usd": 190.43
+    }
+  },
+  "records_seen_as_logged": 2008,
+  "resume_blocking_seconds": [],
+  "resume_write_seconds": [],
+  "note": "records_seen corrected to 128 x optimizer_steps: the trainer that ran this probe logged rank 0's count x 8, wrong under --length_sort 1's uneven micro-batches (fixed: kev.full_ft.global_sum)"
+}

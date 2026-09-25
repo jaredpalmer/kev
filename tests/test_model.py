@@ -157,6 +157,47 @@ def test_hybrid_rows_isolation_and_prefix():
     for a, b, c, d, e, f in zip(together, alone, cached, again, again2, chunked):
         assert (a - b).abs().max() < 1e-4 and (a - c).abs().max() < 1e-4 and (a - d).abs().max() < 1e-4 and (a - e).abs().max() < 1e-4 and (a - f).abs().max() < 1e-4
 
+
+@pytest.mark.parametrize("device,dtype", [("cpu", "float32"), ("cuda", "float32"), ("cuda", "bfloat16")])
+def test_shared_prefix_matches_rows(device, dtype):
+    """kev.shared_prefix on Qwen3.5-0.8B-Base, gradient checkpointing on: over records with 1-4 questions and states of
+    unequal length (so states are left-padded), the logits and every parameter's gradient equal the row form's, as closely
+    as the row form agrees with itself when only the batch changes (the same records one at a time). On CUDA (run it on
+    Modal, modal_app.py::gpu_tests) fla's Triton kernels differentiate through the prefix's `initial_state` and their fp32
+    dots round like TF32, so that noise is measured, not assumed; on the CPU transformers' reference kernels are exact to
+    fp32 and the floor applies."""
+    import importlib.util
+    import torch
+    from kev.data import materialize
+    from kev.model import DecisionModel, load_tokenizer
+    from kev.suite import load_split
+    if device == "cuda" and not torch.cuda.is_available(): pytest.skip("needs CUDA")
+    if device == "cpu" and importlib.util.find_spec("causal_conv1d"): pytest.skip("transformers sends CPU tensors to causal-conv1d's CUDA kernel when it is installed")
+    tok = load_tokenizer("Qwen/Qwen3.5-0.8B-Base")
+    m = DecisionModel("Qwen/Qwen3.5-0.8B-Base", tok, device, dtype=getattr(torch, dtype)).train()
+    m.lm.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    dev = load_split("evals/v7/decision-v7", "development")
+    recs = [materialize(r) for r in dev if len(r["questions"]) > 1][:2] + [materialize(dev[0])]
+    long = materialize(dev[5]); long["state"] = " ".join(materialize(r)["state"] for r in dev[:20])
+    long["questions"] = [q for r in recs for q in r["questions"]][:4]
+    encs = [m.encode(tok, r) for r in [*recs, long]]
+
+    def run(shared, batches):
+        m.zero_grad(); logits = []
+        for batch in batches:
+            zs = [z for zz in m.forward_batch(batch, shared) for z in zz]
+            sum(torch.log_softmax(z.float(), -1)[(len(logits) + i) % len(z)] for i, z in enumerate(zs)).backward(); logits += zs
+        return torch.cat(logits).float().detach(), {n: p.grad.float().clone() for n, p in m.named_parameters() if p.grad is not None}
+
+    (rows, g_rows), (alone, g_alone), (prefix, g_prefix) = run(False, [encs]), run(False, [[e] for e in encs]), run(True, [encs])
+    big = [k for k in g_rows if g_rows[k].norm() > 1e-3 * max(g.norm() for g in g_rows.values())]
+    rel = lambda g: max(float((g_rows[k] - g[k]).norm() / g_rows[k].norm()) for k in big)
+    noise, diff = (float((rows - alone).abs().max()), rel(g_alone)), (float((rows - prefix).abs().max()), rel(g_prefix))
+    print(f"{device} {dtype}: max |logit diff| rows vs rows one record at a time {noise[0]:.2e}, rows vs shared prefix {diff[0]:.2e}; "
+          f"worst relative gradient diff {noise[1]:.2e} vs {diff[1]:.2e}")
+    assert g_rows.keys() == g_prefix.keys() and diff[0] <= max(3e-4, 3 * noise[0]) and diff[1] <= max(1e-3, 3 * noise[1])
+
+
 def test_cuda_graphs_match_eager():
     """kev.cuda_graphs + kev.fused_qwen35 (CUDA only): the served path (probs_batch) gives the eager bf16 answers up to
     bf16 noise, first with its new buckets run eagerly and then replayed, for new states (two sharing one) and cached

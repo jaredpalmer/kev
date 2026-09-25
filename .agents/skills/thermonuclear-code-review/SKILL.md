@@ -79,7 +79,9 @@ fine.
 |---|---|
 | load/resolve a checkpoint, read/write `head.pt` (`Meta`), warm-start LoRA+head, `LoadOptions` (+ `from_env` at CLI entry points only) | `kev/checkpoint.py` |
 | whether a checkpoint is a LoRA adapter or full weights (the loader rule), its shards, the hash provenance pins | `kev.checkpoint.Checkpoint.full` / `shards` / `weights_sha256` |
-| full-weight training state: fp32 masters and moments (host or device), FSDP2 sharding, each rank's share of an epoch, saving the backbone | `kev/full_ft.py` (`MasterAdamW`, `shard`, `rank_share`, `save_backbone`) |
+| full-weight training state: fp32 masters and moments (host or device), FSDP2 sharding, each rank's share of an epoch, saving the backbone, resume points | `kev/full_ft.py` (`MasterAdamW`, `shard`, `rank_share`, `save_backbone`, `save_due` / `save_resume` / `load_resume`) |
+| the training forward that runs each state once and its question branches from it (hybrid backbones) | `kev/shared_prefix.py` (`branch_hidden`, `Prefix`) |
+| a trial container's price per hour and a study's admission bound (retries included), the study limits | `kev/budget.py` (`hourly_rate`, `compute_bound`, `MAX_TIMEOUT`, `MAX_BUDGET`, `FULL_FT_RETRIES`) |
 | option keys for a question (choice/noul/score) | `kev.api.question_keys` |
 | does a record fit the training context (`MAX_STATE/MAX_BRANCH/MAX_PACKED`); a lifted state limit (`training_context(max_state)`, ceiling `MAX_TRAIN_STATE`) | `kev.model.fits(rec, *tokenizers)`, `kev.model.training_context`; manifests write `kev.suite.CONTEXT` |
 | default device / sync / empty_cache / allocated_bytes | `kev/device.py` |

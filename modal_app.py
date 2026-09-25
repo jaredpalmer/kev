@@ -27,7 +27,7 @@ from typing import NamedTuple
 
 import modal
 
-from kev.budget import TRIAL_CPU, TRIAL_MEMORY, compute_bound, trial_resources   # run_trial's resources and the admission bound (admit_study)
+from kev.budget import FULL_FT_RETRIES, MAX_BUDGET, MAX_TIMEOUT, TRIAL_CPU, TRIAL_MEMORY, compute_bound, hourly_rate, trial_disk, trial_resources   # run_trial's resources and the admission bound (admit_study)
 
 APP_NAME = os.environ.get("KEV_APP_NAME", "kev-research")
 
@@ -45,6 +45,7 @@ def worker_environment(app_name, gpu, secret_name=None):
 
 
 app = modal.App(APP_NAME)
+CAUSAL_CONV1D = "https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.7.0/causal_conv1d-1.7.0%2Bcu12torch2.8cxx11abiTRUE-cp313-cp313-linux_x86_64.whl"
 image = (
     modal.Image.debian_slim(python_version="3.13")
     .apt_install("git")
@@ -52,12 +53,19 @@ image = (
     # Gated DeltaNet kernels for the Qwen3.5 hybrid backbones (transformers falls back to slow reference code without them)
     # fla refuses its gated chunk backward on Hopper with Triton 3.4-3.7.0 (incorrect results, fla#640); torch 2.8 pins 3.4
     .uv_pip_install("flash-linear-attention==0.5.2", "triton>=3.7.1")   # pinned: kev.fused_qwen35 patches fla kernel launches
+    # the DeltaNet short convolution: transformers uses causal-conv1d's CUDA kernel (forward and backward) when it is
+    # importable and a PyTorch conv otherwise; the prebuilt wheel matches the image's torch 2.8 / CUDA 12 / Python 3.13.
+    # --no-deps: resolving its torch requirement would put back torch's pinned triton 3.4, which fla refuses on Hopper
+    .uv_pip_install(CAUSAL_CONV1D, extra_options="--no-deps")
+    .uv_pip_install("pytest")   # gpu_tests
     .env(worker_environment(APP_NAME, GPU, os.environ.get("KEV_HF_SECRET")))
     .add_local_python_source("kev")
     .add_local_file(ROOT / "uv.lock", "/root/uv.lock")
     .add_local_file(ROOT / "pyproject.toml", "/root/pyproject.toml")
     .add_local_dir(ROOT / "evals", "/root/evals")
     .add_local_dir(ROOT / "scripts", "/root/scripts")
+    .add_local_dir(ROOT / "tests", "/root/tests")
+    .add_local_file(ROOT / "experiments/sft-v1-lengths.json", "/root/experiments/sft-v1-lengths.json")   # scripts/sft_probe.py
 )
 hf_cache = modal.Volume.from_name("kev-hf-cache", create_if_missing=True)
 runs_volume = modal.Volume.from_name("kev-runs", create_if_missing=True)
@@ -84,19 +92,41 @@ def remote_source_hashes():
 @app.function(image=image, gpu=GPU, cpu=TRIAL_CPU, memory=TRIAL_MEMORY, max_containers=24, retries=0, timeout=28800,   # a 35B-A3B bf16 checkpoint (70 GB) is staged through host memory while loading; the old 48 GB cap stalled the container
               volumes={RUNS_MOUNT: runs_volume, HF_MOUNT: hf_cache}, secrets=secrets)
 def run_trial(study, index, label, config, suite, expected_sources, git_commit, existing=None, transfer=None):
-    """One trial in one container. `existing` is a checkpoint path on the runs volume or a Hub id (legacy scoring)."""
+    """One trial in one container (trial below)."""
+    return trial(study, index, label, config, suite, expected_sources, git_commit, existing, transfer)
+
+
+@app.function(image=image, gpu=GPU, cpu=TRIAL_CPU, memory=TRIAL_MEMORY, max_containers=24, retries=0, timeout=86400, ephemeral_disk=trial_disk(True),
+              volumes={RUNS_MOUNT: runs_volume, HF_MOUNT: hf_cache}, secrets=secrets)
+def run_full_trial(study, index, label, config, suite, expected_sources, git_commit, existing=None, transfer=None):
+    """A full-weight trial: run_trial with the disk its resume points need (kev.budget.trial_disk; with_options cannot set it)."""
+    return trial(study, index, label, config, suite, expected_sources, git_commit, existing, transfer)
+
+
+def trial(study, index, label, config, suite, expected_sources, git_commit, existing=None, transfer=None):
+    """One trial in one container. `existing` is a checkpoint path on the runs volume or a Hub id (legacy scoring). A
+    full-weight trial whose directory exists already is the same call again (Modal retried it after a timeout, or `resume`
+    spawned it): it continues from its last resume point, unless an earlier attempt failed with an error (failed.json)."""
     import torch
-    from kev.experiment import execute_trial, source_hashes
+    from kev.experiment import continue_trial, execute_trial, source_hashes
+    from kev.suite import write_json
 
     os.environ["KEV_GIT_COMMIT"] = git_commit
     if source_hashes() != expected_sources:
         raise RuntimeError("container received different kev/*.py than the launcher hashed")
     out = Path(RUNS_MOUNT) / study / f"{index:02d}-{label}"
-    if out.exists():
-        raise FileExistsError(f"refusing to overwrite remote trial: {out}")
-    print(f"[{label}] {torch.cuda.get_device_name(0)} torch {torch.__version__} config={json.dumps(config)}", flush=True)
+    runs_volume.reload()
+    again = out.exists()
+    if again and (not config.get("full_ft") or (out / "failed.json").exists() or (out / "result.json").exists()):
+        raise FileExistsError(f"refusing to overwrite remote trial: {out}" + (" (an earlier attempt failed; see failed.json)" if (out / "failed.json").exists() else ""))
+    print(f"[{label}] {torch.cuda.get_device_name(0)} torch {torch.__version__} {'continuing' if again else 'config='+json.dumps(config)}", flush=True)
+    transfer = Path("/root") / transfer if transfer else None
     try:
-        report, _ = execute_trial(config or {}, Path("/root") / suite, out, expected_sources, "cuda", existing, Path("/root") / transfer if transfer else None)
+        report, _ = (continue_trial(Path("/root") / suite, out, expected_sources, "cuda", transfer) if again
+                     else execute_trial(config or {}, Path("/root") / suite, out, expected_sources, "cuda", existing, transfer))
+    except Exception as error:   # an error is not retried (a timeout kills the container before it gets here)
+        if out.exists(): write_json(out / "failed.json", {"error": f"{type(error).__name__}: {str(error)[:2000]}"})
+        raise
     finally:
         runs_volume.commit()
         hf_cache.commit()
@@ -239,20 +269,23 @@ def run_smoke_base(base, revision):
             "peak_gb": round(allocated_bytes("cuda") / 1e9, 1), "weights_gb": round(sum(p.numel() * p.element_size() for p in m.lm.parameters()) / 1e9, 1), "loss": round(loss, 3)}
 
 
-@app.function(image=image, gpu=GPU, cpu=2, memory=(32768, 65536), retries=0, timeout=3600,
+@app.function(image=image, gpu=GPU, cpu=2, memory=(32768, 65536), retries=0, timeout=3600, ephemeral_disk=trial_disk(True),
               volumes={RUNS_MOUNT: runs_volume, HF_MOUNT: hf_cache}, secrets=secrets)
-def run_sft_probe(name, base, revision, gpu, train, records, check_load):
+def run_sft_probe(name, base, revision, gpu, train, records, check_load, flags=""):
     """scripts/sft_probe.py (full-weight memory, s/step, throughput, projections, loader check) in the container's scratch
     disk: the checkpoint it writes (51 GB for a 27B) stays there; report.json, train.log and training_metrics.json land in
-    /runs/sft-probe/<name>."""
+    /runs/sft-probe/<name>. Resume points (`--save_every_steps` in `train`) are written to the volume, where a trial writes
+    them, and deleted after the probe (a 27B's are ~307 GB)."""
     out, scratch = Path(RUNS_MOUNT) / "sft-probe" / name, Path("/tmp/sft-probe")
     if out.exists():
         raise FileExistsError(f"{out} exists on the volume")
+    (out / "resume").mkdir(parents=True)
     try:
         subprocess.run([sys.executable, "/root/scripts/sft_probe.py", "--base", base, "--revision", revision, "--gpu", gpu, "--out", str(scratch),
-                        "--records", str(records), "--train", train, "--check_load", str(check_load)], check=True, cwd="/root", env={**os.environ, "PYTHONPATH": "/root"})
+                        "--records", str(records), "--train", train, "--check_load", str(check_load), "--resume_dir", str(out / "resume"), *flags.split()],
+                       check=True, cwd="/root", env={**os.environ, "PYTHONPATH": "/root"})
     finally:
-        out.mkdir(parents=True)
+        shutil.rmtree(out / "resume", ignore_errors=True)
         for f in ("report.json", "train.log", "checkpoint/training_metrics.json"):
             if (scratch / f).exists(): shutil.copy(scratch / f, out / Path(f).name)
         runs_volume.commit(); hf_cache.commit()
@@ -260,17 +293,35 @@ def run_sft_probe(name, base, revision, gpu, train, records, check_load):
     return read_json(out / "report.json")
 
 
+@app.function(image=image, gpu=GPU, cpu=4, memory=(32768, 131072), retries=0, timeout=3600,
+              volumes={HF_MOUNT: hf_cache}, secrets=secrets)
+def run_gpu_tests(tests):
+    """pytest on a GPU for the tests that need CUDA (they skip locally), e.g. tests/test_model.py::test_cuda_graphs_match_eager."""
+    done = subprocess.run([sys.executable, "-m", "pytest", "-q", "-s", *tests.split()], cwd="/root", env={**os.environ, "PYTHONPATH": "/root"}, capture_output=True, text=True)
+    hf_cache.commit()
+    return done.returncode, done.stdout[-20000:] + done.stderr[-5000:]
+
+
+@app.local_entrypoint()
+def gpu_tests(tests: str, gpu: str = "H100"):
+    """uv run modal run modal_app.py::gpu_tests --tests "tests/test_model.py::test_shared_prefix_matches_rows" [--gpu H100]"""
+    code, output = run_gpu_tests.with_options(gpu=gpu).remote(tests)
+    print(output)
+    if code: raise SystemExit(code)
+
+
 KEV_27B_BASE = ("Qwen/Qwen3.8-27B", "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0")   # Kev-27B's base (post-trained), what full-weight SFT targets
 
 
 @app.local_entrypoint()
 def sft_probe(name: str, gpu: str = "H200", base: str = KEV_27B_BASE[0], revision: str = KEV_27B_BASE[1], train: str = "", records: int = 2000,
-              check_load: int = 0, timeout: int = 3600):
+              check_load: int = 0, timeout: int = 3600, flags: str = ""):
     """Full-weight training probe on one container: `--gpu H200` (masters in host memory) or `--gpu H200:8` (FSDP2). `--train`
-    passes kev.train arguments (batch, accum, max_steps, lr, row_budget). Pulled to runs/sft-probe/<name>."""
+    passes kev.train arguments (batch, accum, max_steps, lr, row_budget, shared_prefix, save_every_steps); `--flags` more
+    sft_probe.py switches (--mix synthetic, --no_conv_kernel). Pulled to runs/sft-probe/<name>."""
     cpu, memory = trial_resources(gpu, full_ft=True)
-    print(f"admission bound ${compute_bound(gpu, timeout, 1, full_ft=True):.2f} ({gpu}, {cpu} CPU, {memory[0] // 1024}-{memory[1] // 1024} GiB, {timeout} s)", flush=True)
-    call = run_sft_probe.with_options(gpu=gpu, cpu=cpu, memory=memory, timeout=timeout).spawn(name, base, revision, gpu, train, records, check_load)
+    print(f"admission bound ${hourly_rate(gpu, full_ft=True) * timeout / 3600:.2f} ({gpu}, {cpu} CPU, {memory[0] // 1024}-{memory[1] // 1024} GiB, {timeout} s)", flush=True)
+    call = run_sft_probe.with_options(gpu=gpu, cpu=cpu, memory=memory, timeout=timeout).spawn(name, base, revision, gpu, train, records, check_load, flags)
     print(f"spawned sft probe {name}: call {call.object_id}", flush=True)
     report = call.get()
     pull_volume(f"/sft-probe/{name}", ROOT / "runs/sft-probe")
@@ -388,17 +439,18 @@ class Job(NamedTuple):
 
 def admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout):
     """Validate a study locally before anything is spawned (name, budget bound against the timeout, plan, uncommitted
-    changes) and build the run_trial jobs. Returns (jobs, bound_usd, run_trial options: GPU, timeout and the resources a
-    full-weight study needs, kev.budget.trial_resources)."""
+    changes) and build the run_trial jobs. Returns (jobs, bound_usd, options: GPU, timeout, retries and the resources a
+    full-weight study needs, kev.budget.trial_resources, plus "function": run_full_trial for a full-weight study, whose
+    containers need the disk with_options cannot give)."""
     from kev.experiment import load_plan
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", name):
         raise ValueError("study name must be a simple unique identifier")
     if (ROOT / "runs" / name).exists():
         raise FileExistsError("choose a new study name; existing results are immutable")
-    if not 60 <= timeout <= 28800 or not 0 < budget <= 250:   # 8 h: a 2-epoch 27B on H200 takes ~4 h; budgets tracked in PLAN.md
-        raise ValueError("timeout must be 60..28800 seconds and study budget <= $250")
     trials = load_plan(ROOT / suite, ROOT / plan_path) if plan_path else []
     full_ft = any(t.get("full_ft") for t in trials)
+    if not 60 <= timeout <= MAX_TIMEOUT[full_ft] or not 0 < budget <= MAX_BUDGET[full_ft]:   # kev.budget: 8 h / $250, full-weight 24 h / $1,000
+        raise ValueError(f"timeout must be 60..{MAX_TIMEOUT[full_ft]} seconds and study budget <= ${MAX_BUDGET[full_ft]}")
     upper = compute_bound(gpu, timeout, len(trials) + len(existing), full_ft)
     if upper > budget:
         raise ValueError(f"timeout-based compute bound ${upper:.2f} exceeds budget ${budget:.2f}")
@@ -408,15 +460,16 @@ def admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout
         print("warning: kev/ or evals/ has uncommitted changes; provenance records the last commit, not the working tree", flush=True)
     entries = [(None, p) for p in existing] + [(t, None) for t in trials]
     cpu, memory = trial_resources(gpu, full_ft)
-    options = {"gpu": gpu, "timeout": timeout, "retries": 0, "cpu": cpu, "memory": memory}
+    retries = modal.Retries(max_retries=FULL_FT_RETRIES, initial_delay=30.0, backoff_coefficient=1.0) if full_ft else 0   # a retry continues the trial
+    options = {"gpu": gpu, "timeout": timeout, "retries": retries, "cpu": cpu, "memory": memory, "function": "run_full_trial" if full_ft else "run_trial"}
     return [Job(name, i, Path(ex).name if ex else f"trial-{i}", cfg or {}, suite, sources, commit, ex, transfer) for i, (cfg, ex) in enumerate(entries)], upper, options
 
 
-def deployed_run_trial(sources):
-    """run_trial on the *deployed* app (modal deploy modal_app.py), after checking it ships this checkout's kev/*.py.
-    Spawns on the ephemeral app die with the local client; the deployed app has no parent to lose."""
+def deployed_run_trial(sources, function="run_trial"):
+    """run_trial (or run_full_trial) on the *deployed* app (modal deploy modal_app.py), after checking it ships this
+    checkout's kev/*.py. Spawns on the ephemeral app die with the local client; the deployed app has no parent to lose."""
     try:
-        target = modal.Function.from_name(APP_NAME, "run_trial"); target.hydrate()
+        target = modal.Function.from_name(APP_NAME, function); target.hydrate()
         deployed_sources = modal.Function.from_name(APP_NAME, "remote_source_hashes").remote()
     except Exception as error:
         raise SystemExit(f"deployed app not usable ({type(error).__name__}: {str(error)[:120]}); run `uv run modal deploy modal_app.py` first")
@@ -431,7 +484,7 @@ def launch_detached(suite, plan_path, name, gpu, existing=(), transfer=None, bud
     land on the volume; `pull --name` collects and ranks them."""
     from kev.suite import write_json
     jobs, upper, options = admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout)
-    fn = deployed_run_trial(local_source_hashes()).with_options(**options)
+    fn = deployed_run_trial(local_source_hashes(), options.pop("function")).with_options(**options)
     calls = [fn.spawn(*job) for job in jobs]
     (ROOT / "runs").mkdir(exist_ok=True)
     write_json(ROOT / "runs" / f"{name}.spawn.json", {"name": name, "calls": {j.label: c.object_id for j, c in zip(jobs, calls)}, "bound_usd": round(upper, 2), "timeout": timeout})
@@ -441,7 +494,7 @@ def launch_detached(suite, plan_path, name, gpu, existing=(), transfer=None, bud
 def launch(suite, plan_path, name, gpu, existing=(), transfer=None, budget=20.0, timeout=1800):
     """Attached variant: run the trials on this app, wait, then pull and rank. Dies with the local client."""
     jobs, _, options = admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout)
-    fn = run_trial.with_options(**options, max_containers=24)
+    fn = {"run_trial": run_trial, "run_full_trial": run_full_trial}[options.pop("function")].with_options(**options, max_containers=24)
     print(f"launching {len(jobs)} trial(s) on {gpu} for study {name}", flush=True)
     results = list(fn.starmap(jobs, return_exceptions=True))
     for job, result in zip(jobs, results):
@@ -517,8 +570,9 @@ def run_resume(study, trial, suite, transfer, expected_sources, git_commit):
 
 
 @app.local_entrypoint()
-def resume(study: str, suite: str, transfer: str = "evals/v4/transfer-v4", gpu: str = GPU):
-    """Spawn evaluation for every trial in a study that has checkpoint/head.pt but no result.json."""
+def resume(study: str, suite: str, transfer: str = "evals/v4/transfer-v4", gpu: str = GPU, timeout: int = 28800):
+    """Spawn evaluation for every trial in a study that has checkpoint/head.pt but no result.json, and continue every
+    unfinished full-weight trial (no head.pt, no failed.json) from its last resume point on the deployed run_trial."""
     fn = modal.Function.from_name(APP_NAME, "run_resume").with_options(gpu=gpu)
     sources, commit = local_source_hashes(), local_git_commit()
     for t in sorted(volume_names(f"/{study}")[0]):
@@ -526,8 +580,15 @@ def resume(study: str, suite: str, transfer: str = "evals/v4/transfer-v4", gpu: 
         finished = "checkpoint" in dirs and "head.pt" in volume_names(f"/{study}/{t}/checkpoint")[1]
         if finished and "result.json" not in files:
             c = fn.spawn(study, t, suite, transfer, sources, commit); print(f"resuming {study}/{t}: call {c.object_id}")
+        elif not finished and not {"result.json", "failed.json"} & files and "provenance.json" in files:
+            config = json.loads(b"".join(runs_volume.read_file(f"/{study}/{t}/provenance.json")))["config"]
+            if not config.get("full_ft"): print(f"skip {study}/{t}: unfinished, not full-weight"); continue
+            index, label = t.split("-", 1)
+            cpu, memory = trial_resources(gpu, True)
+            c = deployed_run_trial(sources, "run_full_trial").with_options(gpu=gpu, cpu=cpu, memory=memory, timeout=timeout).spawn(study, int(index), label, config, suite, sources, commit, None, transfer or None)
+            print(f"continuing {study}/{t} from its last resume point: call {c.object_id}")
         else:
-            print(f"skip {study}/{t}: {'has result' if 'result.json' in files else 'no finished checkpoint'}")
+            print(f"skip {study}/{t}: {'has result' if 'result.json' in files else 'failed' if 'failed.json' in files else 'no finished checkpoint'}")
 
 
 @app.local_entrypoint()
