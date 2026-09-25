@@ -140,8 +140,10 @@ def test_hybrid_rows_isolation_and_prefix(monkeypatch):
     """Qwen3.5 (Gated DeltaNet + attention): the row form isolates questions exactly, and the serving prefix path
     (state once, cache replicated per question), which probs() takes (#77), reproduces it. Uses the 0.8B base; slow
     reference kernels on CPU."""
+    import importlib.util
     import torch
     from kev.model import DecisionModel, load_tokenizer
+    if importlib.util.find_spec("causal_conv1d"): pytest.skip("transformers sends CPU tensors to causal-conv1d's CUDA kernel when it is installed")
     tok = load_tokenizer("Qwen/Qwen3.5-0.8B-Base"); m = DecisionModel("Qwen/Qwen3.5-0.8B-Base", tok, "cpu").eval()
     assert m.hybrid
     rec = {"state": "Order 4411 arrived late and the box was crushed. Two charges appear on the card.",
@@ -167,56 +169,120 @@ def test_hybrid_rows_isolation_and_prefix(monkeypatch):
         assert all((a - b).abs().max() < 1e-4 for b in others)
 
 
-@pytest.mark.parametrize("device,dtype", [("cpu", "float32"), ("cuda", "float32"), ("cuda", "bfloat16")])
-def test_shared_prefix_matches_rows(device, dtype):
-    """kev.shared_prefix on Qwen3.5-0.8B-Base, gradient checkpointing on: over records with 1-4 questions and states of
-    unequal length (so states are left-padded), the logits and every parameter's gradient equal the row form's, as closely
-    as the row form agrees with itself when only the batch changes (the same records one at a time). On CUDA (run it on
-    Modal, modal_app.py::gpu_tests) fla's Triton kernels differentiate through the prefix's `initial_state` and their fp32
-    dots round like TF32, so that noise is measured, not assumed; on the CPU transformers' reference kernels are exact to
-    fp32 and the floor applies."""
-    import importlib.util
+def _exact_kernels(mp):
+    """transformers' PyTorch code for the Gated DeltaNet rule and its short convolution in place of fla's Triton kernels and
+    causal-conv1d, TF32 off: fp32-exact on any device (fla rounds its fp32 dots like TF32 on CUDA)."""
+    import inspect
+    import torch
+    from transformers.models.qwen3_5 import modeling_qwen3_5 as Q
+    for name in ("torch_chunk_gated_delta_rule", "torch_recurrent_gated_delta_rule", "causal_conv1d_fn"):
+        f = inspect.unwrap(getattr(Q, name)); params = inspect.signature(f).parameters   # the undecorated PyTorch function
+        mp.setattr(Q, name, lambda *a, f=f, params=params, **kw: f(*a, **{k: v for k, v in kw.items() if k in params}))
+    mp.setattr(torch.backends.cuda.matmul, "allow_tf32", False); mp.setattr(torch.backends.cudnn, "allow_tf32", False)
+
+
+def _prefix_setup(device, dtype, head=None):
+    """Qwen3.5-0.8B-Base in training mode with gradient checkpointing, a pointer head from seed 0 (or `head`'s weights),
+    and records with 1-4 questions whose states differ in length (so the shared-prefix path left-pads them)."""
     import torch
     from kev.data import materialize
-    from kev.model import DecisionModel, load_tokenizer
+    from kev.model import DecisionModel, PointerHead, load_tokenizer
     from kev.suite import load_split
-    if device == "cuda" and not torch.cuda.is_available(): pytest.skip("needs CUDA")
-    if device == "cpu" and importlib.util.find_spec("causal_conv1d"): pytest.skip("transformers sends CPU tensors to causal-conv1d's CUDA kernel when it is installed")
     tok = load_tokenizer("Qwen/Qwen3.5-0.8B-Base")
     m = DecisionModel("Qwen/Qwen3.5-0.8B-Base", tok, device, dtype=getattr(torch, dtype)).train()
     m.lm.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    if head is None: torch.manual_seed(0); head = PointerHead(m.lm.config.hidden_size, dp=256)   # made on the CPU: the same head on every device
+    m.head.load_state_dict(head.state_dict())
     dev = load_split("evals/v7/decision-v7", "development")
     recs = [materialize(r) for r in dev if len(r["questions"]) > 1][:2] + [materialize(dev[0])]
     long = materialize(dev[5]); long["state"] = " ".join(materialize(r)["state"] for r in dev[:20])
     long["questions"] = [q for r in recs for q in r["questions"]][:4]
-    encs = [m.encode(tok, r) for r in [*recs, long]]
+    return m, [m.encode(tok, r) for r in [*recs, long]]
 
-    def run(shared, batches):
-        m.zero_grad(); logits = []
-        for batch in batches:
-            zs = [z for zz in m.forward_batch(batch, shared) for z in zz]
-            sum(torch.log_softmax(z.float(), -1)[(len(logits) + i) % len(z)] for i, z in enumerate(zs)).backward(); logits += zs
-        return torch.cat(logits).float().detach(), {n: p.grad.float().clone() for n, p in m.named_parameters() if p.grad is not None}
 
-    (rows, g_rows), (alone, g_alone), (prefix, g_prefix) = run(False, [encs]), run(False, [[e] for e in encs]), run(True, [encs])
-    big = [k for k in g_rows if g_rows[k].norm() > 1e-3 * max(g.norm() for g in g_rows.values())]
-    rel = lambda g: max(float((g_rows[k] - g[k]).norm() / g_rows[k].norm()) for k in big)
-    noise, diff = (float((rows - alone).abs().max()), rel(g_alone)), (float((rows - prefix).abs().max()), rel(g_prefix))
-    print(f"{device} {dtype}: max |logit diff| rows vs rows one record at a time {noise[0]:.2e}, rows vs shared prefix {diff[0]:.2e}; "
-          f"worst relative gradient diff {noise[1]:.2e} vs {diff[1]:.2e}")
-    assert g_rows.keys() == g_prefix.keys() and diff[0] <= max(3e-4, 3 * noise[0]) and diff[1] <= max(1e-3, 3 * noise[1])
-    # Magnitudes alone would let a small systematic shift pass as noise. Signed checks: (1) the shared prefix is as close
-    # to the second batching of the row form as to the first; (2) the mean signed logit difference sits within the
-    # batching noise's own mean plus 3 standard errors; (3) the gradient difference along the gradient itself (a
-    # systematic scaling) is no larger than the batching's and well under the whole difference's size.
-    assert float((alone - prefix).abs().max()) <= max(3e-4, 3 * noise[0])
-    d_noise, d_prefix = alone - rows, prefix - rows
-    bias_bound = float(d_noise.mean().abs() + 3 * d_noise.std() / len(d_noise) ** 0.5) + 3e-5   # floor: a tenth of the magnitude floor
-    flat = lambda g: torch.cat([g[k].flatten() for k in big])
-    along = lambda g: float(torch.dot(flat(g) - flat(g_rows), flat(g_rows)) / flat(g_rows).square().sum())
-    print(f"  mean signed logit diff {float(d_prefix.mean()):+.2e} (bound {bias_bound:.2e}); gradient shift along itself {along(g_prefix):+.2e} (batching {along(g_alone):+.2e})")
-    assert float(d_prefix.mean().abs()) <= bias_bound
-    assert abs(along(g_prefix)) <= max(1e-4, 3 * abs(along(g_alone)), 0.3 * noise[1])
+def _prefix_run(m, encs, shared, batches):
+    """Logits (in record order) and parameter gradients of one loss over `encs`, run as `batches` (lists of record
+    indices). A question's target depends only on its place in `encs`, so every batching differentiates the same loss."""
+    import torch
+    first = [sum(len(e["decide_idx"]) for e in encs[:b]) for b in range(len(encs))]
+    m.zero_grad(); logits = {}
+    for batch in batches:
+        zs = {first[b] + k: z for b, zz in zip(batch, m.forward_batch([encs[b] for b in batch], shared)) for k, z in enumerate(zz)}
+        sum(torch.log_softmax(z.float(), -1)[i % len(z)] for i, z in zs.items()).backward(); logits.update(zs)
+    return torch.cat([logits[i] for i in sorted(logits)]).double().detach(), {n: p.grad.float().clone() for n, p in m.named_parameters() if p.grad is not None}
+
+
+def _prefix_errors(z, g, z_ref, g_ref):
+    """How far (z, g) is from the reference: magnitudes (largest logit error, worst relative error of one parameter's
+    gradient, relative error of the whole gradient) and signed, systematic directions (mean logit error, and the error's
+    component along the reference itself, for logits and for the gradient: a scaling), each with the size a signed
+    statistic of random errors has (`sd_*`, the questions taken as the independent units)."""
+    import torch
+    top = max(x.norm() for x in g_ref.values())
+    big = [k for k in g_ref if g_ref[k].norm() > 1e-3 * top]
+    sums = lambda f: sum(float(f(g[k] - g_ref[k], g_ref[k])) for k in big)   # over the whole gradient, without a flat copy
+    dd, dr, rr = sums(lambda d, r: d.square().sum()), sums(lambda d, r: (d * r).sum()), sums(lambda d, r: r.square().sum())
+    d = z - z_ref
+    q = (len(z) / 3) ** 0.5   # ~3 options a question: the logits of one question share its <decide> token
+    rms = float(d.square().mean().sqrt())
+    return {"logit": float(d.abs().max()), "grad": max(float((g[k] - g_ref[k]).norm() / g_ref[k].norm()) for k in big),
+            "gnorm": (dd / rr) ** 0.5, "mean": float(d.mean()), "sd_mean": rms / q,
+            "along": float(d @ z_ref / (z_ref @ z_ref)), "sd_along": rms / float(z_ref.square().mean().sqrt()) / q,
+            "galong": dr / rr, "keys": g.keys() == g_ref.keys()}
+
+
+PREFIX_BATCHINGS = {"together": [[0, 1, 2, 3]], "alone": [[0], [1], [2], [3]], "pairs": [[0, 3], [1, 2]]}
+
+
+def _prefix_checks(exact, kernels=None):
+    """-> the failed checks. `exact`: the shared prefix against the row form, both in fp32 with exact kernels
+    (_exact_kernels). They agree to fp32 rounding (largest of 15 H100 samples, 5 heads x 3 containers, and the CPU: logit
+    4.4e-5, worst parameter 2.1e-5, whole gradient 9.2e-6, mean 5.2e-6, along 1.9e-6, gradient along 3.5e-6), and each
+    floor is about 5x that; a scaling of the branch hidden states by 1 + 1e-5, an offset of 1e-5 of their rms or a
+    scaling of the prefix's DeltaNet state by 1 + 1e-4 fails. `kernels` (CUDA): the shared prefix and the row form under
+    three batchings, each against that exact reference, with the kernels training uses (fla, causal-conv1d; fp32 or
+    bf16): the shared prefix may be no further from the exact answer than the row form's batchings are, by magnitude
+    (measured: at most 1.05x the worst batching in fp32, 1.32x in bf16) and along each signed direction."""
+    failed = [k for k, ok in {"keys": exact["keys"], "logit": exact["logit"] <= 2e-4, "grad": exact["grad"] <= 1e-4, "gnorm": exact["gnorm"] <= 5e-5,
+                             "mean": abs(exact["mean"]) <= 3e-5, "along": abs(exact["along"]) <= 1e-5, "galong": abs(exact["galong"]) <= 2e-5}.items() if not ok]
+    if kernels:
+        prefix, rows = kernels["prefix"], [kernels[b] for b in PREFIX_BATCHINGS]
+        worst = lambda k: max(abs(r[k]) for r in rows)
+        failed += [f"kernels {k}" for k in ("logit", "grad", "gnorm") if prefix[k] > 2 * worst(k)]
+        failed += [f"kernels {k}" for k in ("mean", "along") if abs(prefix[k]) > 2 * worst(k) + 3 * max(r[f"sd_{k}"] for r in rows)]
+        failed += ["kernels galong"] * (abs(prefix["galong"]) > 2 * worst("galong") + 0.5 * worst("gnorm"))
+        failed += ["kernels keys"] * (not prefix["keys"])
+    return failed
+
+
+@pytest.mark.parametrize("device,dtype", [("cpu", "float32"), ("cuda", "float32"), ("cuda", "bfloat16")])
+def test_shared_prefix_matches_rows(device, dtype, monkeypatch):
+    """kev.shared_prefix on Qwen3.5-0.8B-Base, gradient checkpointing on, over records with 1-4 questions and states of
+    unequal length (so states are left-padded). First, in fp32 with exact kernels (transformers' PyTorch code, the only
+    kind on the CPU), the logits and every parameter's gradient equal the row form's to fp32 rounding. Then, on CUDA (run
+    it on Modal, modal_app.py::gpu_tests), with the kernels training uses in fp32 or bf16: fla's Triton kernels round
+    their fp32 dots like TF32 and differentiate through the prefix's `initial_state`, so neither form is exact there; the
+    shared prefix must be no further from the exact answer than the row form is under three batchings. (Its distance to
+    one row batching is no yardstick: that batching's own error is in it, and the two forms round differently.)"""
+    import importlib.util
+    import torch
+    if device == "cuda" and not torch.cuda.is_available(): pytest.skip("needs CUDA")
+    if device == "cpu" and importlib.util.find_spec("causal_conv1d"): pytest.skip("transformers sends CPU tensors to causal-conv1d's CUDA kernel when it is installed")
+    ref, encs = _prefix_setup(device, "float32")
+    with monkeypatch.context() as mp:
+        _exact_kernels(mp)
+        z_ref, g_ref = _prefix_run(ref, encs, False, PREFIX_BATCHINGS["together"])
+        exact = _prefix_errors(*_prefix_run(ref, encs, True, PREFIX_BATCHINGS["together"]), z_ref, g_ref)
+    kernels = None
+    if device == "cuda":
+        m = ref if dtype == "float32" else _prefix_setup(device, dtype, head=ref.head)[0]
+        kernels = {b: _prefix_errors(*_prefix_run(m, encs, False, batches), z_ref, g_ref) for b, batches in PREFIX_BATCHINGS.items()}
+        kernels["prefix"] = _prefix_errors(*_prefix_run(m, encs, True, PREFIX_BATCHINGS["together"]), z_ref, g_ref)
+    fmt = lambda e: " ".join(f"{k} {v:+.2e}" for k, v in e.items() if k != "keys")
+    print(f"\n{device} {dtype}: shared prefix vs row form, exact kernels: {fmt(exact)}")
+    for name, e in (kernels or {}).items(): print(f"  {name} vs exact rows, training kernels: {fmt(e)}")
+    failed = _prefix_checks(exact, kernels)
+    assert not failed, failed
 
 
 def test_cuda_graphs_match_eager():
