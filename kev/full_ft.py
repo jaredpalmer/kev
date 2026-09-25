@@ -19,6 +19,7 @@ is replicated on every rank and its gradient summed across ranks before the step
 """
 import copy
 import datetime
+import math
 import os
 import shutil
 import threading
@@ -83,6 +84,8 @@ class MasterAdamW(torch.optim.Optimizer):
         total = sq([p for p in params if sharded(p)]) + 0.0
         if dist.is_initialized() and torch.is_tensor(total): dist.all_reduce(total)
         self.grad_norm = float((total + sq([p for p in params if not sharded(p)])) ** 0.5)
+        if not math.isfinite(self.grad_norm):   # a NaN/inf gradient, even from a finite loss, stops here before any master moves (on every rank: the norm is global); min(1.0, nan) would otherwise apply it unclipped
+            raise RuntimeError(f"non-finite gradient norm {self.grad_norm}; refusing the optimizer step")
         return min(1.0, self.max_grad_norm / (self.grad_norm + 1e-6)) if self.max_grad_norm else 1.0
 
     def _fetch(self, p, slot):

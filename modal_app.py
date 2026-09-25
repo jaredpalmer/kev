@@ -29,7 +29,8 @@ from typing import NamedTuple
 
 import modal
 
-from kev.budget import FULL_FT_RETRIES, MAX_BUDGET, MAX_TIMEOUT, TRIAL_CPU, TRIAL_MEMORY, compute_bound, hourly_rate, trial_disk, trial_resources   # run_trial's resources and the admission bound (admit_study)
+from kev.budget import (FULL_FT_RETRIES, INTERPOLATE_CPU, INTERPOLATE_MEMORY, INTERPOLATE_TIMEOUT, MAX_BUDGET, MAX_TIMEOUT, TRIAL_CPU, TRIAL_MEMORY,   # run_trial's resources and
+                        compute_bound, hourly_rate, interpolation_bound, trial_disk, trial_resources)                                                    # the admission bounds
 
 APP_NAME = os.environ.get("KEV_APP_NAME", "kev-research")
 
@@ -172,13 +173,16 @@ def run_locked_test(trial_path, name, suites, git_commit, redo_interrupted=False
                 if not redo_interrupted: raise RuntimeError(f"{label} partition was touched but not summarised; pass redo_interrupted to complete it")
                 shutil.rmtree(out / label); interrupted.append(label)
         summary = {**prior, "resumed_for": sorted(suites), "interrupted_reads_redone": interrupted}
+    # a checkpoint made without a trial (round 20's interpolations: /runs/<study>/<name>/checkpoint) ran no in-trial gates
+    # and fitted no temperature: its read is '-ungated' and saved raw (kev.rounds serves every read at its registered T)
+    result = read_json(trial / "result.json") if (trial / "result.json").exists() else None
+    if not (result or {}).get("gates", {}).get("passed") and not name.endswith("-ungated"):
+        raise RuntimeError(f"{'trial did not pass its gates' if result else 'no trial result.json (a checkpoint without in-trial gates)'}; "
+                           "name the read '<name>-ungated' to record an exploratory read")
     out.mkdir(parents=True, exist_ok=True)
-    result = read_json(trial / "result.json")
-    if not result["gates"]["passed"] and not name.endswith("-ungated"):
-        raise RuntimeError("trial did not pass its gates; name the read '<name>-ungated' to record an exploratory read")
-    temperature = result.get("temperature", 1.0)
+    temperature = result.get("temperature", 1.0) if result else 1.0
     predictor = LocalPredictor(str(trial / "checkpoint"), "cuda", LoadOptions(temperature=1.0))   # raw logits; the trial's fitted temperature is applied by evaluate_records below
-    summary = summary or {"trial": trial_path, "trial_result_sha256": digest(trial / "result.json"), "temperature": temperature, "git_commit": git_commit, "suites": {}}
+    summary = summary or {"trial": trial_path, "trial_result_sha256": digest(trial / "result.json") if result else None, "temperature": temperature, "git_commit": git_commit, "suites": {}}
     try:
         for label, suite in suites.items():
             records = load_split(Path("/root") / suite, "test", allow_test=True)
@@ -351,6 +355,45 @@ def sft_probe(name: str, gpu: str = "H200", base: str = KEV_27B_BASE[0], revisio
     report = call.get()
     pull_volume(f"/sft-probe/{name}", ROOT / "runs/sft-probe")
     print(json.dumps({k: v for k, v in report.items() if k != "training_metrics"}, indent=1))
+
+
+@app.function(image=image, cpu=INTERPOLATE_CPU, memory=INTERPOLATE_MEMORY, retries=0, timeout=INTERPOLATE_TIMEOUT,
+              volumes={RUNS_MOUNT: runs_volume, HF_MOUNT: hf_cache}, secrets=secrets)
+def run_interpolate(sft, alphas, names, base, revision, study):
+    """scripts/interpolate_checkpoint.py on a CPU container: one checkpoint per alpha at /runs/<study>/<name>/checkpoint,
+    the runs volume committed after each."""
+    sys.path.insert(0, "/root")
+    from scripts.interpolate_checkpoint import interpolate as write_interpolations
+    runs_volume.reload()
+    try:
+        return write_interpolations(sft, alphas, [Path(RUNS_MOUNT) / study / n / "checkpoint" for n in names], base, revision,
+                                    on_done=lambda report: runs_volume.commit(), log=lambda m: print(m, flush=True))
+    finally:
+        runs_volume.commit(); hf_cache.commit()
+
+
+@app.local_entrypoint()
+def interpolate(sft: str, prefix: str, alphas: str = "0.85,0.70,0.50", base: str = KEV_27B_BASE[0], revision: str = KEV_27B_BASE[1],
+                study: str = "r20-wise", timeout: int = INTERPOLATE_TIMEOUT):
+    """WiSE-FT checkpoints of a full-weight SFT checkpoint on the runs volume (--sft /runs/<trial>/checkpoint) with its base:
+    /runs/<study>/<prefix>-w<alpha x 100>/checkpoint for each alpha (weight on the SFT backbone). Refuses unless the SFT
+    run's base is --base @ --revision (Kev-27B's by default). Reports land in runs/<study>/<name>/interpolation.json."""
+    sys.path.insert(0, str(ROOT))
+    from scripts.interpolate_checkpoint import weight_label
+    if not sft.startswith(f"{RUNS_MOUNT}/"): raise SystemExit(f"--sft is a checkpoint on the runs volume ({RUNS_MOUNT}/...), not {sft}")
+    values = [float(a) for a in alphas.split(",")]
+    names = [f"{prefix}-w{weight_label(a)}" for a in values]
+    written = volume_names(f"/{study}")[0] if study in volume_names("/")[0] else set()
+    taken = [n for n in names if n in written and "checkpoint" in volume_names(f"/{study}/{n}")[0]]
+    if taken: raise SystemExit(f"/{study}/{taken} hold checkpoints already; interpolations are written once")
+    print(f"admission bound ${interpolation_bound(timeout):.2f} ({INTERPOLATE_CPU} CPU, {INTERPOLATE_MEMORY[1] // 1024} GiB, {timeout} s, no GPU)", flush=True)
+    call = run_interpolate.with_options(timeout=timeout).spawn(sft, values, names, base, revision, study)
+    print(f"spawned interpolation of {sft} -> /{study}/{names}: call {call.object_id}", flush=True)
+    for report in call.get():
+        name = Path(report["checkpoint"]).parent.name
+        (ROOT / "runs" / study / name).mkdir(parents=True, exist_ok=True)
+        pull_volume(f"/{study}/{name}/interpolation.json", ROOT / "runs" / study / name)
+        print(f"{name}: alpha {report['alpha']}, {report['tensors']} tensors, weights {report['weights_sha256'][:12]}, {report['seconds']} s", flush=True)
 
 
 @app.function(image=image, gpu=GPU, cpu=2, memory=(32768, 65536), retries=0, timeout=3600,

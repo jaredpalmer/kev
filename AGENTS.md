@@ -74,12 +74,16 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   launch intent is written first to `runs/r<N>-reads-<arm>.json`, and an arm launched within its reads' timeout is not relaunched; a
   finished call that maps to no arm is logged and makes `watch` exit non-zero),
   60 s apart, then writes `runs/r<N>-readout/round<N>.json`; `confirm <spec> --stage <s>` writes `runs/r<N>-verdict/<size>-<s>.json`.
-  Every side is served at the temperature fitted on its own development rows; deltas are `kev.rounds.paired` (2,000 resamples,
-  seed 0, micro). Rounds 5-18 are recorded specs (`"archive": "research-archive-2026-09-24"`): their plans, reads, data builders
+  Every side is served at the temperature fitted on its own development rows, unless the round registers a `temperature` pool
+  for its arms (reads pooled, per-read `sources` allowlist, `exclude_reads`; refused inside any panel a temperature-dependent
+  criterion reads; round 20); an arm may be a checkpoint without a trial (`"checkpoint": "/runs/..."`, its "transfer" rows
+  from a `transfer_read`), e.g. a WiSE-FT interpolation (`scripts/interpolate_checkpoint.py`, `modal_app.py::interpolate`);
+  deltas are `kev.rounds.paired` (2,000 resamples, seed 0, micro). Rounds 5-18 are recorded specs (`"archive": "research-archive-2026-09-24"`): their plans, reads, data builders
   and per-round scripts live on that git tag, not on main; `validate` lists what this checkout lacks instead of failing, and
   `launch`/`watch`/`launch-reads` refuse a recorded round (a new round is a new spec, without `archive`, and must have its plans
   and parents' reads). `tests/test_rounds.py` reproduces the committed read-outs of rounds 5-18 and verdicts of 8/10/11/12/15
-  exactly; offline (CI) it runs round 5's read-out and round 15's locked verdict, whose rows are on main; every other case
+  exactly; offline (CI) it runs round 5's read-out and round 15's locked verdict, whose rows are on main; round 19's read-out
+  runs where the private dataset is readable (its trials' `sft-v1` development rows: `scripts/private_rows.py`); every other case
   skips unless `KEV_ROUNDS_ROOT` points at a checkout with the archived rows and outputs (the research checkout, or a worktree
   of the tag plus its gitignored trial rows). `kev.autoresearch
   session <specs> --spend-start X --spend-cap Y` runs registered rounds to their read-outs under a spend cap and never confirms;
@@ -125,7 +129,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   access (`hf auth login` / `HF_TOKEN`; Modal images already carry a locally fetched copy under `evals/`) and raises a
   PermissionError naming the repo for everyone else; `tests/test_conventions.py` fails if such a suite tracks a partition.
 - Modal (default for anything beyond smoke): `modal_app.py`; `uv run modal run modal_app.py::{smoke,study,pull,resume,
-  locked_test,evaluate,base_probe,benchmarks,smoke_base,anchors,sft_probe,gpu_tests}`; `uv run modal deploy modal_app.py` once so studies
+  locked_test,evaluate,base_probe,benchmarks,smoke_base,anchors,sft_probe,gpu_tests,interpolate}`; `uv run modal deploy modal_app.py` once so studies
   survive a disconnect. Image = `uv_sync` of pyproject/uv.lock (Linux torch wheel is CUDA) + fla, triton>=3.7.1 and the
   causal-conv1d wheel (`--no-deps`, or it reinstalls torch's triton 3.4) + `kev/` + `evals/` + `tests/`; Volumes
   `kev-hf-cache` (HF_HOME) and `kev-runs` (trial outputs, pulled to `runs/<study>` then ranked by

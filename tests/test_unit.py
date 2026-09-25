@@ -462,6 +462,57 @@ def test_full_weight_warm_start(tiny_base, tmp_path, monkeypatch):
         train_tiny(tiny_base, tmp_path / "c", "--lora", "4", "--init_from", str(tmp_path / "a"), monkeypatch=monkeypatch)
 
 
+def test_interpolated_checkpoint_is_the_weighted_mean_of_sft_and_base(tiny_base, tmp_path, monkeypatch):
+    """scripts/interpolate_checkpoint.py (round 20's WiSE-FT arms): alpha 1 writes the SFT backbone, alpha 0 the base as
+    training builds it, 0.5 the fp32 midpoint rounded once to bf16; same shard files, names and dtypes; the pointer head is
+    the SFT's; head.pt records the interpolation; kev.checkpoint loads the result as a full-weight checkpoint."""
+    from safetensors.torch import load_file
+    from kev.checkpoint import Checkpoint, read_meta
+    from scripts.interpolate_checkpoint import interpolate, weight_label
+    train_tiny(tiny_base, tmp_path / "sft", *FULL, "--max_steps", "3", monkeypatch=monkeypatch)
+    alphas = [1.0, 0.0, 0.5]
+    outs = [tmp_path / f"w{weight_label(a)}" / "checkpoint" for a in alphas]
+    reports = interpolate(tmp_path / "sft", alphas, outs, log=lambda m: None)
+    sft, base = load_file(tmp_path / "sft/model.safetensors"), load_file(tiny_base / "base/model.safetensors")
+    base = {k: base["model." + k] for k in sft}   # save_pretrained of the CausalLM prefixes the backbone's names
+    one, zero, half = (load_file(o / "model.safetensors") for o in outs)
+    assert [weight_label(a) for a in alphas] == ["100", "00", "50"] and all(x.keys() == sft.keys() for x in (one, zero, half))
+    assert all(torch.equal(one[k], sft[k]) and one[k].dtype == sft[k].dtype for k in sft)
+    assert all(torch.equal(zero[k], base[k]) for k in sft)
+    assert all(torch.equal(half[k], (0.5 * sft[k].float() + 0.5 * base[k].float()).to(torch.bfloat16)) for k in sft)
+    assert any(not torch.equal(half[k], sft[k]) and not torch.equal(half[k], base[k]) for k in sft)
+    source, meta = read_meta(tmp_path / "sft"), read_meta(outs[2])
+    assert all(torch.equal(meta.head[k], source.head[k]) for k in source.head) and meta.temperature == source.temperature
+    assert meta.extra["interpolation"] == {"alpha": 0.5, "sft": {"path": str(tmp_path / "sft"), "weights_sha256": Checkpoint(tmp_path / "sft").weights_sha256()},
+                                           "base": f"{source.base}@{source.base_revision}"}
+    assert reports[2]["weights_sha256"] == Checkpoint(outs[2]).weights_sha256() and (outs[2].parent / "interpolation.json").exists()
+    assert not any((o.parent / "checkpoint.partial").exists() for o in outs) and not (outs[2] / "training_config.json").exists()
+    ck = Checkpoint(outs[2])
+    _, model = ck.load("cpu")
+    assert ck.full and all(torch.equal(model.lm.state_dict()[k], v) for k, v in half.items())
+    with pytest.raises(FileExistsError):
+        interpolate(tmp_path / "sft", [0.5], [outs[2]], log=lambda m: None)
+
+
+def test_interpolation_refuses_a_checkpoint_that_does_not_match_its_base(tiny_base, tmp_path, monkeypatch):
+    """A renamed or reshaped tensor, or a different base, stops the tool before anything is written."""
+    import shutil
+    from safetensors.torch import load_file, save_file
+    from scripts.interpolate_checkpoint import interpolate
+    train_tiny(tiny_base, tmp_path / "sft", *FULL, "--max_steps", "1", monkeypatch=monkeypatch)
+    tensors = load_file(tmp_path / "sft/model.safetensors")
+    first = next(iter(tensors))
+    for name, change in (("renamed", lambda t: {**{k: v for k, v in t.items() if k != first}, "bogus.weight": t[first]}),
+                         ("reshaped", lambda t: {**t, first: t[first].flatten()[:-1].clone()})):
+        shutil.copytree(tmp_path / "sft", tmp_path / name)
+        save_file(change(tensors), tmp_path / name / "model.safetensors", metadata={"format": "pt"})
+        with pytest.raises(ValueError, match="does not match its base"):
+            interpolate(tmp_path / name, [0.5], [tmp_path / f"{name}-out/checkpoint"], log=lambda m: None)
+        assert not (tmp_path / f"{name}-out").exists()
+    with pytest.raises(ValueError, match="was trained from"):
+        interpolate(tmp_path / "sft", [0.5], [tmp_path / "other/checkpoint"], base="Qwen/Qwen3.8-27B", log=lambda m: None)
+
+
 def test_master_adamw_is_adamw_on_fp32_masters():
     """MasterAdamW with host masters = torch AdamW after clip_grad_norm_, step for step; bf16 weights hold bf16(master)."""
     from kev.full_ft import MasterAdamW
@@ -480,6 +531,45 @@ def test_master_adamw_is_adamw_on_fp32_masters():
         torch.nn.utils.clip_grad_norm_(ref, 1.0); opt_ref.step(); opt.step(); opt_low.step()
         assert all(torch.allclose(a, b, atol=1e-6) for a, b in zip(ref, ours)) and all(p.grad is None for p in ours)
     assert all(torch.equal(p, opt_low.state[p]["master"].to(torch.bfloat16)) for p in low)
+
+
+@pytest.mark.parametrize("weights", ["lora", "full"])
+def test_nonfinite_gradient_aborts_before_any_weight_moves(tiny_base, tmp_path, monkeypatch, weights):
+    """A finite loss whose gradient is NaN passes batch_loss's loss check; the optimizer step refuses it
+    (clip_grad_norm_(error_if_nonfinite=True) for a LoRA, MasterAdamW's global norm for full weights). No update runs and
+    no checkpoint is written."""
+    from kev import full_ft, train
+
+    class NanGrad(torch.autograd.Function):   # the value passes through, its gradient becomes NaN
+        @staticmethod
+        def forward(ctx, x): return x.clone()
+        @staticmethod
+        def backward(ctx, g): return g * float("nan")
+
+    real, calls, updates = train.question_loss, [], []
+    def nan_grad_on_third(*args, **kwargs):   # a question of the first optimizer step
+        calls.append(1); z = real(*args, **kwargs)
+        return NanGrad.apply(z) if len(calls) == 3 else z
+    monkeypatch.setattr(train, "question_loss", nan_grad_on_third)
+    real_adamw, real_step = full_ft.adamw, torch.optim.AdamW.step
+    monkeypatch.setattr(full_ft, "adamw", lambda *a, **k: (updates.append(1), real_adamw(*a, **k)))
+    monkeypatch.setattr(torch.optim.AdamW, "step", lambda self, *a, **k: (updates.append(1), real_step(self, *a, **k))[1])
+    with pytest.raises(RuntimeError, match="non-finite"):
+        train_tiny(tiny_base, tmp_path / weights, "--accum", "2", "--max_steps", "2", *(FULL if weights == "full" else ("--lora", "4")), monkeypatch=monkeypatch)
+    assert len(calls) >= 3 and updates == [] and not (tmp_path / weights / "head.pt").exists()
+
+
+def test_master_adamw_refuses_nonfinite_gradients():
+    """A NaN gradient makes the global norm NaN; step() raises before any master, moment or weight changes."""
+    from kev.full_ft import MasterAdamW
+    params = [torch.nn.Parameter(torch.randn(3, 2).to(torch.bfloat16)), torch.nn.Parameter(torch.randn(4).to(torch.bfloat16))]
+    opt = MasterAdamW([{"params": params}], lr=1e-2, weight_decay=0.01, offload=True)
+    before = [(p.detach().clone(), opt.state[p]["master"].clone()) for p in params]
+    params[0].grad = torch.ones_like(params[0]); params[1].grad = torch.tensor([0.1, float("nan"), 0.2, 0.3], dtype=torch.bfloat16)
+    with pytest.raises(RuntimeError, match="non-finite gradient norm"):
+        opt.step()
+    assert all(torch.equal(p, w) and torch.equal(opt.state[p]["master"], m) and not opt.state[p]["exp_avg"].any() and opt.state[p]["step"] == 0
+               for p, (w, m) in zip(params, before))
 
 
 @pytest.mark.parametrize("shared", [0, 1])

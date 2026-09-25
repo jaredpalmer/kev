@@ -497,7 +497,7 @@ def main():
             run["n"] += variants; seen += round(variants); tokens_seen += sum(v.tokens for v in batch)
             peak_mem = max(peak_mem, allocated_bytes(dev))
             if ends_step:
-                if not a.full_ft: norm = float(torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), MAX_GRAD_NORM))   # MasterAdamW clips by the global norm itself
+                if not a.full_ft: norm = float(torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), MAX_GRAD_NORM, error_if_nonfinite=True))   # MasterAdamW clips by the global norm itself; both refuse a non-finite norm (a NaN gradient from a finite loss)
                 started = time.time(); opt.step(); sync(dev); optimizer_seconds += time.time() - started
                 grad_norms += [[] for _ in range(ep + 1 - len(grad_norms))]
                 grad_norms[ep].append(round(opt.grad_norm if a.full_ft else norm, 6))

@@ -1,0 +1,429 @@
+{
+  "round": 20,
+  "registered": "PLAN.md > Round 20 - post-hoc remedies on round 19's checkpoints: a held-out-datasets temperature and WiSE-FT interpolation with the base, no training (registered with this spec's commit, before any round-20 interpolation or read)",
+  "gpu": "H200",
+  "app": "kev-sft",
+  "reads": {
+    "breadth": {
+      "suite": "evals/breadth-v1"
+    },
+    "breadthtest": {
+      "suite": "evals/breadth-v1",
+      "flags": "--allow-test"
+    },
+    "devtest": {
+      "suite": "evals/devtools-v1",
+      "flags": "--allow-test"
+    },
+    "devtools": {
+      "suite": "evals/devtools-v1"
+    },
+    "docs": {
+      "suite": "evals/documents-v1"
+    },
+    "docs1test": {
+      "suite": "evals/documents-v1",
+      "flags": "--allow-test"
+    },
+    "docs2": {
+      "suite": "evals/documents-v2",
+      "flags": "--allow-test"
+    },
+    "hard": {
+      "suite": "evals/hard-v1"
+    },
+    "hardtest": {
+      "suite": "evals/hard-v1",
+      "flags": "--allow-test"
+    },
+    "locked": {
+      "entrypoint": "locked_test",
+      "decision": "evals/v7/decision-v7"
+    },
+    "r3cal": {
+      "suite": "evals/round3/transfer-r3",
+      "flags": "--split calibration"
+    },
+    "r3test": {
+      "suite": "evals/round3/transfer-r3",
+      "flags": "--allow-test"
+    },
+    "scienthoon": {
+      "suite": "evals/external/scienthoon-v1"
+    },
+    "semif": {
+      "suite": "evals/external/semif-v1"
+    },
+    "transfer4": {
+      "suite": "evals/v4/transfer-v4"
+    },
+    "typesafe": {
+      "suite": "evals/external/typesafe-v1"
+    },
+    "v9": {
+      "suite": "evals/v9/transfer-v9"
+    },
+    "wanli2": {
+      "suite": "evals/external/wanli-v2"
+    }
+  },
+  "temperature": {
+    "reads": [
+      "r3cal",
+      "v9"
+    ],
+    "sources": {
+      "v9": [
+        "mmlu_pro"
+      ],
+      "r3cal": [
+        "composition_holdout",
+        "emotion",
+        "legacy_holdout",
+        "mmlu",
+        "paws",
+        "qnli",
+        "sciq",
+        "tweet_offensive"
+      ]
+    },
+    "exclude_reads": [
+      "transfer"
+    ]
+  },
+  "drop_ids": [
+    "codereviewer/cls-test/13657",
+    "codereviewer/cls-test/19245"
+  ],
+  "read_timeout": {
+    "27b": 3600
+  },
+  "locked_args": {
+    "27b": [
+      "--timeout",
+      "14400",
+      "--memory-mb",
+      "131072"
+    ]
+  },
+  "parents": {
+    "27b": {
+      "trial": "runs/r6-27b-v2/01-trial-1",
+      "checkpoint": "jaredpalmer/kev-27b@01b81998019be550f0ae858727df49bac9511195",
+      "reads": {
+        "breadth": "runs/breadth-v1-kev-27b",
+        "hard": "runs/hv1-27b",
+        "devtools": "runs/dt1-27b",
+        "docs": "runs/r6-27bv2-s2-docs",
+        "v9": "runs/r6-27bv2-s2-v9",
+        "r3test": "runs/r19-P27-r3test",
+        "semif": "runs/r6-27bv2-s2-semif",
+        "scienthoon": "runs/r6-27bv2-s2-scienthoon",
+        "wanli2": "runs/r6-27bv2-s2-wanli2",
+        "typesafe": "runs/r6-27bv2-s2-typesafe",
+        "locked": "runs/locked/kev-27b-v2-ungated/transfer"
+      }
+    }
+  },
+  "arms": {
+    "27b-a": {
+      "trial": "runs/r19-27b-lr2e6/00-trial-0",
+      "parent": "27b",
+      "reads": {
+        "breadth": "runs/r19-27b-lr2e6-breadth",
+        "hard": "runs/r19-27b-lr2e6-hard",
+        "devtools": "runs/r19-27b-lr2e6-devtools",
+        "docs": "runs/r19-27b-lr2e6-docs",
+        "semif": "runs/r19-27b-lr2e6-semif",
+        "scienthoon": "runs/r19-27b-lr2e6-scienthoon",
+        "wanli2": "runs/r19-27b-lr2e6-wanli2",
+        "typesafe": "runs/r19-27b-lr2e6-typesafe",
+        "v9": "runs/r19-27b-lr2e6-v9",
+        "r3test": "runs/r19-27b-lr2e6-r3test",
+        "r3cal": "runs/r20-27b-a-r3cal"
+      },
+      "select": false
+    },
+    "27b-b": {
+      "trial": "runs/r19-27b-lr5e6/00-trial-0",
+      "parent": "27b",
+      "reads": {
+        "breadth": "runs/r19-27b-lr5e6-breadth",
+        "hard": "runs/r19-27b-lr5e6-hard",
+        "devtools": "runs/r19-27b-lr5e6-devtools",
+        "docs": "runs/r19-27b-lr5e6-docs",
+        "semif": "runs/r19-27b-lr5e6-semif",
+        "scienthoon": "runs/r19-27b-lr5e6-scienthoon",
+        "wanli2": "runs/r19-27b-lr5e6-wanli2",
+        "typesafe": "runs/r19-27b-lr5e6-typesafe",
+        "v9": "runs/r19-27b-lr5e6-v9",
+        "r3test": "runs/r19-27b-lr5e6-r3test",
+        "r3cal": "runs/r20-27b-b-r3cal"
+      },
+      "select": false
+    },
+    "27b-a-w85": {
+      "checkpoint": "/runs/r20-wise/27b-a-w85/checkpoint",
+      "parent": "27b",
+      "transfer_read": "transfer4"
+    },
+    "27b-a-w70": {
+      "checkpoint": "/runs/r20-wise/27b-a-w70/checkpoint",
+      "parent": "27b",
+      "transfer_read": "transfer4"
+    },
+    "27b-a-w50": {
+      "checkpoint": "/runs/r20-wise/27b-a-w50/checkpoint",
+      "parent": "27b",
+      "transfer_read": "transfer4"
+    },
+    "27b-b-w85": {
+      "checkpoint": "/runs/r20-wise/27b-b-w85/checkpoint",
+      "parent": "27b",
+      "transfer_read": "transfer4"
+    },
+    "27b-b-w70": {
+      "checkpoint": "/runs/r20-wise/27b-b-w70/checkpoint",
+      "parent": "27b",
+      "transfer_read": "transfer4"
+    },
+    "27b-b-w50": {
+      "checkpoint": "/runs/r20-wise/27b-b-w50/checkpoint",
+      "parent": "27b",
+      "transfer_read": "transfer4"
+    }
+  },
+  "rule": {
+    "panels": {
+      "breadth": {
+        "reads": [
+          "breadth"
+        ],
+        "metrics": [
+          "acc",
+          "ece"
+        ]
+      },
+      "kev": {
+        "reads": [
+          "transfer",
+          "hard",
+          "devtools",
+          "docs"
+        ],
+        "metrics": [
+          "acc",
+          "ece"
+        ]
+      },
+      "short": {
+        "reads": [
+          "transfer",
+          "r3test"
+        ],
+        "metrics": [
+          "acc",
+          "brier",
+          "confident_error_rate"
+        ]
+      },
+      "scienthoon": {
+        "reads": [
+          "scienthoon"
+        ],
+        "metrics": [
+          "acc"
+        ]
+      },
+      "wanli2": {
+        "reads": [
+          "wanli2"
+        ],
+        "metrics": [
+          "acc"
+        ]
+      },
+      "pooled_external": {
+        "reads": [
+          "semif",
+          "scienthoon",
+          "wanli2",
+          "typesafe"
+        ],
+        "metrics": [
+          "acc"
+        ]
+      }
+    },
+    "unknowable": "v9",
+    "criteria": {
+      "1_breadth_lower_above_0": {
+        "left": "breadth.acc.lower",
+        "op": ">",
+        "right": 0
+      },
+      "1_kev_lower_at_least_minus_1pp": {
+        "left": "kev.acc.lower",
+        "op": ">=",
+        "right": -0.01
+      },
+      "2_short_acc_lower_at_least_minus_2pp": {
+        "left": "short.acc.lower",
+        "op": ">=",
+        "right": -0.02
+      },
+      "2_short_brier_upper_at_most_0.01": {
+        "left": "short.brier.upper",
+        "op": "<=",
+        "right": 0.01
+      },
+      "2_short_confident_errors_upper_at_most_1pp": {
+        "left": "short.confident_error_rate.upper",
+        "op": "<=",
+        "right": 0.01
+      },
+      "2_wanli2_lower_at_least_minus_2pp": {
+        "left": "wanli2.acc.lower",
+        "op": ">=",
+        "right": -0.02
+      },
+      "2_scienthoon_lower_at_least_minus_2pp": {
+        "left": "scienthoon.acc.lower",
+        "op": ">=",
+        "right": -0.02
+      },
+      "2_pooled_lower_at_least_minus_1.5pp": {
+        "left": "pooled_external.acc.lower",
+        "op": ">=",
+        "right": -0.015
+      },
+      "2_unknowable_at_most_0.05": {
+        "left": "unknowable.candidate",
+        "op": "<=",
+        "right": 0.05
+      },
+      "3_breadth_ece_at_most_parent_plus_0.01": {
+        "left": "breadth.ece.candidate",
+        "op": "<=",
+        "right": "breadth.ece.parent",
+        "plus": 0.01
+      },
+      "3_kev_ece_at_most_parent_plus_0.01": {
+        "left": "kev.ece.candidate",
+        "op": "<=",
+        "right": "kev.ece.parent",
+        "plus": 0.01
+      }
+    },
+    "rank": [
+      {
+        "by": [
+          "breadth.acc.delta",
+          "kev.acc.delta"
+        ],
+        "order": "desc"
+      }
+    ]
+  },
+  "confirm": {
+    "tests": {
+      "candidate_reads": "runs/r20c-{size}-cand-{tag}",
+      "parent_reads": "runs/r20c-{size}-parent-{tag}",
+      "panels": {
+        "breadthtest": {
+          "reads": [
+            "breadthtest"
+          ],
+          "metrics": [
+            "acc"
+          ],
+          "report": [
+            "ece"
+          ]
+        },
+        "pooled": {
+          "reads": [
+            "hardtest",
+            "devtest",
+            "docs1test"
+          ],
+          "metrics": [
+            "acc"
+          ]
+        },
+        "hardtest": {
+          "reads": [
+            "hardtest"
+          ],
+          "metrics": [
+            "acc"
+          ]
+        },
+        "devtest": {
+          "reads": [
+            "devtest"
+          ],
+          "metrics": [
+            "acc"
+          ]
+        },
+        "docs1test": {
+          "reads": [
+            "docs1test"
+          ],
+          "metrics": [
+            "acc"
+          ]
+        },
+        "docs2": {
+          "reads": [
+            "docs2"
+          ],
+          "metrics": [
+            "acc"
+          ]
+        }
+      },
+      "criteria": {
+        "breadthtest_lower_above_0": {
+          "left": "breadthtest.acc.lower",
+          "op": ">",
+          "right": 0
+        },
+        "pooled_lower_at_least_minus_1pp": {
+          "left": "pooled.acc.lower",
+          "op": ">=",
+          "right": -0.01
+        }
+      }
+    },
+    "locked": {
+      "candidate_reads": {
+        "locked": "runs/locked/kev-{size}-r20-ungated/transfer"
+      },
+      "panels": {
+        "locked": {
+          "reads": [
+            "locked"
+          ],
+          "metrics": [
+            "acc",
+            "brier"
+          ]
+        }
+      },
+      "criteria": {
+        "locked_acc_at_least_0.886": {
+          "left": "locked.acc.candidate",
+          "op": ">=",
+          "right": 0.886
+        },
+        "served_brier_at_most_0.165": {
+          "left": "locked.brier.candidate",
+          "op": "<=",
+          "right": 0.165
+        }
+      }
+    }
+  }
+}

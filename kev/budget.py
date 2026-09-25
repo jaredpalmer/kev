@@ -18,6 +18,12 @@ MAX_TIMEOUT = {False: 28800, True: 86400}   # a 24 h attempt fits the $1,000 cap
                                              # H200:8 (~$41/h) the cap allows ~8 h attempts, a day with the retries
 MAX_BUDGET = {False: 250, True: 1000}
 FULL_FT_RETRIES = 2
+CPU_HOURLY, MEMORY_GIB_HOURLY = 0.04730, 0.008   # USD per core hour and per GiB hour (memory billed at the limit here)
+# Checkpoint interpolation (scripts/interpolate_checkpoint.py, modal_app.py::interpolate): CPU only. The base backbone stays
+# resident in bf16 (51 GB for Qwen3.8-27B, 25.6B parameters; loading it through transformers also stages the 2.5 GB LM
+# head); the SFT side streams tensor by tensor, one output shard (<= 5 GB) is held until written, and the fp32 arithmetic
+# runs in 16M-element chunks (~200 MB). Peak ~60 GB; the limit leaves room for the loader's transients.
+INTERPOLATE_CPU, INTERPOLATE_MEMORY, INTERPOLATE_TIMEOUT = 8, (81920, 131072), 10800   # cores, 80 / 128 GiB, 3 h
 
 
 def gpu_count(gpu):
@@ -42,7 +48,14 @@ def hourly_rate(gpu, full_ft=False):
     kind = gpu.partition(":")[0]
     if kind not in GPU_HOURLY or gpu_count(gpu) < 1: raise ValueError(f"invalid GPU {gpu!r}")
     cpu, memory = trial_resources(gpu, full_ft)
-    return GPU_HOURLY[kind] * gpu_count(gpu) + cpu * 0.04730 + (memory[1] + (trial_disk(full_ft) or 0) / 20) / 1024 * 0.008
+    return GPU_HOURLY[kind] * gpu_count(gpu) + cpu * CPU_HOURLY + (memory[1] + (trial_disk(full_ft) or 0) / 20) / 1024 * MEMORY_GIB_HOURLY
+
+
+def interpolation_bound(timeout=INTERPOLATE_TIMEOUT, jobs=1):
+    """The most `jobs` interpolation containers (INTERPOLATE_CPU, INTERPOLATE_MEMORY; no GPU, no retries) can cost at
+    `timeout` seconds each."""
+    if timeout <= 0 or jobs < 1: raise ValueError("invalid timeout or job count")
+    return (INTERPOLATE_CPU * CPU_HOURLY + INTERPOLATE_MEMORY[1] / 1024 * MEMORY_GIB_HOURLY) * timeout / 3600 * jobs
 
 
 def compute_bound(gpu, timeout, trials, full_ft=False):

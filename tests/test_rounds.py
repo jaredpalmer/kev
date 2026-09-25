@@ -1,9 +1,11 @@
 """The round harness (kev.rounds): spec validation, the benchmark job codec, the watcher's resume and network handling, and
-reproduction of the committed read-outs and verdicts of rounds 5-18 from saved rows.
+reproduction of the committed read-outs and verdicts of rounds 5-19 from saved rows, and round 20's temperature pools,
+transfer reads and checkpoint arms on a synthetic round.
 
 Offline vs archive. Rounds 5-18 ran on the research branch; their trial rows, reads and most committed outputs live on the
 git tag `research-archive-2026-09-24`, not on main. This checkout carries everything the round-5 read-out and the round-15
-locked verdict need (the released Kev-0.8B's confirmation), so those two run everywhere, CI included. Every other
+locked verdict need (the released Kev-0.8B's confirmation), so those two run everywhere, CI included. Round 19's read-out
+runs wherever its trials' private development rows can be fetched (test_readout_reproduces_round_19). Every other
 reproduction skips unless KEV_ROUNDS_ROOT points at a checkout that has the rows and the outputs: a worktree of the tag
 (`git worktree add /tmp/kev-archive research-archive-2026-09-24`, whose gitignored trial rows are not in git either) or the
 checkout the rounds ran in:
@@ -353,6 +355,138 @@ def test_confirm_reproduces_the_committed_verdicts(round_number, name):
     if missing: pytest.skip(f"archived, not in {DATA} (set KEV_ROUNDS_ROOT): {missing[:2]}")
     checked, diffs = reproduce_verdict(round_number, name)
     assert checked >= 4 and diffs == [], diffs[:5]
+
+
+def test_readout_reproduces_round_19():
+    """Round 19 was read out by this harness. Its read-out and every read it scores are committed; the arms' development
+    rows (their temperatures' fit set) carry sft-v1 record ids, so they come from the private dataset the manifest names
+    (scripts/private_rows.py), fetched into this checkout's gitignored runs/: the test skips for an account without access."""
+    from scripts.private_rows import restore
+    try:
+        restore("runs/r19-readout/private-rows.json", ROOT)
+    except PermissionError as error:
+        pytest.skip(str(error))
+    spec = rounds.load(ROOT / "experiments/rounds/r19.json")
+    assert same(rounds.readout(spec, ROOT), read_json(ROOT / "runs/r19-readout/round19.json"))
+
+
+# --- temperature pools, transfer reads and checkpoints without a trial (round 20) -------------------------------------
+
+def _rows(root, d, ids, seed, scale=1.0, source="s"):
+    """Clean rows with raw logits (3 options), one question per record id; the label follows the id, so sides pair."""
+    import numpy as np
+    rng, rows = np.random.default_rng(seed), []
+    for i in ids:
+        z = rng.normal(size=3) * scale
+        z[int(i.split("/")[1]) % 3] += 2.0   # informative: the fitted temperature stays inside the grid
+        p = np.exp(z - z.max()); p /= p.sum()
+        rows.append({"id": i, "group": i, "question": "q", "source": source, "task": source, "type": "choice", "variant": "clean",
+                     "keys": ["a", "b", "c"], "label": int(i.split("/")[1]) % 3, "p": p.tolist(), "logits": z.tolist(), "inference_temperature": 1.0})
+    (root / d).mkdir(parents=True, exist_ok=True); write_json(root / d / "rows.json", rows)
+    return rows
+
+
+def _pool_round(root):
+    """A two-arm round: a trained arm and an interpolated checkpoint (no trial), both served at a pooled temperature. The
+    pool's first read carries ten rows of another source and the second repeats five transfer records, all confidently
+    wrong: the sources allowlist and exclude_reads remove them."""
+    write_json(root / "r99.json", {
+        "round": 99, "registered": "test", "gpu": "H200",
+        "reads": {tag: {"suite": "evals/v4/transfer-v4"} for tag in ("main", "cal", "v9", "transfer4")} | {"locked": {"entrypoint": "locked_test", "decision": "evals/v7/decision-v7"}},
+        "temperature": {"reads": ["cal", "v9"], "sources": {"cal": ["s"]}, "exclude_reads": ["transfer"]},
+        "parents": {"p": {"trial": "runs/p/00-trial-0", "reads": {"main": "runs/p-main"}}},
+        "arms": {"x-trained": {"trial": "runs/s/00-trial-0", "parent": "p"},
+                 "x-wise": {"checkpoint": "/runs/wise/x-w50/checkpoint", "parent": "p", "transfer_read": "transfer4"}},
+        "rule": {"panels": {"main": {"reads": ["main", "transfer"], "metrics": ["acc", "ece"]}},
+                 "criteria": {"acc": {"left": "main.acc.lower", "op": ">", "right": -1}}, "rank": [{"by": "main.acc.delta"}]},
+        "confirm": {"locked": {"candidate_reads": {"locked": "runs/locked/kev-{size}-r99-ungated/transfer"}, "panels": {"locked": {"reads": ["locked"], "metrics": ["acc"]}},
+                               "criteria": {"acc": {"left": "locked.acc.candidate", "op": ">=", "right": 0}}}}})
+    spec = rounds.load(root / "r99.json")
+    transfer_ids = [f"t/{i}" for i in range(40)]
+    for d in ("runs/p/00-trial-0/development", "runs/s/00-trial-0/development"): _rows(root, d, [f"d/{i}" for i in range(60)], 1)
+    for d, seed in (("runs/p/00-trial-0/transfer", 2), ("runs/s/00-trial-0/transfer", 3), ("runs/r99-x-wise-transfer4", 4)): _rows(root, d, transfer_ids, seed)
+    for d, seed in (("runs/p-main", 5), ("runs/r99-x-trained-main", 6), ("runs/r99-x-wise-main", 7)): _rows(root, d, [f"m/{i}" for i in range(50)], seed)
+    for arm in ("x-trained", "x-wise"):
+        cal = _rows(root, f"runs/r99-{arm}-cal", [f"c/{i}" for i in range(80)], 8) + _rows(root, f"runs/r99-{arm}-other", [f"o/{i}" for i in range(10)], 11, source="other")
+        for r in cal[-10:]: r.update(logits=[20.0, 0.0, 0.0], p=[1.0, 0.0, 0.0], label=1)   # another source, confidently wrong
+        write_json(root / f"runs/r99-{arm}-cal/rows.json", cal)
+        v9 = _rows(root, f"runs/r99-{arm}-v9", [f"v/{i}" for i in range(30)] + transfer_ids[:5], 9)
+        for r in v9[-5:]: r.update(logits=[20.0, 0.0, 0.0], p=[1.0, 0.0, 0.0], label=2)   # transfer records, confidently wrong
+        v9 += _rows(root, f"runs/r99-{arm}-unk", [f"u/{i}" for i in range(10)], 10, scale=9, source="unknowable")
+        write_json(root / f"runs/r99-{arm}-v9/rows.json", v9)
+    return spec
+
+
+def test_arms_are_served_at_the_pooled_temperature_and_parents_at_their_own(tmp_path):
+    from kev.metrics import served
+    spec = _pool_round(tmp_path)
+    assert rounds.validate(spec, tmp_path, plans=False).problems == []
+    report = rounds.readout(spec, tmp_path)
+    pooled = [r for d in ("cal", "v9") for r in read_json(tmp_path / f"runs/r99-x-wise-{d}/rows.json") if r["id"][0] not in "to"]
+    unfiltered = [r for d in ("cal", "v9") for r in read_json(tmp_path / f"runs/r99-x-wise-{d}/rows.json")]
+    wise, trained = report["arms"]["x-wise"], report["arms"]["x-trained"]
+    assert wise["temperature"] == served(pooled, [])[0] != served(unfiltered, [])[0]   # the filtered rows would move the fit
+    assert trained["temperature"] == wise["temperature"]                               # same pool rows here, different arm
+    assert wise["parent_temperature"] == rounds.temperature("runs/p/00-trial-0", tmp_path)
+    assert wise["temperature_fit"] == {"reads": ["runs/r99-x-wise-cal", "runs/r99-x-wise-v9"], "sources": {"runs/r99-x-wise-cal": ["s"]},
+                                       "exclude_reads": ["runs/r99-x-wise-transfer4"], "questions": 110, "excluded_questions": 5}   # 80 + 30 knowable; the 10 unknowable never count
+    assert trained["temperature_fit"]["exclude_reads"] == ["runs/s/00-trial-0/transfer"] and wise["checkpoint"] == "/runs/wise/x-w50/checkpoint" and wise["trial"] is None
+    assert wise["complete"] and wise["panels"]["main"]["n"] == 90                     # main (50) + transfer4 standing in for transfer (40)
+    side = rounds.arm_side(spec, "x-wise", tmp_path, stage="locked")                   # a stage keeps the rule-stage pool
+    assert side.pool.reads == ["runs/r99-x-wise-cal", "runs/r99-x-wise-v9"] and side.dirs["locked"] == "runs/locked/kev-x-r99-ungated/transfer"
+
+
+def test_calibrate_checkpoint_ships_the_pooled_temperature(tmp_path):
+    """scripts/calibrate_checkpoint.py --rows path:sources ... --exclude_rows selects what the round's pool selects, so the
+    temperature a release writes into head.pt is the one its round served it at."""
+    from kev.metrics import TEMPERATURE_FIT, fit_temperature
+    from scripts.calibrate_checkpoint import fit_rows
+    spec = _pool_round(tmp_path)
+    rows = fit_rows([f"{tmp_path}/runs/r99-x-wise-cal/rows.json:s", f"{tmp_path}/runs/r99-x-wise-v9/rows.json"], [tmp_path / "runs/r99-x-wise-transfer4/rows.json"])
+    assert fit_temperature(rows, **TEMPERATURE_FIT) == rounds.arm_side(spec, "x-wise", tmp_path).t
+
+
+def test_a_missing_pool_read_leaves_the_arm_incomplete(tmp_path):
+    spec = _pool_round(tmp_path)
+    (tmp_path / "runs/r99-x-wise-cal/rows.json").unlink()
+    wise = rounds.readout(spec, tmp_path)["arms"]["x-wise"]
+    assert (wise["complete"], wise["passed"], wise["temperature"], wise["missing"]) == (False, None, None, ["candidate:runs/r99-x-wise-cal"])
+
+
+def test_reads_of_a_checkpoint_without_a_trial(tmp_path):
+    """Its benchmarks run on the declared checkpoint, "transfer" is read as its transfer_read, the pool reads are launched
+    with the rule's, and the locked read names the checkpoint's directory as the trial (modal_app.run_locked_test reads a
+    checkpoint without result.json only under an -ungated name)."""
+    spec = _pool_round(tmp_path)
+    for arm in ("x-trained", "x-wise"):
+        for tag in ("main", "cal", "v9", "transfer4"): (tmp_path / f"runs/r99-{arm}-{tag}/rows.json").unlink(missing_ok=True)
+    [bench] = rounds.read_commands(spec, "x-wise", root=tmp_path)
+    jobs = bench[bench.index("--jobs") + 1].split(",")
+    assert jobs == [f"/runs/wise/x-w50/checkpoint@evals/v4/transfer-v4@r99-x-wise-{t}" for t in ("cal", "main", "transfer4", "v9")]
+    [bench] = rounds.read_commands(spec, "x-trained", root=tmp_path)
+    assert [j.rsplit("@", 1)[1] for j in bench[bench.index("--jobs") + 1].split(",")] == [f"r99-x-trained-{t}" for t in ("cal", "main", "v9")]   # its transfer is in-trial
+    [locked] = rounds.read_commands(spec, "x-wise", stage="locked", root=tmp_path)
+    assert locked[locked.index("--trial") + 1] == "wise/x-w50" and locked[locked.index("--name") + 1] == "kev-x-r99-ungated"
+
+
+def test_validation_of_pools_transfer_reads_and_trialless_arms(tmp_path):
+    spec = _pool_round(tmp_path)
+    spec["rule"]["panels"]["cal"] = {"reads": ["cal"], "metrics": ["acc", "brier"]}
+    spec["rule"]["criteria"]["cal_acc"] = {"left": "cal.acc.lower", "op": ">", "right": -1}        # accuracy: the temperature cannot move it
+    assert rounds.validate(spec, tmp_path, rows=False, plans=False).problems == []
+    spec["rule"]["criteria"]["cal_brier"] = {"left": "cal.brier.upper", "op": "<=", "right": 0.01}
+    spec["temperature"]["reads"].append("nope")
+    spec["temperature"]["sources"]["main"] = ["s"]
+    spec["arms"]["x-bare"] = {"checkpoint": "jaredpalmer/kev-27b", "parent": "p"}
+    spec["arms"]["x-lost"] = {"trial": "runs/s/01-trial-1", "parent": "p", "transfer_read": "locked", "reads": {"main": "runs/x"}}
+    problems = "\n".join(rounds.validate(spec, tmp_path, rows=False, plans=False).problems)
+    for expected in ("['cal'] pooled, but rule criterion cal_brier reads cal.brier.upper", "temperature: 'nope' is not a read tag", "temperature: sources for 'main', which is not pooled",
+                     "arm x-bare: an arm without a trial needs a checkpoint on the runs volume", "arm x-bare: no trial, so no in-trial transfer read",
+                     "arm x-lost: transfer_read 'locked' is not a benchmarks read", "arm x-lost: its reads do not locate its transfer_read",
+                     "arm x-lost: its reads do not locate the temperature pool's ['cal', 'v9', 'nope']"):
+        assert expected in problems, expected
+    del spec["temperature"]
+    assert "arm x-wise: no trial, so no development rows to fit its temperature on" in "\n".join(rounds.validate(spec, tmp_path, rows=False, plans=False).problems)
 
 
 def test_concurrent_pulls_of_one_study_run_one_at_a_time(tmp_path, monkeypatch):
