@@ -132,7 +132,9 @@ def test_row_batching_and_packed_fallback_do_not_change_answers(smoke_run, monke
         rows_hit = torch.cat(m.probs_with_prefix(enc, prefix_rows)); rows_probs = torch.cat(m.probs(enc))   # probs() on an attention-only record too long to pack
         monkeypatch.setattr(M, "rows_per_pass", lambda rows, prefix_len=0, budget=0: 1)   # one row per pass
         one_at_a_time = full(); one_at_a_time_hit = torch.cat(m.probs_with_prefix(enc, prefix_rows))
-    for got in (rows_full, torch.cat(rows_miss), rows_hit_from_packed_prefix, rows_hit, rows_probs, one_at_a_time, one_at_a_time_hit):
+        monkeypatch.setattr(M, "SERVE_MAX_PACKED", len(enc["ids"]))   # packable again: the prefix made by rows, reused packed
+        packed_hit_from_rows_prefix = torch.cat(m.probs_with_prefix(enc, prefix_rows))
+    for got in (rows_full, torch.cat(rows_miss), rows_hit_from_packed_prefix, rows_hit, rows_probs, one_at_a_time, one_at_a_time_hit, packed_hit_from_rows_prefix):
         assert (got - packed).abs().max() < 1e-4
 
 
@@ -160,6 +162,7 @@ def test_hybrid_rows_isolation_and_prefix(monkeypatch):
         assert calls == ["prefix"]   # one state pass, no row per question
         alone = [m.probs(m.encode(tok, {"state": rec["state"], "questions": [q]}))[0] for q in rec["questions"]]
         cached, prefix = m.probs_and_prefix(enc)
+        assert prefix[2] is None   # rows never read the state's hidden states: no fp32 [Ls, d] copy in the prefix cache
         again = m.probs_with_prefix(enc, prefix); again2 = m.probs_with_prefix(enc, prefix)
         import kev.model as M
         saved, M.rows_per_pass = M.rows_per_pass, lambda rows, prefix_len=0, budget=0: 1   # one row per pass: same answers, bounded memory
@@ -328,7 +331,7 @@ def test_server_recovers_when_a_pass_runs_out_of_memory():
     match (the graphs and fused kernels survived the failed pass). Under a cap an empty cache cannot meet either, the error
     reaches the caller, the cache is left empty and the failed pass's tensors are freed (the model thread used to keep them
     until its next batch). The pressure is a memory cap (set_per_process_memory_fraction) placed halfway across what
-    dropping the cache frees, so both outcomes have that half as margin (H100: 652 MiB freed, 326 each side; the pass adds 158)."""
+    dropping the cache frees, so both outcomes have that half as margin (H100: 730 MiB freed, 365 each side; the pass adds 258)."""
     import torch
     if not torch.cuda.is_available(): pytest.skip("needs CUDA")
     from types import MethodType
@@ -342,9 +345,9 @@ def test_server_recovers_when_a_pass_runs_out_of_memory():
     qs = [{"instr": "Which team should handle this?", "options": ["returns", "shipping", "billing", "other"], "label": 0},
           {"instr": "Is a refund owed?", "options": ["yes", "no"], "label": 0}]
     # states past the graphed state pass (an eager state pass, the path a long document takes) that still fit a bank
-    # entry (graphed question rows); ~55 MiB of prefix each on Kev-0.8B
+    # entry (graphed question rows); ~41 MiB of prefix each on Kev-0.8B
     rec = lambda i: {"state": f"Ticket {i}. " + f"Order {4400 + i} arrived late and the box was crushed. Two charges appear on the card. " * 170, "questions": qs}
-    fills, target, after = [rec(i) for i in range(12)], rec(100), rec(101)
+    fills, target, after = [rec(i) for i in range(16)], rec(100), rec(101)
     enc = lambda r: m.encode(tok, r, max_state=SERVE_MAX_STATE, max_branch=SERVE_MAX_BRANCH)
     n = enc(target)["seg"].count(0)
     assert cuda_graphs.GRAPH_STATE < n <= cuda_graphs.BANK_WIDTH, n

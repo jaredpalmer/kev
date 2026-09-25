@@ -384,16 +384,19 @@ class DecisionModel(nn.Module):
 
     @torch.no_grad()
     def prefix(self, enc):
-        """Run the state tokens only. Returns (n_state_tokens, kv cache, state hidden states [Ls, d])."""
+        """Run the state tokens only. Returns (n_state_tokens, kv cache, state hidden states [Ls, d] fp32 or None). Only the
+        packed pass (probs_with_prefix) reads the hidden states; a hybrid backbone always runs rows, so it keeps None, as the
+        graphed prefixes do (a cached fp32 [Ls, d] copy is 160 MiB for 8k tokens on Kev-27B). An attention-only backbone
+        keeps them even when this record runs as rows: the same state with fewer questions may be packed."""
         Ls = enc["seg"].count(0)
         ids = torch.tensor([enc["ids"][:Ls]], device=self.device); pos = torch.tensor([enc["pos"][:Ls]], device=self.device)
         # the cache must know the layer types (hybrid backbones keep recurrent + conv states per DeltaNet layer)
         out = self.lm(input_ids=ids, position_ids=pos, past_key_values=DynamicCache(config=self.lm.config), use_cache=True)
-        return Ls, out.past_key_values, out.last_hidden_state[0].float()
+        return Ls, out.past_key_values, None if self.hybrid else out.last_hidden_state[0].float()
 
     @torch.no_grad()
     def probs_and_prefix(self, enc):
-        """One full pass that also returns the state prefix (KV cropped to the state, state hidden states): a cache miss
+        """One full pass that also returns the state prefix (KV cropped to the state, state hidden states or None, see prefix): a cache miss
         costs a single forward pass, not two."""
         Ls = enc["seg"].count(0)
         if self.rows_form([enc]):
