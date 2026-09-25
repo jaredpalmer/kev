@@ -372,13 +372,17 @@ def parse_args():
         ap.error(f"--max_state must be in [{MAX_STATE}, {MAX_TRAIN_STATE}]")
     if a.replay and not (a.data and a.suite):
         ap.error("--replay needs both --data and --suite")
+    if a.full_ft and (problem := full_ft.unsupported_torch()):
+        ap.error(problem)
     if a.full_ft and (a.weights_dtype != "bf16" or a.special_embeddings):
         ap.error("--full_ft 1 trains bf16 weights (--weights_dtype bf16) and every embedding already (no --special_embeddings)")
     if a.row_budget < 0 or a.max_steps < 0:
         ap.error("--row_budget and --max_steps are >= 0")
-    if a.row_budget and (a.perm_kl > 0 or int(os.environ.get("WORLD_SIZE", "1")) > 1):
+    if a.row_budget and (a.perm_kl > 0 or a.anchor_w > 0 or int(os.environ.get("WORLD_SIZE", "1")) > 1):
         ap.error("--row_budget splits micro-batches into passes: not with --perm_kl (a record and its permuted copy share a loss term), "
-                 "nor under torchrun (FSDP2 ranks must run the same number of backward passes; sharded ranks have the memory without it)")
+                 "nor --anchor_w (a split record's parts would weight its anchored questions by their part's share of all its questions, "
+                 "not 1 / anchored questions), nor under torchrun (FSDP2 ranks must run the same number of backward passes; sharded "
+                 "ranks have the memory without it)")
     if (a.save_every_steps or a.save_every_minutes or a.resume or a.stop_after) and not a.full_ft:
         ap.error("resume points are for full-weight runs (--full_ft 1)")
     if Path(a.out).exists() and not a.resume and os.environ.get("RANK", "0") == "0":   # under torchrun rank 0 creates it; the others would race it
@@ -387,7 +391,16 @@ def parse_args():
 
 
 RESUME_KNOBS = ("resume", "save_every_steps", "save_every_minutes", "stop_after")   # may differ between a run and its continuation
-RESUMED = ("step", "seen", "tokens_seen", "peak_mem", "optimizer_seconds", "step_seconds", "elapsed", "epoch", "microbatch")   # counters a resume point carries
+RESUMED = ("step", "seen", "tokens_seen", "peak_mem", "optimizer_seconds", "step_seconds", "elapsed", "epoch", "microbatch", "grad_norms")   # counters a resume point carries
+
+
+MAX_GRAD_NORM = 1.0   # both optimizers clip the global gradient norm to this (full_ft.MasterAdamW's default)
+
+
+def grad_norm_summary(grad_norms):
+    """Per epoch: mean and max of the steps' global gradient norms before clipping, and how many steps were clipped."""
+    return [{"epoch": ep, "steps": len(norms), "mean": sum(norms) / len(norms), "max": max(norms), "clipped_steps": sum(n > MAX_GRAD_NORM for n in norms)}
+            for ep, norms in enumerate(grad_norms) if norms]
 
 
 def pinned_revision(a, manifest):
@@ -450,16 +463,17 @@ def main():
     groups = [{"params": [p for p in model.trainable_parameters() if id(p) not in head_ids], "lr": a.lr},
               {"params": head_params, "lr": a.head_lr or a.lr}]
     # full weights: one GPU keeps the fp32 masters and moments in host memory; FSDP2 ranks keep their shard's on the GPU
-    opt = full_ft.MasterAdamW(groups, lr=a.lr, weight_decay=a.weight_decay, offload=world == 1) if a.full_ft else torch.optim.AdamW(groups, lr=a.lr, weight_decay=a.weight_decay)
+    opt = full_ft.MasterAdamW(groups, lr=a.lr, weight_decay=a.weight_decay, offload=world == 1, max_grad_norm=MAX_GRAD_NORM) if a.full_ft else torch.optim.AdamW(groups, lr=a.lr, weight_decay=a.weight_decay)
     per_epoch = microbatch_plan(reqs, a, world, rank)   # counts only: they depend on len(reqs), not on the shuffle
     steps = a.epochs * sum(ends for _, _, ends in per_epoch)
     steps = min(steps, a.max_steps) if a.max_steps else steps
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=[a.lr, a.head_lr or a.lr], total_steps=max(steps, 1), pct_start=0.1)
     step = seen = tokens_seen = peak_mem = optimizer_seconds = elapsed = start_epoch = start_mb = 0; step_seconds, resume_seconds = [], []; run = Counter()
+    grad_norms = []   # per epoch, each optimizer step's global gradient norm before clipping
     resume_dir, resume_args = out_dir / "resume", {k: v for k, v in vars(a).items() if k not in RESUME_KNOBS}
     position = full_ft.load_resume(resume_dir, opt, sched, resume_args) if a.resume else None
     if position:
-        step, seen, tokens_seen, peak_mem, optimizer_seconds, step_seconds, elapsed, start_epoch, start_mb = (position[k] for k in RESUMED)
+        step, seen, tokens_seen, peak_mem, optimizer_seconds, step_seconds, elapsed, start_epoch, start_mb, grad_norms = (position[k] for k in RESUMED)
         seen, tokens_seen = seen / world, tokens_seen / world   # saved as sums over the ranks (global_sum below adds them back)
         run = Counter(position["run"])
         print(f"resumed from {resume_dir / position['dir']}: step {step}, epoch {start_epoch}, micro-batch {start_mb}", flush=True)
@@ -482,8 +496,10 @@ def main():
             run["n"] += variants; seen += round(variants); tokens_seen += sum(v.tokens for v in batch)
             peak_mem = max(peak_mem, allocated_bytes(dev))
             if ends_step:
-                if not a.full_ft: torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), 1.0)   # MasterAdamW clips by the global norm itself
+                if not a.full_ft: norm = float(torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), MAX_GRAD_NORM))   # MasterAdamW clips by the global norm itself
                 started = time.time(); opt.step(); sync(dev); optimizer_seconds += time.time() - started
+                grad_norms += [[] for _ in range(ep + 1 - len(grad_norms))]
+                grad_norms[ep].append(round(opt.grad_norm if a.full_ft else norm, 6))
                 sched.step(); opt.zero_grad(); step += 1
                 step_seconds.append(round(time.time() - last, 3)); last = time.time()
                 if dev == "mps": empty_cache(dev)   # MPS only: per-step cache release keeps the unified-memory footprint down; on CUDA it would just slow the step
@@ -492,7 +508,7 @@ def main():
                     run = Counter()
                 if step == steps: break
                 if a.full_ft and full_ft.save_due(step, a.save_every_steps, a.save_every_minutes, saved_at, max(resume_seconds, default=0)):
-                    values = (step, *full_ft.global_sum([seen, tokens_seen]), peak_mem, optimizer_seconds, step_seconds, time.time() - t0, ep, mb + 1)
+                    values = (step, *full_ft.global_sum([seen, tokens_seen]), peak_mem, optimizer_seconds, step_seconds, time.time() - t0, ep, mb + 1, grad_norms)
                     writer.save(step, opt, sched, {**dict(zip(RESUMED, values)), "run": dict(run), "world": world, "args": resume_args})
                     resume_seconds.append(round(time.time() - last, 3)); saved_at = last = time.time()   # the time training blocked, not part of the next step's
                 if step == a.stop_after: stopped = True; break
@@ -513,6 +529,7 @@ def main():
     write_json(out_dir / "training_metrics.json", {"wall_seconds": wall, "records_seen": round(seen),
                "requested_records": a.epochs * len(reqs), "truncated_records": 0, "rejected_records": 0,
                "optimizer_steps": step, "forward_tokens": round(tokens_seen), "step_seconds": step_seconds, "optimizer_seconds": optimizer_seconds, "resume_seconds": resume_seconds, "resume_write_seconds": writer.seconds if writer else [], "world_size": world,
+               "grad_norm": grad_norm_summary(grad_norms),
                "weights": meta.weights, "peak_device_bytes": peak_mem, "device": dev, "dtype": a.dtype, "batch": a.batch,
                "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)})
     print("saved", a.out, flush=True)

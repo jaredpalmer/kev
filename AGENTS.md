@@ -36,10 +36,11 @@ Title Case sections, API tables, Authors + License); model cards are formal.
     layer), exact to the row form (tests/test_unit.py, tests/test_model.py). `--length_sort 1` deals each step's records
     into micro-batches of neighbours in length balanced by padded cost (`--batch` becomes the average), so no rank waits
     long on another. `--row_budget N` (one GPU): padded tokens per forward/backward pass, a record that does not fit is
-    split by question (27B on one H200 needs 8192). `--max_steps N` stops early. Resume: `--save_every_minutes M` /
+    split by question (27B on one H200 needs 8192; not with `--perm_kl` or `--anchor_w`). Needs torch >= 2.8. `--max_steps N` stops early. Resume: `--save_every_minutes M` /
     `--save_every_steps N` write `<out>/resume` (fp32 masters + moments per rank, scheduler, RNG, data position; under
     torchrun from a host copy in a background thread, the interval stretched so blocking stays under 5 %), `--resume 1`
-    continues bit for bit (same arguments and world size), `--stop_after N` exits after a step. Trials: see Studies.
+    continues bit for bit (same arguments and world size), `--stop_after N` exits after a step. `training_metrics.json`
+    has per-epoch gradient norms before clipping (`grad_norm`: mean, max, clipped steps), LoRA runs too. Trials: see Studies.
     27B, 8 H200, `--batch 8 --accum 2 --length_sort 1`, records shaped like the SFT corpus (`scripts/sft_probe.py --mix all`):
     7.6 records/s, one epoch of the corpus (192k records) ≈ 7.1 h / $293, 71 GB peak per GPU (`runs/sft-probe/sft2-*`,
     PR #125); one H200 (row form, PR #122) 0.84 records/s on ~1,000-token records.

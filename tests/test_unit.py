@@ -488,6 +488,9 @@ def test_resume_is_bit_identical(tiny_base, tmp_path, ranks):
     head_a, head_b = read_meta(tmp_path / "whole").head, read_meta(tmp_path / "split").head
     assert all(torch.equal(a[k], b[k]) for k in a) and all(torch.equal(head_a[k], head_b[k]) for k in head_a)
     assert not (tmp_path / "split/resume").exists()   # the finished checkpoint supersedes the resume point
+    from kev.suite import read_json
+    norms = [read_json(tmp_path / d / "training_metrics.json")["grad_norm"] for d in ("whole", "split")]
+    assert norms[0] == norms[1] and [e["epoch"] for e in norms[0]] == [0, 1]   # carried across the resume point
 
 
 def test_fsdp2_ranks_train_what_one_process_trains(tiny_base, tmp_path):
@@ -563,3 +566,57 @@ def test_resume_writer_keeps_a_later_point_being_written(tmp_path):
     writer = ResumeWriter(tmp_path, background=False)
     writer._write_point(5, {"optimizer": {}}, {"world": 1})
     assert sorted(p.name for p in tmp_path.glob("step-*")) == ["step-0000005", "step-0000009"] and read_json(tmp_path / LATEST)["dir"] == "step-0000005"
+
+
+def _parse_train(monkeypatch, *args):
+    import sys
+    from kev import train
+    monkeypatch.setattr(sys, "argv", ["kev.train", "--out", "/nonexistent/kev-test-run", *args])
+    return train.parse_args()
+
+
+def test_row_budget_refuses_split_loss_terms(monkeypatch, capsys):
+    """--row_budget splits a record's questions into parts that each carry their share of its mean question loss; the
+    permutation KL and the anchor KL are per record (the anchor over its anchored questions), so both are refused with
+    it. --shared_prefix changes only how the logits are computed (the same nested logits per record), not a term."""
+    for extra in (("--perm_kl", "0.1"), ("--anchor", "anchors.json", "--anchor_w", "0.1")):
+        with pytest.raises(SystemExit):
+            _parse_train(monkeypatch, "--row_budget", "8192", *extra)
+        assert "--row_budget splits micro-batches" in capsys.readouterr().err
+    assert _parse_train(monkeypatch, "--row_budget", "8192").row_budget == 8192
+
+
+def test_full_ft_refuses_old_torch(monkeypatch, capsys):
+    """kev.full_ft needs torch >= 2.8 (FSDPModule.set_gradient_divide_factor) while pyproject allows 2.6: --full_ft 1
+    stops at argument parsing with the reason."""
+    import kev.full_ft as F
+    assert F.unsupported_torch("2.8.0+cu128") is None and F.unsupported_torch("2.10.1") is None
+    assert "torch >= 2.8" in F.unsupported_torch("2.7.1+cu126") and "2.6.0" in F.unsupported_torch("2.6.0")
+    monkeypatch.setattr(F, "unsupported_torch", lambda: "--full_ft 1 needs torch >= 2.8 (test)")
+    with pytest.raises(SystemExit):
+        _parse_train(monkeypatch, "--full_ft", "1", "--weights_dtype", "bf16")
+    assert "needs torch >= 2.8" in capsys.readouterr().err
+
+
+def test_padding_repeats_shuffled_order_not_the_longest():
+    """Filling every rank to the same count repeats the first records of the shuffled order: in rank_share (plain) and in
+    microbatch_plan's short last step (--length_sort 1, padded before its records are sorted by length)."""
+    from kev.full_ft import rank_share
+    from kev.train import microbatch_plan
+    assert rank_share([5, 1, 9], 1, 2) == [1, 5]
+    reqs = [{"state": "s" * n, "questions": {"q": {"instr": "x"}}} for n in (50, 60, 70, 80, 3, 900, 800)]   # last step: 3, 900, 800
+    plans = [microbatch_plan(reqs, SimpleNamespace(batch=1, accum=2, length_sort=1, shared_prefix=1), 2, rank) for rank in (0, 1)]
+    last = sorted(len(r["state"]) for plan in plans for c, _, _ in plan[2:] for r in c)
+    assert last == [3, 3, 800, 900]   # the shuffled first (the shortest here) is repeated, not the longest
+
+
+def test_grad_norm_in_training_metrics(tiny_base, tmp_path, monkeypatch):
+    """training_metrics.json carries, per epoch, the mean and max global gradient norm before clipping and the number of
+    clipped steps, for LoRA (clip_grad_norm_) and full weights (MasterAdamW's own norm)."""
+    from kev.suite import read_json
+    for name, args in (("lora", ("--lora", "4")), ("full", FULL)):
+        train_tiny(tiny_base, tmp_path / name, *args, "--accum", "1", "--epochs", "2", monkeypatch=monkeypatch)
+        metrics = read_json(tmp_path / name / "training_metrics.json")
+        norms = metrics["grad_norm"]
+        assert [e["epoch"] for e in norms] == [0, 1] and sum(e["steps"] for e in norms) == metrics["optimizer_steps"]
+        assert all(0 < e["mean"] <= e["max"] and 0 <= e["clipped_steps"] <= e["steps"] for e in norms)

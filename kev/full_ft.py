@@ -32,6 +32,17 @@ from torch.optim.adamw import adamw
 from .device import sync
 from .suite import read_json, write_json
 
+MIN_TORCH = (2, 8)   # FSDPModule.set_gradient_divide_factor (shard) and the FSDP2 behaviour measured in PR #122 / #125
+
+
+def unsupported_torch(version=torch.__version__):
+    """Why this torch cannot train full weights, or None. pyproject allows torch >= 2.6; kev.full_ft needs MIN_TORCH."""
+    have = tuple(int(part) for part in version.split("+")[0].split(".")[:2])
+    if have < MIN_TORCH:
+        return f"--full_ft 1 needs torch >= {'.'.join(map(str, MIN_TORCH))} (FSDPModule.set_gradient_divide_factor); this is torch {version}"
+    return None
+
+
 SHARD_SIZE = "5GB"   # save_pretrained shards: model-00001-of-000NN.safetensors + model.safetensors.index.json
 
 
@@ -166,7 +177,9 @@ def shard(model):
 
 def rank_share(items, rank, world):
     """This rank's equal share of one epoch's shuffled items: padded (by wrapping around) to a multiple of the world size,
-    so every rank runs the same number of micro-batches and FSDP's collectives line up (as DistributedSampler does)."""
+    so every rank runs the same number of micro-batches and FSDP's collectives line up (as DistributedSampler does). The
+    padding repeats the first items of the shuffled order, whatever their length (--length_sort 1 does not come through
+    here: train.microbatch_plan pads each step from its shuffled records before cutting them)."""
     if world == 1: return items
     padded = items + items[: -len(items) % world]
     return padded[rank::world]
