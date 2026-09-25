@@ -22,6 +22,8 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import NamedTuple
 
@@ -117,17 +119,25 @@ def trial(study, index, label, config, suite, expected_sources, git_commit, exis
     out = Path(RUNS_MOUNT) / study / f"{index:02d}-{label}"
     runs_volume.reload()
     again = out.exists()
-    if again and (not config.get("full_ft") or (out / "failed.json").exists() or (out / "result.json").exists()):
-        raise FileExistsError(f"refusing to overwrite remote trial: {out}" + (" (an earlier attempt failed; see failed.json)" if (out / "failed.json").exists() else ""))
+    if again and config.get("full_ft") and (out / "failed.json").exists():
+        return failed_trial(label, out)   # a retry after an attempt that failed with an error: report it, do not run again
+    if again and (not config.get("full_ft") or (out / "result.json").exists()):
+        raise FileExistsError(f"refusing to overwrite remote trial: {out}")
     print(f"[{label}] {torch.cuda.get_device_name(0)} torch {torch.__version__} {'continuing' if again else 'config='+json.dumps(config)}", flush=True)
     transfer = Path("/root") / transfer if transfer else None
+    stop = threading.Event()
+    committer = threading.Thread(target=commit_resume_points, args=(out / "checkpoint" / "resume", stop), daemon=True)
+    if config.get("full_ft"): committer.start()
     try:
         report, _ = (continue_trial(Path("/root") / suite, out, expected_sources, "cuda", transfer) if again
                      else execute_trial(config or {}, Path("/root") / suite, out, expected_sources, "cuda", existing, transfer))
-    except Exception as error:   # an error is not retried (a timeout kills the container before it gets here)
+    except Exception as error:   # a timeout kills the container before it gets here
         if out.exists(): write_json(out / "failed.json", {"error": f"{type(error).__name__}: {str(error)[:2000]}"})
+        if config.get("full_ft"): return failed_trial(label, out)   # returned, not raised: Modal retries only what raises
         raise
     finally:
+        stop.set()
+        if committer.is_alive(): committer.join()
         runs_volume.commit()
         hf_cache.commit()
     return {"label": label, "objective": report["objective"], "clean_acc": report["clean"]["acc"],
@@ -437,6 +447,36 @@ class Job(NamedTuple):
     transfer: str | None
 
 
+def failed_trial(label, out):
+    """The result of a full-weight trial that failed with an error (failed.json). Returned rather than raised, because
+    Modal retries a raised call, and a full-weight trial's retries are for timeouts (they continue from a resume point);
+    kev.rounds.poll_modal and launch() read "failed" as the trial's failure."""
+    return {"label": label, "failed": json.loads((out / "failed.json").read_text(encoding="utf-8"))["error"]}
+
+
+RESUME_COMMIT_POLL = 15   # seconds between looks at a training trial's latest.json
+
+
+def commit_resume_points(resume_dir, stop):
+    """While a full-weight trial trains, commit the runs volume each time the trainer completes a resume point (its
+    latest.json changes). A timeout kills the container without running trial()'s `finally`, and the retry can only
+    continue from a committed point. A failed commit is reported loudly and tried again on the next look."""
+    committed = None
+    while not stop.wait(RESUME_COMMIT_POLL):
+        latest = resume_dir / "latest.json"
+        marker = latest.read_text(encoding="utf-8") if latest.exists() else None
+        if marker is None or marker == committed: continue
+        started = time.time()
+        try:
+            runs_volume.commit()
+        except Exception as error:   # noqa: BLE001 - loud, and retried: the point stays on disk until it is committed
+            print(f"!!! resume point {json.loads(marker)['step']} NOT committed to the runs volume ({type(error).__name__}: {str(error)[:300]}); "
+                  f"retrying in {RESUME_COMMIT_POLL} s; a timeout before then continues from the previous point", flush=True)
+            continue
+        committed = marker
+        print(f"[resume] committed resume point {json.loads(marker)['step']} ({json.loads(marker)['dir']}) to the runs volume in {time.time() - started:.0f} s", flush=True)
+
+
 def admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout):
     """Validate a study locally before anything is spawned (name, budget bound against the timeout, plan, uncommitted
     changes) and build the run_trial jobs. Returns (jobs, bound_usd, options: GPU, timeout, retries and the resources a
@@ -454,7 +494,8 @@ def admit_study(suite, plan_path, name, gpu, existing, transfer, budget, timeout
     upper = compute_bound(gpu, timeout, len(trials) + len(existing), full_ft)
     if upper > budget:
         raise ValueError(f"timeout-based compute bound ${upper:.2f} exceeds budget ${budget:.2f}")
-    print(f"Compute admission bound ${upper:.2f}; excludes image build, startup, and storage; no automatic retries.", flush=True)
+    print(f"Compute admission bound ${upper:.2f}; excludes image build, startup, and storage; "
+          + (f"counts {FULL_FT_RETRIES} retries per trial (a timed-out full-weight trial continues from its resume point)." if full_ft else "no automatic retries."), flush=True)
     commit, sources = local_git_commit(), local_source_hashes()
     if subprocess.run(["git", "status", "--porcelain", "kev", "evals"], cwd=ROOT, capture_output=True, text=True).stdout.strip():
         print("warning: kev/ or evals/ has uncommitted changes; provenance records the last commit, not the working tree", flush=True)
@@ -499,7 +540,7 @@ def launch(suite, plan_path, name, gpu, existing=(), transfer=None, budget=20.0,
     results = list(fn.starmap(jobs, return_exceptions=True))
     for job, result in zip(jobs, results):
         print(job.label, result if isinstance(result, Exception) else json.dumps(result), flush=True)
-    failures = [r for r in results if isinstance(r, Exception)]
+    failures = [r for r in results if isinstance(r, Exception) or "failed" in r]   # a full-weight trial returns its failure (failed_trial)
     if len(failures) == len(results):
         raise SystemExit(f"all {len(results)} trial(s) failed; nothing to pull")
     target = pull_study(name)

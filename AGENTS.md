@@ -61,6 +61,9 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   `--wait-pid` to queue behind a training job). A full-weight trial runs under torchrun on every GPU of its container,
   writes a resume point every `experiment.RESUME_MINUTES` and is retried by Modal after a timeout (`kev.budget`:
   `FULL_FT_RETRIES`, up to 24 h per attempt, $1,000 per study; the bound counts every attempt); each retry continues.
+  The container commits the runs volume after every completed resume point (a timeout skips the final commit); an attempt
+  that fails with an error writes `failed.json` and returns `{"failed": ...}` instead of raising, so it is not retried
+  (`kev.rounds.poll_modal` reports it as a failure).
 - Rounds (every registered experiment since round 5): one spec per round, `experiments/rounds/r<N>.json`, committed before any
   training or read: studies (plan, GPU, timeout, budget), arms (`<size>-<label>`: trial + parent), parents (trial + where each
   of its reads lives), read tags -> suites (`--allow-test` for test panels, `locked_test` for the locked read), the rule

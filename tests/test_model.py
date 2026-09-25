@@ -196,6 +196,18 @@ def test_shared_prefix_matches_rows(device, dtype):
     print(f"{device} {dtype}: max |logit diff| rows vs rows one record at a time {noise[0]:.2e}, rows vs shared prefix {diff[0]:.2e}; "
           f"worst relative gradient diff {noise[1]:.2e} vs {diff[1]:.2e}")
     assert g_rows.keys() == g_prefix.keys() and diff[0] <= max(3e-4, 3 * noise[0]) and diff[1] <= max(1e-3, 3 * noise[1])
+    # Magnitudes alone would let a small systematic shift pass as noise. Signed checks: (1) the shared prefix is as close
+    # to the second batching of the row form as to the first; (2) the mean signed logit difference sits within the
+    # batching noise's own mean plus 3 standard errors; (3) the gradient difference along the gradient itself (a
+    # systematic scaling) is no larger than the batching's and well under the whole difference's size.
+    assert float((alone - prefix).abs().max()) <= max(3e-4, 3 * noise[0])
+    d_noise, d_prefix = alone - rows, prefix - rows
+    bias_bound = float(d_noise.mean().abs() + 3 * d_noise.std() / len(d_noise) ** 0.5) + 3e-5   # floor: a tenth of the magnitude floor
+    flat = lambda g: torch.cat([g[k].flatten() for k in big])
+    along = lambda g: float(torch.dot(flat(g) - flat(g_rows), flat(g_rows)) / flat(g_rows).square().sum())
+    print(f"  mean signed logit diff {float(d_prefix.mean()):+.2e} (bound {bias_bound:.2e}); gradient shift along itself {along(g_prefix):+.2e} (batching {along(g_alone):+.2e})")
+    assert float(d_prefix.mean().abs()) <= bias_bound
+    assert abs(along(g_prefix)) <= max(1e-4, 3 * abs(along(g_alone)), 0.3 * noise[1])
 
 
 def test_cuda_graphs_match_eager():

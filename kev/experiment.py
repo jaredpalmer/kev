@@ -47,7 +47,7 @@ CHOICES = {"dtype": ("fp32", "bf16"), "checkpointing": (0, 1), "option_isolation
            "lora_targets": ("all", "dense", "attn", "qv"), "weights_dtype": ("fp32", "bf16"), "full_ft": (0, 1), "length_sort": (0, 1), "shared_prefix": (0, 1)}
 CHOICE_DEFAULTS = {"dtype": "fp32", "checkpointing": 0, "option_isolation": 0, "special_embeddings": 0, "head_dim": 256, "lora_targets": "all", "weights_dtype": "fp32", "full_ft": 0, "length_sort": 0, "shared_prefix": None}   # kev.train's defaults for the categorical knobs (shared_prefix: on with full_ft)
 # optional integer knobs, passed to kev.train only when a trial sets them (so existing plans keep their config hashes)
-OPTIONAL_INTS = {"max_state": (MAX_STATE, MAX_TRAIN_STATE), "row_budget": (0, 65536), "max_steps": (0, 100000)}
+OPTIONAL_INTS = {"max_state": (MAX_STATE, MAX_TRAIN_STATE), "row_budget": (0, 65536), "max_steps": (0, 100000), "save_every_steps": (0, 100000)}
 
 
 def validated_trial(value, manifest):
@@ -56,6 +56,8 @@ def validated_trial(value, manifest):
     result = {**DEFAULTS, **value}
     if result.get("full_ft") and result.get("weights_dtype") != "bf16":
         raise ValueError("full_ft trains bf16 weights: set weights_dtype bf16")
+    if result.get("save_every_steps") and not result.get("full_ft"):
+        raise ValueError("save_every_steps writes resume points, which are for full_ft trials")
     if "data" in result and not re.fullmatch(r"evals/[\w./-]+\.jsonl", str(result["data"])):
         raise ValueError("data must be a .jsonl under evals/ (shipped with the image, hashed in provenance)")
     if "replay" in result and (not isinstance(result["replay"], int) or not 0 <= result["replay"] <= 20000 or "data" not in result):
@@ -227,7 +229,7 @@ def resume_trial(suite, output, expected_sources, device, transfer_suite=None):
 
 def continue_trial(suite, output, expected_sources, device, transfer_suite=None):
     """Continue an interrupted full-weight trial (its container timed out or was lost) from the last resume point the
-    trainer wrote (or from its start if it wrote none), then score it. Refuses unless the code is the trial's own: a
+    trainer wrote (or from its start if it wrote none), then score it; a trial whose training had finished is only scored. Refuses unless the code is the trial's own: a
     continuation is only the same run when the trainer is the same."""
     output = Path(output)
     provenance = read_json(output / "provenance.json")
@@ -238,7 +240,8 @@ def continue_trial(suite, output, expected_sources, device, transfer_suite=None)
     provenance.setdefault("continued", []).append({"git_commit": git_commit(), "device": device})
     write_json(output / "provenance.json", provenance)
     started = time.perf_counter()
-    run = train_checkpoint(provenance["config"], suite, output, device)
+    finished = (output / "checkpoint" / "head.pt").exists()   # the attempt ran out of time while scoring: score again
+    run = str(output / "checkpoint") if finished else train_checkpoint(provenance["config"], suite, output, device)
     return score_trial(run, suite, output, expected_sources, device, provenance, transfer_suite, started, legacy=False)
 
 

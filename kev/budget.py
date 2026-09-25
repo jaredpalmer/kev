@@ -14,7 +14,8 @@ FULL_FT_DISK = 1048576                         # MiB of ephemeral disk (1 TiB); 
 # A study's limits. Full-weight trials may run to Modal's 24 h cap per attempt and are retried after a timeout (each
 # retry continues from the trial's last resume point, kev.experiment.continue_trial), so their bound counts every attempt
 # and their budget cap covers one 8 x H200 day (a LoRA study keeps the $250 cap).
-MAX_TIMEOUT = {False: 28800, True: 86400}
+MAX_TIMEOUT = {False: 28800, True: 86400}   # a 24 h attempt fits the $1,000 cap on one H200 (3 x 24 h x ~$11/h); on
+                                             # H200:8 (~$41/h) the cap allows ~8 h attempts, a day with the retries
 MAX_BUDGET = {False: 250, True: 1000}
 FULL_FT_RETRIES = 2
 

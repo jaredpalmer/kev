@@ -73,7 +73,9 @@ log; all three skip names that already exist locally / on the volume.
   `kev.budget.trial_resources` (one GPU: 24 CPU, 360-400 GiB for the host-side masters; `--gpu H200:8`: 16 CPU,
   128-256 GiB), allows `--timeout` up to 86,400 s and a $1,000 budget, and gives each trial `FULL_FT_RETRIES` Modal
   retries: a timed-out trial is called again and continues from its last resume point (`kev.experiment.continue_trial`);
-  an attempt that raised writes `failed.json` and is not continued. The bound counts every attempt, so an 8 x H200 day is
+  the container commits the volume after each completed resume point (`modal_app.commit_resume_points`; proof:
+  `runs/sft-resume-e2e-*`); an attempt that fails with an error writes `failed.json` and returns `{"failed": ...}`
+  (not raised, so not retried; the watcher reports it). The bound counts every attempt, so an 8 x H200 day is
   `--timeout 28800` (three 8 h attempts, $939). `modal_app.py::resume --study <study> --suite <suite> --gpu H200:8` also continues unfinished
   full-weight trials by hand.
 - **GPU-only tests** (they skip without CUDA): `uv run modal run modal_app.py::gpu_tests --tests "tests/test_model.py::test_shared_prefix_matches_rows" [--gpu H100]`.

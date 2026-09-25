@@ -445,15 +445,22 @@ def transient(error):
     return type(error).__module__.startswith(("grpclib", "modal")) and any(m in str(error).lower() for m in NETWORK_MARKERS)
 
 
+class TrialFailed(Exception):
+    """A full-weight trial that failed with an error returns {"failed": ...} (modal_app.failed_trial) instead of raising,
+    so Modal does not retry it; poll_modal raises this for it, which watch_studies marks failed like any trial error."""
+
+
 def poll_modal(call_id):
-    """'running' | 'done' for a spawned trial; the trial's exception (or a network error) propagates."""
+    """'running' | 'done' for a spawned trial; the trial's exception (or a network error) propagates, and a returned
+    failure is raised as TrialFailed."""
     import modal
     try:
-        modal.FunctionCall.from_id(call_id).get(timeout=0.5)
+        result = modal.FunctionCall.from_id(call_id).get(timeout=0.5)
     except TimeoutError:            # builtin: no output yet (modal.exception.FunctionTimeoutError is not a builtin TimeoutError)
         return "running"
     except modal.exception.OutputExpiredError:   # finished long ago; the result is on the volume
         return "done"
+    if isinstance(result, dict) and "failed" in result: raise TrialFailed(result["failed"])
     return "done"
 
 

@@ -197,6 +197,7 @@ def global_sum(values):
 
 LATEST = "latest.json"   # the resume point to continue from; written last (atomically) by rank 0, after every rank's file
 WRITE_SHARE = 0.05       # at most this share of wall time may block on writing resume points
+PEER_WAIT = 600          # seconds rank 0 waits, after writing its own file, for the other ranks' (they write in parallel)
 
 
 def save_due(step, every_steps, every_minutes, since, blocked):
@@ -259,7 +260,12 @@ class ResumeWriter:
         torch.save(payload, target / f".rank{self.rank}.pt.tmp")
         os.replace(target / f".rank{self.rank}.pt.tmp", target / f"rank{self.rank}.pt")
         if self.rank: return
-        while not all((target / f"rank{r}.pt").exists() for r in range(self.world)): time.sleep(2)   # the ranks share one filesystem
+        deadline = time.time() + PEER_WAIT
+        while missing := [r for r in range(self.world) if not (target / f"rank{r}.pt").exists()]:   # the ranks share one filesystem
+            if time.time() > deadline:
+                raise TimeoutError(f"resume point {target.name}: rank(s) {missing} did not finish writing within {PEER_WAIT // 60} min of rank 0; "
+                                   "latest.json still names the previous point")
+            time.sleep(2)
         write_json(self.dir / LATEST, {"dir": target.name, "step": step, **position}, atomic=True)
         for old in self.dir.glob("step-*"):   # only earlier points: a rank done with this one may have started the next
             if int(old.name.removeprefix("step-")) < step: shutil.rmtree(old)

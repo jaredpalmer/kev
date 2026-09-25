@@ -1,0 +1,123 @@
+{
+  "what": "Qwen3.5-0.8B-Base full-weight trial on H100:2 (FSDP2, shared prefix, balanced micro-batches), experiments/sft-resume-e2e-08b.json on evals/v7/decision-v7, save_every_steps 50, Modal timeout 480 s with 2 retries (sft-resume-e2e-killed) against the same trial with timeout 3000 s (sft-resume-e2e-whole)",
+  "attempts": 3,
+  "resumed": [
+    "resumed from /runs/sft-resume-e2e-killed/00-trial-0/checkpoint/resume/step-0000300: step 300, epoch 0, micro-batch 300",
+    "resumed from /runs/sft-resume-e2e-killed/00-trial-0/checkpoint/resume/step-0001050: step 1050, epoch 0, micro-batch 1050"
+  ],
+  "last_step_logged_before_each_kill": [
+    320,
+    1080
+  ],
+  "windows_logged_twice_across_a_resume": {
+    "310": [
+      [
+        1,
+        0.857
+      ],
+      [
+        2,
+        0.856
+      ]
+    ],
+    "320": [
+      [
+        1,
+        0.91
+      ],
+      [
+        2,
+        0.91
+      ]
+    ],
+    "1060": [
+      [
+        2,
+        0.656
+      ],
+      [
+        3,
+        0.654
+      ]
+    ],
+    "1070": [
+      [
+        2,
+        0.442
+      ],
+      [
+        3,
+        0.442
+      ]
+    ],
+    "1080": [
+      [
+        2,
+        0.742
+      ],
+      [
+        3,
+        0.742
+      ]
+    ]
+  },
+  "loss_at_step_10_two_uninterrupted_segments": {
+    "killed attempt 1": 3.36,
+    "whole": 3.366
+  },
+  "weights_sha256": {
+    "sft-resume-e2e-killed": "10134b6f2386ac4fe8285db83d99803d714c2e838f83fba61cbdac294185e0cd",
+    "sft-resume-e2e-whole": "f32ba086d66ef917842d5e0a164279d6c778da9a94e1c1aba4f458ec766f5488"
+  },
+  "clean_accuracy": {
+    "sft-resume-e2e-killed": 0.7610759493670886,
+    "sft-resume-e2e-whole": 0.7610759493670886
+  },
+  "objective": {
+    "sft-resume-e2e-killed": -0.5793021161334173,
+    "sft-resume-e2e-whole": -0.5876689427879788
+  },
+  "container_log": "the container stdout of both trials (modal app logs kev-sft-infra-2, interleaved as streamed; the whole trial counts 0-1150, the killed one restarts at its resume points): commit lines from modal_app.commit_resume_points, the retries' 'continuing' lines and the saves. The killed trial committed point 300 before attempt 1 was killed at step ~320 and point 1050 before attempt 2 was killed at ~1080; a point that completed while a commit ran is committed with the next.",
+  "reading": "Each attempt continued from the last committed point (300, then 1050) at the saved data position, and the 10-step loss windows logged again after a resume match the first time to the third decimal. The final weights differ from the uninterrupted run's, as two uninterrupted segments already do from step 10 (3.360 vs 3.366): these CUDA kernels are not bit-deterministic. Bit-identical continuation is proven on CPU (tests/test_unit.py::test_resume_is_bit_identical, 1 and 2 ranks).",
+  "container_lines": [
+    "[resume] committed resume point 50 (step-0000050) to the runs volume in 32 s",
+    "[resume] committed resume point 150 (step-0000150) to the runs volume in 28 s",
+    "[resume] committed resume point 200 (step-0000200) to the runs volume in 26 s",
+    "[resume] committed resume point 300 (step-0000300) to the runs volume in 26 s",
+    "[resume] committed resume point 50 (step-0000050) to the runs volume in 32 s",
+    "[resume] committed resume point 350 (step-0000350) to the runs volume in 22 s",
+    "[resume] committed resume point 450 (step-0000450) to the runs volume in 24 s",
+    "[resume] committed resume point 100 (step-0000100) to the runs volume in 20 s",
+    "[resume] committed resume point 500 (step-0000500) to the runs volume in 22 s",
+    "[resume] committed resume point 150 (step-0000150) to the runs volume in 24 s",
+    "[resume] committed resume point 600 (step-0000600) to the runs volume in 17 s",
+    "[resume] committed resume point 200 (step-0000200) to the runs volume in 21 s",
+    "[resume] committed resume point 650 (step-0000650) to the runs volume in 18 s",
+    "[resume] committed resume point 700 (step-0000700) to the runs volume in 25 s",
+    "[resume] committed resume point 250 (step-0000250) to the runs volume in 31 s",
+    "[resume] committed resume point 800 (step-0000800) to the runs volume in 23 s",
+    "[trial-0] NVIDIA H100 80GB HBM3 torch 2.8.0+cu128 continuing",
+    "[resume] committed resume point 300 (step-0000300) to the runs volume in 0 s",
+    "[resume] committed resume point 900 (step-0000900) to the runs volume in 29 s",
+    "[resume] committed resume point 1000 (step-0001000) to the runs volume in 28 s",
+    "[resume] committed resume point 350 (step-0000350) to the runs volume in 22 s",
+    "[resume] committed resume point 1050 (step-0001050) to the runs volume in 29 s",
+    "[resume] committed resume point 400 (step-0000400) to the runs volume in 15 s",
+    "saved /runs/sft-resume-e2e-whole/00-trial-0/checkpoint",
+    "[resume] committed resume point 1150 (step-0001150) to the runs volume in 17 s",
+    "[resume] committed resume point 450 (step-0000450) to the runs volume in 19 s",
+    "[resume] committed resume point 550 (step-0000550) to the runs volume in 29 s",
+    "[resume] committed resume point 600 (step-0000600) to the runs volume in 25 s",
+    "[resume] committed resume point 700 (step-0000700) to the runs volume in 22 s",
+    "[resume] committed resume point 750 (step-0000750) to the runs volume in 15 s",
+    "[resume] committed resume point 800 (step-0000800) to the runs volume in 32 s",
+    "[resume] committed resume point 900 (step-0000900) to the runs volume in 26 s",
+    "[resume] committed resume point 950 (step-0000950) to the runs volume in 35 s",
+    "[resume] committed resume point 1050 (step-0001050) to the runs volume in 8 s",
+    "[trial-0] NVIDIA H100 80GB HBM3 torch 2.8.0+cu128 continuing",
+    "[resume] committed resume point 1050 (step-0001050) to the runs volume in 1 s",
+    "[resume] committed resume point 1100 (step-0001100) to the runs volume in 22 s",
+    "[resume] committed resume point 1150 (step-0001150) to the runs volume in 8 s",
+    "saved /runs/sft-resume-e2e-killed/00-trial-0/checkpoint"
+  ]
+}

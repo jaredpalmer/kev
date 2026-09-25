@@ -434,11 +434,13 @@ def test_row_budget_changes_passes_not_gradients(tiny_base, shared):
     assert all(torch.allclose(a, b, atol=1e-5 * scale) for a, b in zip(*grads))   # fp32 summation order (the shared prefix pads states differently per pass)
 
 
-@pytest.mark.parametrize("checkpointing", [False, True])
-def test_shared_prefix_equals_rows(tiny_base, checkpointing):
+@pytest.mark.parametrize("checkpointing,lora", [(False, 0), (True, 0), (True, 4)])
+def test_shared_prefix_equals_rows(tiny_base, checkpointing, lora):
     """kev.shared_prefix (each state once, branches continuing from it: attention keys and values, the DeltaNet conv
     window and recurrent state) gives the row form's logits and gradients in fp32, over states of unequal length (left
-    padding) and 1-4 questions; with gradient checkpointing each layer's two passes are recomputed together."""
+    padding) and 1-4 questions; with gradient checkpointing each layer's two passes are recomputed together. With a LoRA
+    (kev.train --shared_prefix 1 without --full_ft) the same holds for the adapter's gradients (dropout off: eval mode,
+    so the two passes draw no different masks)."""
     import random
     from kev.model import load_tokenizer
     tok, rng = load_tokenizer(str(tiny_base / "base")), random.Random(0)
@@ -447,7 +449,8 @@ def test_shared_prefix_equals_rows(tiny_base, checkpointing):
     recs = [{"state": text(n), "questions": [{"instr": text(rng.randint(1, 5)), "options": [text(rng.randint(1, 3)) for _ in range(rng.randint(2, 4))], "label": 0}
                                               for _ in range(q)]} for n, q in ((5, 3), (17, 4), (1, 2), (40, 1))]
     torch.manual_seed(0)
-    model = DecisionModel(str(tiny_base / "base"), tok, "cpu"); model.train()
+    model = DecisionModel(str(tiny_base / "base"), tok, "cpu", lora=lora or None)
+    model.train(not lora)
     if checkpointing: model.lm.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     encs, results = [model.encode(tok, r) for r in recs], []
     for shared in (False, True):
@@ -459,6 +462,7 @@ def test_shared_prefix_equals_rows(tiny_base, checkpointing):
     scale = max(g.abs().max() for g in g_rows.values())
     assert len(logits) == 10 and torch.allclose(rows, prefix, atol=1e-5) and g_rows.keys() == g_prefix.keys()
     assert all(torch.allclose(g_rows[k], g_prefix[k], atol=1e-5 * scale) for k in g_rows)
+    assert not lora or any("lora_" in k for k in g_rows)
 
 
 # torchrun on this machine only, by address: --standalone resolves the hostname, which hangs where it has no DNS entry
@@ -620,3 +624,68 @@ def test_grad_norm_in_training_metrics(tiny_base, tmp_path, monkeypatch):
         norms = metrics["grad_norm"]
         assert [e["epoch"] for e in norms] == [0, 1] and sum(e["steps"] for e in norms) == metrics["optimizer_steps"]
         assert all(0 < e["mean"] <= e["max"] and 0 <= e["clipped_steps"] <= e["steps"] for e in norms)
+
+
+def test_continue_trial_scores_a_finished_checkpoint_without_training(tmp_path, monkeypatch):
+    """An attempt that ran out of time while scoring left a finished checkpoint (head.pt): the next attempt scores it
+    and does not train again (kev.train --resume 1 would find no resume point and start over)."""
+    import kev.experiment as E
+    from kev.suite import write_json
+    sources, trial = E.source_hashes(), tmp_path / "00-trial-0"
+    (trial / "checkpoint").mkdir(parents=True); (trial / "checkpoint" / "head.pt").write_bytes(b"")
+    write_json(trial / "provenance.json", {"config": {"full_ft": 1, "weights_dtype": "bf16"}, "source_hashes": sources})
+    monkeypatch.setattr(E, "train_checkpoint", lambda *args: pytest.fail("trained again"))
+    monkeypatch.setattr(E, "score_trial", lambda run, *args, **kwargs: ({"run": run}, []))
+    assert E.continue_trial("suite", trial, sources, "cuda")[0] == {"run": str(trial / "checkpoint")}
+
+
+def test_resume_writer_bounds_the_wait_for_peers(tmp_path, monkeypatch):
+    """Rank 0 waits PEER_WAIT for the other ranks' files, then fails loudly instead of hanging; latest.json is untouched."""
+    import kev.full_ft as F
+    monkeypatch.setattr(F, "PEER_WAIT", 0)
+    writer = F.ResumeWriter(tmp_path, background=False)
+    writer.world = 2   # a peer that never writes
+    with pytest.raises(TimeoutError, match=r"rank\(s\) \[1\]"):
+        writer._write_point(3, {"optimizer": {}}, {"world": 2})
+    assert not (tmp_path / F.LATEST).exists()
+
+
+def test_full_weight_trial_failures_are_returned_and_seen(tmp_path, monkeypatch):
+    """A full-weight trial that fails with an error returns {"failed": ...} (Modal retries only what raises, and its
+    retries are for timeouts); kev.rounds.poll_modal raises TrialFailed for it, so the watcher marks it failed."""
+    import types
+    import modal
+    import modal_app
+    from kev import rounds
+    from kev.suite import write_json
+    write_json(tmp_path / "failed.json", {"error": "ValueError: boom"})
+    result = modal_app.failed_trial("trial-0", tmp_path)
+    assert result == {"label": "trial-0", "failed": "ValueError: boom"}
+    monkeypatch.setattr(modal.FunctionCall, "from_id", lambda call_id: types.SimpleNamespace(get=lambda timeout: result))
+    with pytest.raises(rounds.TrialFailed, match="boom"):
+        rounds.poll_modal("fc-x")
+    monkeypatch.setattr(modal.FunctionCall, "from_id", lambda call_id: types.SimpleNamespace(get=lambda timeout: {"label": "trial-0", "objective": 1.0}))
+    assert rounds.poll_modal("fc-x") == "done"
+
+
+def test_resume_points_are_committed_as_they_complete(tmp_path, monkeypatch, capsys):
+    """While a full-weight trial trains, modal_app commits the runs volume after each completed resume point (a timeout
+    skips trial()'s finally); a failed commit is printed loudly and tried again."""
+    import threading
+    import modal_app
+    from kev.suite import write_json
+    commits = []
+    def commit():
+        commits.append(len(commits))
+        if len(commits) == 1: raise RuntimeError("volume busy")
+    monkeypatch.setattr(modal_app, "runs_volume", SimpleNamespace(commit=commit))
+    monkeypatch.setattr(modal_app, "RESUME_COMMIT_POLL", 0.05)
+    stop = threading.Event()
+    thread = threading.Thread(target=modal_app.commit_resume_points, args=(tmp_path, stop)); thread.start()
+    write_json(tmp_path / "latest.json", {"dir": "step-0000005", "step": 5})
+    for _ in range(100):
+        if len(commits) >= 2: break
+        threading.Event().wait(0.05)
+    stop.set(); thread.join()
+    out = capsys.readouterr().out
+    assert len(commits) == 2 and "resume point 5 NOT committed" in out and "committed resume point 5 (step-0000005)" in out

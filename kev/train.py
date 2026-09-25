@@ -199,7 +199,8 @@ def microbatch_plan(reqs, a, world, rank):
     for start in range(0, len(reqs), per_step):
         step = reqs[start:start + per_step]
         m = math.ceil(len(step) / (world * a.batch))   # micro-batches per rank: accum, fewer in a short last step
-        step += step[:max(0, world * m - len(step))]    # so no micro-batch is empty
+        step += step[:max(0, world * m - len(step))]    # so no micro-batch is empty; the repeats count in len(step), the
+                                                         # step's loss normaliser, as rank_share's do in the plain path
         runs = sorted(balanced_runs(sorted(step, key=lambda r: cost([r]), reverse=True), world * m, cost), key=cost, reverse=True)
         plan += [(runs[k * world + rank], len(step), k == m - 1) for k in range(m)]
     return plan
