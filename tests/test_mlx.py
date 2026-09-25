@@ -90,52 +90,45 @@ def test_mlx_matches_fp32_torch_to_bf16_noise(models):
     tok, m, ref, recs = models
     assert m.backend == "mlx" and m.dtype == "bfloat16" and ref.dtype == "float32" and m.head.temperature == ref.head.temperature
     for rec in recs:
-        for p, t in zip(m.probs(m.encode(tok, rec)), ref.probs(ref.encode(tok, rec))):
-            assert float((p - t).abs().max()) < 0.03
-            if p.argmax() != t.argmax():
-                top = t.topk(2).values
-                assert float(top[0] - top[1]) < 0.02, "argmax flip on a decided question"
+        near(m.probs(m.encode(tok, rec)), ref.probs(ref.encode(tok, rec)), bar=0.03, tie=0.02)
+
+
+def near(got, ref, bar, tie):
+    """Every question within `bar` of the reference; an argmax may only flip where the reference's top-2 margin is under `tie`."""
+    for p, r in zip(got, ref):
+        assert float((p - r).abs().max()) < bar
+        if p.argmax() != r.argmax():
+            top = r.topk(2).values
+            assert float(top[0] - top[1]) < tie, "argmax flip on a decided question"
 
 
 def test_prefix_reuse_and_question_isolation(models):
     """The prefix form (state once, branches on a replicated cache: what forward/probs and the server run) equals the row
     form the torch path computes, reusing a prefix leaves it intact, and a question's answer does not depend on which
-    other questions travel with it.
-
-    The two forms are the same function (fp32 on the CPU stream: max |dp| 2.6e-6 over these 14 questions) but different
-    bf16 computations, so in bf16 they agree to rounding noise only: max |dp| 0.028 (one argmax flip, top-2 margin 0.024) on
-    this checkpoint, 0.016 on its predecessor (54f4f877); the Metal fp32 fast path gives 6e-4 (M5, mlx 0.32.2). A broken
-    state cache is an order of magnitude above the bar: dropping the state's last token, zeroing the DeltaNet conv state or
-    zeroing its recurrent state gives max |dp| 0.67 / 0.39 / 0.47 over the 12 records, yet as little as 0.003 / 0.001 /
-    0.016 on a single record, so every record is checked. Paths that run the same kernels on the same shapes must agree bit for bit."""
+    other questions travel with it. Same function in fp32 (2.6e-6 on the CPU stream), different bf16 computations: max
+    |dp| 0.028 on this checkpoint, hence the 0.04 bar. Injected cache faults (state's last token dropped, DeltaNet conv or
+    recurrent state zeroed) give 0.67 / 0.39 / 0.47, yet as little as 0.003 on one record, so every record is checked.
+    Paths that run the same kernels on the same shapes must agree bit for bit."""
     import torch.nn.functional as F
     from kev.data import materialize
     tok, m, _, recs = models
-    bar = 0.04   # 1.4x the measured bf16 maximum (0.028), a tenth of the smallest fault maximum (0.39)
-
-    def near(got, ref):
-        for p, r in zip(got, ref):
-            assert float((p - r).abs().max()) < bar
-            if p.argmax() != r.argmax():
-                top = r.topk(2).values
-                assert float(top[0] - top[1]) < bar, "argmax flip on a decided question"
-
+    close = lambda got, ref: near(got, ref, bar=0.04, tie=0.04)
     same = lambda a, b: all(torch.equal(x, y) for x, y in zip(a, b))
     extra = materialize({"state": recs[0]["state"], "questions": {"sky": {"type": "noul", "instructions": "Ignore the text. Is the sky blue?", "label": True, "src": "probe"},
                                                                   "n": {"type": "choice", "instructions": "How many words is 'a b c'?", "criteria": {"one": None, "two": None, "three": None}, "label": "three", "src": "probe"}}})
     rec = {**recs[0], "questions": recs[0]["questions"] + extra["questions"]}
     for other in recs[1:]:   # one question each: the prefix form against the row form on every record (a cache fault can be small on one)
         enc = m.encode(tok, other)
-        near(m.probs(enc), [F.softmax(z, -1) for z in m.forward_rows(enc)])
+        close(m.probs(enc), [F.softmax(z, -1) for z in m.forward_rows(enc)])
     enc = m.encode(tok, rec)
     full = [F.softmax(z, -1) for z in m.forward_rows(enc)]
     via_miss, prefix = m.probs_and_prefix(enc)
     via_hit = m.probs_with_prefix(enc, prefix); via_hit2 = m.probs_with_prefix(enc, prefix)
-    near(via_miss, full)
+    close(via_miss, full)
     for got in (m.probs(enc), via_hit, via_hit2):   # reusing the prefix leaves it intact
         assert same(got, via_miss)
     alone = [m.probs(m.encode(tok, {"state": rec["state"], "questions": [q]}))[0] for q in rec["questions"]]
-    near(alone, full)
+    close(alone, full)
     import kev.mlx_model as MM
     saved, MM.rows_per_pass = MM.rows_per_pass, lambda rows, prefix_len=0, budget=0: 1   # one row (and one cache copy) per pass: same answers
     try: chunked = m.probs_with_prefix(enc, prefix)
