@@ -538,11 +538,12 @@ def commit_resume_points(resume_dir, stop, snapshot_dir=None):
     the container without running trial()'s `finally`, and the retry can only continue from a committed point and keep
     committed snapshots. A failed commit is reported loudly and tried again on the next look."""
     from kev.full_ft import completed_snapshots
+    latest = resume_dir / "latest.json"
+    read = lambda: latest.read_text(encoding="utf-8") if latest.exists() else None
     snaps = lambda: set(completed_snapshots(snapshot_dir)) if snapshot_dir else set()
-    committed, committed_snaps = None, snaps()   # snapshots already there are an earlier attempt's, committed by it
+    committed, committed_snaps = read(), snaps()   # what a new container finds on the volume is committed already
     while not stop.wait(RESUME_COMMIT_POLL):
-        latest = resume_dir / "latest.json"
-        marker = latest.read_text(encoding="utf-8") if latest.exists() else None
+        marker = read()
         new_snaps = sorted(snaps() - committed_snaps)
         new_point = marker is not None and marker != committed
         if not new_point and not new_snaps: continue

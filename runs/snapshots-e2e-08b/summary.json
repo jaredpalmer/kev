@@ -1,0 +1,28 @@
+{
+  "what": "Qwen3.5-0.8B-Base full-weight trial on H100:2 (FSDP2, shared prefix, balanced micro-batches), experiments/snapshots-e2e-08b.json (= sft-resume-e2e-08b.json) on evals/v7/decision-v7, max_steps 1200, save_every_steps 50, snapshots at the study default kev.experiment.SNAPSHOT_FRACTIONS 0.25,0.5,0.75 -> steps 300, 600, 900; Modal timeout 480 s with 2 retries, attached launch (KEV_APP_NAME=kev-snapshots-e2e), log in runs/snapshots-e2e-08b.log",
+  "attempts": [
+    {"attempt": 1, "wrote": "snapshot 300 (training blocked 0.8 s, written in 5.3 s)", "committed": "resume point 300 and snapshot 300 in one commit (latest.json 300 waited for the snapshot), later points up to 550", "killed_after_step": 560},
+    {"attempt": 2, "resumed": "resumed from /runs/snapshots-e2e-08b/00-trial-0/checkpoint/resume/step-0000550: step 550, epoch 0, micro-batch 550", "missing_snapshot_warning": false, "snapshot_300": "kept, not rewritten (no second 'snapshot step 300' line)", "wrote": ["snapshot 600 (blocked 0.9 s, written 3.2 s)", "snapshot 900 (blocked 0.7 s, written 6.4 s)"], "finished_training": "saved /runs/snapshots-e2e-08b/00-trial-0/checkpoint (backbone_save_seconds 3.1)", "killed": "by the timeout while scoring the calibration partition"},
+    {"attempt": 3, "result": "failed.json: FileExistsError on /runs/snapshots-e2e-08b/00-trial-0/calibration. Pre-existing: continue_trial scored a finished checkpoint again without removing the killed attempt's partial evaluation directories; fixed in this PR (kev/experiment.py continue_trial, tests/test_unit.py::test_continue_trial_scores_a_finished_checkpoint_without_training). The trial was not re-scored."}
+  ],
+  "loss_window_logged_twice_across_the_resume": {"560": [0.848, 0.849]},
+  "volume_after": {
+    "/snapshots-e2e-08b/00-trial-0/snapshots": ["step-300", "step-600", "step-900"],
+    "each_snapshot_checkpoint": ["config.json", "model.safetensors", "head.pt", "tokenizer.json", "tokenizer_config.json", "chat_template.jinja", "snapshot.json"],
+    "resume_dir": "removed at the end of training, as before"
+  },
+  "snapshot_json": {
+    "300": {"epoch": 0.19084, "records_seen": 2910, "blocking_seconds": 0.8, "write_seconds": 5.3},
+    "600": {"epoch": 0.381679, "records_seen": 5780, "blocking_seconds": 0.9, "write_seconds": 3.2},
+    "900": {"epoch": 0.572519, "records_seen": 8674, "blocking_seconds": 0.7, "write_seconds": 6.4}
+  },
+  "pull": "modal_app.py::pull --name snapshots-e2e-08b: 'pulled 29 file(s) of /snapshots-e2e-08b (0.09 GB); left 4 weight/resume file(s) (6.0 GB) on the volume' (the four 1.5 GB model.safetensors: checkpoint + 3 snapshots)",
+  "benchmark_reads": {
+    "how": "modal_app.py::benchmarks --jobs \"/runs/snapshots-e2e-08b/00-trial-0/snapshots/step-600/checkpoint@evals/v7/decision-v7@snapshots-e2e-08b-step600,/runs/snapshots-e2e-08b/00-trial-0/checkpoint@evals/v7/decision-v7@snapshots-e2e-08b-final\" (H100, fp32, T = 1.0)",
+    "decision-v7 development, 1,204 records / 1,468 questions, full coverage": {
+      "step 600 snapshot": {"acc": 0.716, "brier": 0.371, "nll": 0.691, "report": "runs/snapshots-e2e-08b-step600/report.json"},
+      "final checkpoint (step 1200)": {"acc": 0.770, "brier": 0.302, "nll": 0.539, "report": "runs/snapshots-e2e-08b-final/report.json"}
+    }
+  },
+  "cost_usd": "about 5 (metered 2434.01 before, 2440.02 after; the reading includes another session's concurrent GPU test)"
+}

@@ -252,6 +252,8 @@ def continue_trial(suite, output, expected_sources, device, transfer_suite=None)
     write_json(output / "provenance.json", provenance)
     started = time.perf_counter()
     finished = (output / "checkpoint" / "head.pt").exists()   # the attempt ran out of time while scoring: score again
+    for part in ("calibration", "development", "transfer"):
+        if (output / part).exists(): shutil.rmtree(output / part)   # that attempt's partial evaluation output (evaluate_records refuses an existing one)
     run = str(output / "checkpoint") if finished else train_checkpoint(provenance["config"], suite, output, device)
     return score_trial(run, suite, output, expected_sources, device, provenance, transfer_suite, started, legacy=False)
 

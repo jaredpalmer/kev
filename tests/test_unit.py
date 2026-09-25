@@ -914,10 +914,11 @@ def test_continue_trial_scores_a_finished_checkpoint_without_training(tmp_path, 
     from kev.suite import write_json
     sources, trial = E.source_hashes(), tmp_path / "00-trial-0"
     (trial / "checkpoint").mkdir(parents=True); (trial / "checkpoint" / "head.pt").write_bytes(b"")
+    (trial / "calibration").mkdir(); (trial / "calibration" / "predictions.jsonl").write_bytes(b"")   # the killed attempt's partial read
     write_json(trial / "provenance.json", {"config": {"full_ft": 1, "weights_dtype": "bf16"}, "source_hashes": sources})
     monkeypatch.setattr(E, "train_checkpoint", lambda *args: pytest.fail("trained again"))
-    monkeypatch.setattr(E, "score_trial", lambda run, *args, **kwargs: ({"run": run}, []))
-    assert E.continue_trial("suite", trial, sources, "cuda")[0] == {"run": str(trial / "checkpoint")}
+    monkeypatch.setattr(E, "score_trial", lambda run, suite, output, *args, **kwargs: ({"run": run, "partial_read_left": (output / "calibration").exists()}, []))
+    assert E.continue_trial("suite", trial, sources, "cuda")[0] == {"run": str(trial / "checkpoint"), "partial_read_left": False}
 
 
 def test_resume_writer_bounds_the_wait_for_peers(tmp_path, monkeypatch):
