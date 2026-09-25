@@ -12,7 +12,6 @@ benchmark, whose reported numbers stay on the fp32 torch path. Parity against th
 tests/test_mlx.py (max |dp| and argmax flips on development records, prefix vs full pass, one question vs several).
 """
 import json
-import os
 from pathlib import Path
 
 import mlx.core as mx
@@ -24,6 +23,8 @@ from mlx_lm.models.cache import make_prompt_cache
 from mlx_lm.utils import load_model
 
 from .model import PointerHead, encode, probs_one, rows_of, rows_per_pass
+
+CACHE_LIMIT = 1 << 30   # MLX buffer cache bound: Kev-4B on an M5, 50 requests: 1.0 GB cached vs 3.7 GB unbounded, same latency (new and cached state)
 
 
 def merge_lora(lm, adapter_dir, scale=1.0):
@@ -65,7 +66,7 @@ class MLXDecisionModel:
 
     def __init__(self, base_dir, pad_id, head_dim=256):
         self.lm, _ = load_model(Path(base_dir))                       # weights as stored (bf16 for the Qwen3.5 bases)
-        mx.set_cache_limit(int(float(os.environ.get("KEV_MLX_CACHE_GB", "1")) * 2**30))   # bound MLX's buffer cache: each new request shape otherwise adds a buffer that is never returned (+3.6 GB over 50 requests on the 4B)
+        mx.set_cache_limit(CACHE_LIMIT)   # bound MLX's buffer cache: each new request shape otherwise adds a buffer that is never returned (+3.6 GB over 50 requests on the 4B)
         self.text = self.lm.language_model.model                      # Qwen3_5TextModel: embeddings -> layers -> final norm = `.model.last_hidden_state`
         self.pad_id = pad_id
         self.head = PointerHead(self.text.embed_tokens.weight.shape[1], dp=head_dim).eval()
