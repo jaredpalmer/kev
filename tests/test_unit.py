@@ -236,6 +236,46 @@ def test_prefix_cache_keeps_what_survives_the_batch():
     assert PrefixCache(size=0, min_tokens=0).plan([enc("abc")])[2] == [False]
 
 
+def test_out_of_memory_drops_the_prefix_cache_and_retries_once():
+    """kev.serve.Server._run: a pass out of device memory with states cached clears the cache and runs once more (#75: a
+    full cache kept failing every later batch); a second failure fails the batch with the cache left empty, and an
+    out-of-memory pass with nothing cached, or any other error, is not retried."""
+    import torch
+    from types import SimpleNamespace
+    from kev.serve import Server, out_of_memory
+
+    class Model:
+        prefix_min_tokens, fail, calls = 0, None, 0
+        def encode(self, tok, rec, **kw): return rec
+        def probs_batch(self, encs, cached, keep):
+            self.calls += 1
+            if self.fail == "always" or self.fail == "cached" and any(c is not None for c in cached): raise torch.OutOfMemoryError("CUDA out of memory")
+            if self.fail == "other": raise ValueError("not memory")
+            return [[torch.tensor([0.5, 0.5])] for _ in encs], [("prefix", self.calls) if k else None for k in keep]
+
+    enc = lambda state: {"ids": list(state) + [9], "seg": [0] * len(state) + [1]}
+    model = Model()
+    s = Server(SimpleNamespace(release_date=lambda: "2026-01-01"), None, model, "cpu")
+    try:
+        assert s.probs(enc("abc"))[1]["prefix_cache_hit"] is False and len(s.prefix_cache.entries) == 1
+        model.fail, model.calls = "cached", 0
+        ps, stats = s.probs(enc("abc"))                       # the hit fails, the retry runs it as a miss
+        assert ps == [[0.5, 0.5]] and stats["prefix_cache_hit"] is False and model.calls == 2
+        assert s.prefix_cache.oom_retries == 1 and list(s.prefix_cache.entries.values()) == [("prefix", 2)]   # only the retry's prefix
+        model.fail, model.calls = "always", 0
+        with pytest.raises(torch.OutOfMemoryError): s.probs(enc("abc"))
+        assert model.calls == 2 and s.prefix_cache.entries == {} and s.prefix_cache.oom_retries == 2
+        model.calls = 0
+        with pytest.raises(torch.OutOfMemoryError): s.probs(enc("abc"))   # nothing cached: nothing to drop
+        assert model.calls == 1 and s.prefix_cache.oom_retries == 2
+        model.fail = None; s.probs(enc("abc")); model.fail, model.calls = "other", 0
+        with pytest.raises(ValueError): s.probs(enc("abc"))
+        assert model.calls == 1 and len(s.prefix_cache.entries) == 1
+    finally:
+        s.close()
+    assert out_of_memory(RuntimeError("MPS backend out of memory (MPS allocated: 1 GB)")) and not out_of_memory(RuntimeError("shape mismatch"))
+
+
 def test_graph_buckets_and_length_groups():
     """kev.cuda_graphs pads batched passes: counts to count_bucket (under half extra), token lengths to bucket (under a
     quarter), and length_groups computes the fewest tokens: a pass under PASS_TOKENS stays whole, one long item does not

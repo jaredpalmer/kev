@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
 from .checkpoint import Checkpoint, LoadOptions, fused_available, is_hub_id
-from .device import default_device, sync
+from .device import default_device, empty_cache, sync
 from .model import SERVE_MAX_BRANCH, SERVE_MAX_STATE
 
 PREFIX_CACHE_SIZE = int(os.environ.get("KEV_PREFIX_CACHE", "4"))          # states kept (KV + hidden); 0 disables
@@ -40,6 +40,7 @@ class PrefixCache:
     entries: dict = field(default_factory=dict)
     hits: int = 0
     misses: int = 0
+    oom_retries: int = 0   # batches that ran out of device memory with states cached, dropped them and ran again (Server._run)
 
     def plan(self, encs):
         """-> (key per request, None when its state is not cached; its cached prefix or None; whether to keep a new one)."""
@@ -136,10 +137,17 @@ class Server:
                 with self.lock: graphs.capture_pending(limit=1)
 
     def _run(self, encs):
-        """One batch through model.probs_batch, with the prefix cache. -> per request (probs, stats)."""
-        keys, cached, keep = self.prefix_cache.plan(encs)
+        """One batch through model.probs_batch, with the prefix cache. -> per request (probs, stats). A pass out of device
+        memory while states are cached drops the cache and runs once more: the cache only saves time, and kept resident
+        it failed every later batch of that size (#75, @vtxyer)."""
         sync(self.device); t = time.time()
-        ps, prefixes = self.model.probs_batch(encs, cached, keep)
+        for retry in (False, True):
+            keys, cached, keep = self.prefix_cache.plan(encs)
+            try: ps, prefixes = self.model.probs_batch(encs, cached, keep); break
+            except Exception as e:
+                if retry or not self.prefix_cache.entries or not out_of_memory(e): raise
+            cached = None; self.prefix_cache.clear(); self.prefix_cache.oom_retries += 1   # after the except: its traceback holds the failed pass's tensors
+            empty_cache(self.device)
         sync(self.device); dt = round((time.time() - t) * 1000, 1)
         self.prefix_cache.store(keys, cached, prefixes)
         self.batches += 1; self.batched_requests += len(encs)
@@ -167,6 +175,11 @@ class Server:
     def _body(self, req, meta, ps, m):
         answers = to_answers(ps, meta)
         return {"model": req.model, "answers": answers, "usage": {"input_tokens": m["tokens"], "output_tokens": output_tokens(self.tok, answers)}, "latency_ms": m["latency_ms"]}
+
+
+def out_of_memory(e):
+    """CUDA raises torch.OutOfMemoryError; the MPS allocator a plain RuntimeError with this message."""
+    return isinstance(e, torch.OutOfMemoryError) or isinstance(e, RuntimeError) and str(e).startswith("MPS backend out of memory")
 
 
 def prepare(req):
@@ -246,7 +259,7 @@ def models():
             "temperature": s.model.head.temperature,
             "cuda_graphs": graphs.stats() if (graphs := getattr(s.model, "graphs", None)) else None,
             "prefix_cache": {"size": s.prefix_cache.size, "min_state_tokens": s.prefix_cache.min_tokens, "hits": s.prefix_cache.hits,
-                             "misses": s.prefix_cache.misses, "cached_states": len(s.prefix_cache.entries)},
+                             "misses": s.prefix_cache.misses, "cached_states": len(s.prefix_cache.entries), "oom_retries": s.prefix_cache.oom_retries},
             "batches": {"count": s.batches, "requests": s.batched_requests, "queued": s.queue.qsize()}}
     return {"models": [{"name": name, **card} for name in MODEL_NAMES]}
 
