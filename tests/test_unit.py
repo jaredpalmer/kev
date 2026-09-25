@@ -689,3 +689,27 @@ def test_resume_points_are_committed_as_they_complete(tmp_path, monkeypatch, cap
     stop.set(); thread.join()
     out = capsys.readouterr().out
     assert len(commits) == 2 and "resume point 5 NOT committed" in out and "committed resume point 5 (step-0000005)" in out
+
+
+def test_score_trial_uses_the_suites_admission_context(monkeypatch, tmp_path):
+    """Round 19: in-trial scoring built its predictor with the 384-token default, so a long-state suite (evals/sft-v1, a
+    7,552-token state context) rejected its first long calibration record. The predictor must get the suite's context."""
+    import kev.experiment as E
+    from kev.model import MAX_TRAIN_STATE, training_context
+    long_state = training_context(MAX_TRAIN_STATE)
+    seen = {}
+
+    class Stop(Exception): pass
+
+    def predictor(run, device, options, context=None):
+        seen["context"] = context; raise Stop
+
+    monkeypatch.setattr(E, "LocalPredictor", predictor)
+    monkeypatch.setattr(E, "read_manifest", lambda suite: {"context": long_state})
+    with pytest.raises(Stop):
+        E.score_trial("run", "evals/sft-v1", tmp_path, [], "cpu", {"suite_sha256": "x"}, None, 0.0, False)
+    assert seen["context"] == long_state
+    monkeypatch.setattr(E, "read_manifest", lambda suite: {})
+    with pytest.raises(Stop):
+        E.score_trial("run", "evals/v7/decision-v7", tmp_path, [], "cpu", {"suite_sha256": "x"}, None, 0.0, False)
+    assert seen["context"] == E.CONTEXT
