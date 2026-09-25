@@ -757,6 +757,8 @@ def test_score_trial_uses_the_suites_admission_context(monkeypatch, tmp_path):
     """Round 19: in-trial scoring built its predictor with the 384-token default, so a long-state suite (evals/sft-v1, a
     7,552-token state context) rejected its first long calibration record. The predictor must get the suite's context."""
     import kev.experiment as E
+    from kev.model import MAX_TRAIN_STATE, training_context
+    long_state = training_context(MAX_TRAIN_STATE)
     seen = {}
 
     class Stop(Exception): pass
@@ -765,10 +767,10 @@ def test_score_trial_uses_the_suites_admission_context(monkeypatch, tmp_path):
         seen["context"] = context; raise Stop
 
     monkeypatch.setattr(E, "LocalPredictor", predictor)
-    monkeypatch.setattr(E, "read_manifest", lambda suite: {"context": {"max_state": 7552, "max_branch": 8192, "max_packed": 9216}})
+    monkeypatch.setattr(E, "read_manifest", lambda suite: {"context": long_state})
     with pytest.raises(Stop):
         E.score_trial("run", "evals/sft-v1", tmp_path, [], "cpu", {"suite_sha256": "x"}, None, 0.0, False)
-    assert seen["context"] == {"max_state": 7552, "max_branch": 8192, "max_packed": 9216}
+    assert seen["context"] == long_state
     monkeypatch.setattr(E, "read_manifest", lambda suite: {})
     with pytest.raises(Stop):
         E.score_trial("run", "evals/v7/decision-v7", tmp_path, [], "cpu", {"suite_sha256": "x"}, None, 0.0, False)
