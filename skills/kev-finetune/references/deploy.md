@@ -9,7 +9,7 @@ KEV_SERVE_SECRET=kev-serve-key KEV_SERVE_RUN=x-v1 modal deploy scripts/kev_modal
 
 `KEV_SERVE_RUN` is a run name on the `kev-finetune-runs` volume or a Hub id (`jaredpalmer/kev-4b`, `you/kev-4b-x`,
 `repo@tag`). The deploy prints the URL, `https://<workspace>--kev-finetune-api.modal.run`. The container loads the
-checkpoint once (LoRA merged in fp32, cast to bf16, the fitted temperature applied automatically), warms up the
+checkpoint once (LoRA folded into the bf16 weights with the delta computed in fp32, the fitted temperature applied automatically), warms up the
 fused kernels and captures CUDA graphs (a 6-question Kev-4B request: ~17 ms on an H100, ~130 ms without), serves up
 to 8 concurrent requests, and scales to zero after 5 idle minutes. Cold start after idle is 1-2 minutes for the 4B;
 `KEV_SERVE_MIN_CONTAINERS=1` at deploy time keeps one warm (~$0.80/h on an L4).
@@ -17,7 +17,7 @@ to 8 concurrent requests, and scales to zero after 5 idle minutes. Cold start af
 | Base | `KEV_SERVE_GPU` |
 | --- | --- |
 | kev-0.8b, kev-4b | `L4` (default) |
-| kev-9b | `A100-80GB` or `H100` (the fp32 merge needs 36 GB) |
+| kev-9b | `H100` or `A100-80GB` (about 17 GB of GPU memory in bf16) |
 
 Without `KEV_SERVE_SECRET` the endpoint is public (the URL is the only secret); with it, requests need
 `Authorization: Bearer <KEV_API_KEY>` and everything else gets 401. Redeploying with another `KEV_SERVE_RUN`
