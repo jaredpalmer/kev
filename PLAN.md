@@ -189,6 +189,11 @@ These are the methods that held up. `docs/autoresearch.md` turns them into an op
 - **Served against served.** Every side is served at the temperature fitted on its own decision-v7 development rows
   (`kev.metrics.served`); a release writes that T into `head.pt` (`scripts/calibrate_checkpoint.py`) and its reported numbers
   use the shipped T. A hard-set calibration guard (hard-v1 served ECE ≤ parent + 0.01) is part of every skills round since round 10.
+  Since round 20, a temperature that is served for a calibration criterion or shipped is fitted on a pool of held-out
+  *datasets* (the spec's `temperature`), never on a training corpus's own calibration/development rows, which are in
+  distribution (round 19: T 0.955, breadth-v1 ECE 0.059 vs 0.0085 on the held-out pool). `kev.rounds validate` and
+  `scripts/calibrate_checkpoint.py` refuse a fit set that shares data with the checkpoint's training
+  (`kev.rounds.pool_conflicts`); `docs/autoresearch.md` section 3 has the rule and its checks.
 - **One candidate per size**: the passing arm with the best registered rank; attribution arms are reported, never selected;
   say how many arms were tried ("one pass in five").
 - **No Jev output in training, ever.** Jev is a reference read through the AI Gateway, budget-capped.

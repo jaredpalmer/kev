@@ -1,6 +1,8 @@
 """The round harness (kev.rounds): spec validation, the benchmark job codec, the watcher's resume and network handling, and
 reproduction of the committed read-outs and verdicts of rounds 5-20 from saved rows, and round 20's temperature pools,
-transfer reads and checkpoint arms on a synthetic round.
+transfer reads and checkpoint arms on a synthetic round; the calibration guards (a temperature pool that shares data with
+an arm's training is refused, every arm's temperature source is recorded, scripts/calibrate_checkpoint.py refuses
+in-distribution rows) and calibration by state length.
 
 Offline vs archive. Rounds 5-18 ran on the research branch; their trial rows, reads and most committed outputs live on the
 git tag `research-archive-2026-09-24`, not on main. This checkout carries everything the round-5 read-out and the round-15
@@ -22,7 +24,7 @@ from pathlib import Path
 import pytest
 
 from kev import rounds
-from kev.suite import read_json, write_json
+from kev.suite import ADMISSION_TOKENIZER, read_json, write_json
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = Path(os.environ.get("KEV_ROUNDS_ROOT", ROOT))
@@ -358,17 +360,28 @@ def test_confirm_reproduces_the_committed_verdicts(round_number, name):
     assert checked >= 4 and diffs == [], diffs[:5]
 
 
+def as_committed(report):
+    """A read-out without `temperature_source` (recorded per arm since the calibration guards; the committed read-outs of
+    rounds 19 and 20 predate it, and every other number must reproduce as committed)."""
+    return {**report, "arms": {a: {k: v for k, v in r.items() if k != "temperature_source"} for a, r in report["arms"].items()}}
+
+
 def test_readout_reproduces_round_19():
     """Round 19 was read out by this harness. Its read-out and every read it scores are committed; the arms' development
     rows (their temperatures' fit set) carry sft-v1 record ids, so they come from the private dataset the manifest names
-    (scripts/private_rows.py), fetched into this checkout's gitignored runs/: the test skips for an account without access."""
+    (scripts/private_rows.py), fetched into this checkout's gitignored runs/: the test skips for an account without access.
+    Every arm now records that its temperature came from sft-v1 development rows, a training corpus (round 19's mistake)."""
     from scripts.private_rows import restore
     try:
         restore("runs/r19-readout/private-rows.json", ROOT)
     except PermissionError as error:
         pytest.skip(str(error))
     spec = rounds.load(ROOT / "experiments/rounds/r19.json")
-    assert same(rounds.readout(spec, ROOT), read_json(ROOT / "runs/r19-readout/round19.json"))
+    report = rounds.readout(spec, ROOT)
+    assert same(as_committed(report), read_json(ROOT / "runs/r19-readout/round19.json"))
+    for arm, r in report["arms"].items():
+        assert r["temperature_source"] == {"kind": "trial development rows", "rows": f"{spec['arms'][arm]['trial']}/development", "suite": "evals/sft-v1", "training_corpus": True}
+    assert rounds.table(report).count("!!!") == 3 and "round 19's failure mode" in rounds.table(report)
 
 
 def test_readout_reproduces_round_20():
@@ -384,10 +397,15 @@ def test_readout_reproduces_round_20():
         private = False
     spec = rounds.load(ROOT / "experiments/rounds/r20.json")
     report, committed = rounds.readout(spec, ROOT), read_json(ROOT / "runs/r20-readout/round20.json")
+    interpolated = [a for a, x in spec["arms"].items() if not x.get("trial")]
+    for arm in interpolated + (list(spec["arms"]) if private else []):
+        source = report["arms"][arm]["temperature_source"]
+        assert source["kind"] == "pool" and source["questions"] == 648 and source["reads"] == report["arms"][arm]["temperature_fit"]["reads"]
+    assert "!!!" not in rounds.table(report)
+    report = as_committed(report)
     if private:
         assert same(report, committed)
         return
-    interpolated = [a for a, x in spec["arms"].items() if not x.get("trial")]
     assert len(interpolated) == 6
     assert same({a: report["arms"][a] for a in interpolated}, {a: committed["arms"][a] for a in interpolated})
     assert report["ranking"] == committed["ranking"] and report["candidates"] == committed["candidates"] == {"27b": None}
@@ -409,6 +427,13 @@ def _rows(root, d, ids, seed, scale=1.0, source="s"):
     return rows
 
 
+def _trained_on(root, trial, suite, data=None):
+    """A trial's provenance.json as kev.experiment writes it: the manifest hash of the suite it trained on (and a `data` file)."""
+    from kev.suite import digest
+    (root / trial).mkdir(parents=True, exist_ok=True)
+    write_json(root / trial / "provenance.json", {"config": {**({"data": data} if data else {})}, "suite_sha256": digest(ROOT / suite / "manifest.json")})
+
+
 def _pool_round(root):
     """A two-arm round: a trained arm and an interpolated checkpoint (no trial), both served at a pooled temperature. The
     pool's first read carries ten rows of another source and the second repeats five transfer records, all confidently
@@ -425,6 +450,7 @@ def _pool_round(root):
         "confirm": {"locked": {"candidate_reads": {"locked": "runs/locked/kev-{size}-r99-ungated/transfer"}, "panels": {"locked": {"reads": ["locked"], "metrics": ["acc"]}},
                                "criteria": {"acc": {"left": "locked.acc.candidate", "op": ">=", "right": 0}}}}})
     spec = rounds.load(root / "r99.json")
+    _trained_on(root, "runs/s/00-trial-0", "evals/v7/decision-v7")   # what the pool is checked against (pool_training_problems)
     transfer_ids = [f"t/{i}" for i in range(40)]
     for d in ("runs/p/00-trial-0/development", "runs/s/00-trial-0/development"): _rows(root, d, [f"d/{i}" for i in range(60)], 1)
     for d, seed in (("runs/p/00-trial-0/transfer", 2), ("runs/s/00-trial-0/transfer", 3), ("runs/r99-x-wise-transfer4", 4)): _rows(root, d, transfer_ids, seed)
@@ -510,6 +536,204 @@ def test_validation_of_pools_transfer_reads_and_trialless_arms(tmp_path):
         assert expected in problems, expected
     del spec["temperature"]
     assert "arm x-wise: no trial, so no development rows to fit its temperature on" in "\n".join(rounds.validate(spec, tmp_path, rows=False, plans=False).problems)
+
+
+# --- the temperature pool against training data (round 19's failure mode) ---------------------------------------------
+
+def _r20_pooling(tag, read, sources=None):
+    """Round 20's spec with its pool replaced by one read (a tag every arm locates)."""
+    spec = rounds.load(ROOT / "experiments/rounds/r20.json")
+    spec["reads"][tag] = read
+    spec["temperature"] = {"reads": [tag], **({"sources": {tag: sources}} if sources else {})}
+    for a in spec["arms"].values():
+        if isinstance(a.get("reads"), dict): a["reads"][tag] = f"runs/x-{tag}"
+    return spec
+
+
+def _pool_refusals(spec, root=ROOT):
+    return [p for p in rounds.validate(spec, root, rows=False, plans=False).problems if p.startswith("temperature: pooled read")]
+
+
+def test_round_20s_pool_is_disjoint_from_its_arms_training():
+    """Round 20's arms are round 19's sft-v1 trials (their training suite from the committed provenance.json, sft-v1's
+    components included) and its interpolations of them; its pool (transfer-r3 calibration, eight held-out sources;
+    transfer-v9 MMLU-Pro) shares nothing with that training."""
+    spec = rounds.load(ROOT / "experiments/rounds/r20.json")
+    assert rounds.pool_training_problems(spec, ROOT) == ([], [])
+    training = rounds.trial_training(spec, "runs/r19-27b-lr2e6/00-trial-0", ROOT)
+    assert {"evals/sft-v1", "evals/documents-v1", "evals/hard-v1", "evals/devtools-v1", "evals/round6/b1v2"} <= training.suites
+    assert {"boolq", "cfpb", "hard_judge", "synthetic-v1/intent"} <= training.sources and training.unlisted == ()
+    olddata = rounds.trial_training(rounds.load(ROOT / "experiments/rounds/r19.json"), "runs/r19-27b-olddata/00-trial-0", ROOT)   # its plan's data file
+    assert "evals/round6/b1v2" in olddata.suites and "yelp" in olddata.sources
+
+
+@pytest.mark.parametrize("read,sources,expected", [
+    ({"suite": "evals/sft-v1"}, None, ["evals/sft-v1 is training data", "training source(s)", "development partition of evals/sft-v1"]),        # round 19's pool: (a) (b) (c)
+    ({"suite": "evals/sft-v1", "flags": "--split calibration"}, ["boolq"], ["evals/sft-v1 is training data", "['boolq']", "calibration partition"]),   # one of its partitions
+    ({"suite": "evals/documents-v1", "flags": "--allow-test"}, ["not-a-source"], ["evals/documents-v1 is training data"]),                      # (a) a component of sft-v1
+    ({"suite": "evals/v7/decision-v7", "flags": "--allow-test"}, None, ["training source(s) ['agnews', 'amazon'"]),                               # (b) only: shared sources
+    ({"suite": "evals/breadth-v1"}, ["musr"], []),                                                                                             # held-out datasets: fine
+], ids=["sft-v1-dev", "sft-v1-calibration", "component", "shared-sources", "held-out"])
+def test_a_pool_that_shares_data_with_training_is_refused(read, sources, expected):
+    refusals = _pool_refusals(_r20_pooling("fit", read, sources))
+    assert len(refusals) == (1 if expected else 0), refusals
+    for text in expected:
+        assert text in refusals[0], (text, refusals[0])
+    if refusals:
+        assert "arm(s) 27b-a, 27b-b" in refusals[0] and "round 19's failure mode" in refusals[0] and "T 0.955" in refusals[0]
+
+
+def test_a_training_corpus_development_split_is_refused_even_when_not_trained_on(tmp_path):
+    """(c): the pool reads hard-v1 development, the arm trained on decision-v7 only (no shared suite, no shared source): a
+    training corpus's calibration and development partitions are never a temperature pool."""
+    spec = _pool_round(tmp_path)
+    spec["reads"]["hard"] = {"suite": "evals/hard-v1"}
+    spec["temperature"]["reads"] = ["hard"]; spec["temperature"]["sources"] = {"hard": ["hard_judge"]}
+    [refusal] = _pool_refusals(spec, tmp_path)
+    assert "it reads the development partition of evals/hard-v1, a training corpus" in refusal and "training data" not in refusal and "training source" not in refusal
+    spec["reads"]["hard"]["flags"] = "--allow-test"
+    assert _pool_refusals(spec, tmp_path) == []
+
+
+def test_a_pool_cannot_be_checked_without_the_arms_training(tmp_path):
+    """A trial arm with no provenance and no study of the spec: a new round fails, a recorded round lists it as archived.
+    A round of checkpoints only must say what they trained on (`trained_on`), which is then checked like a trial's."""
+    spec = _pool_round(tmp_path)
+    (tmp_path / "runs/s/00-trial-0/provenance.json").unlink()
+    problems, archived = rounds.validate(spec, tmp_path, rows=False, plans=False)
+    assert any("arm x-trained: what runs/s/00-trial-0 trained on is unknown" in p for p in problems) and archived == []
+    problems, archived = rounds.validate({**spec, "archive": "tag"}, tmp_path, rows=False, plans=False)
+    assert problems == [] and any("trained on is unknown" in a for a in archived)
+    del spec["arms"]["x-trained"]
+    assert any("no arm names its training" in p for p in rounds.validate(spec, tmp_path, rows=False, plans=False).problems)
+    spec["arms"]["x-wise"]["trained_on"] = ["evals/v4/transfer-v4"]   # a checkpoint trained on the pool's own suite
+    assert "evals/v4/transfer-v4 is training data" in "\n".join(_pool_refusals(spec, tmp_path))
+
+
+def test_a_trial_served_at_its_training_corpus_rows_is_flagged(tmp_path):
+    """Without a pool an arm is served at its trial's development rows; the read-out records their suite, and the table
+    warns when that suite is a training corpus (decision-v7 here, sft-v1 in round 19)."""
+    spec = _pool_round(tmp_path)
+    del spec["temperature"], spec["arms"]["x-wise"]
+    report = rounds.readout(spec, tmp_path)
+    assert report["arms"]["x-trained"]["temperature_source"] == {"kind": "trial development rows", "rows": "runs/s/00-trial-0/development",
+                                                                 "suite": "evals/v7/decision-v7", "training_corpus": True}
+    [warning] = [line for line in rounds.table(report).splitlines() if "!!!" in line]
+    assert "x-trained is served at T" in warning and "evals/v7/decision-v7" in warning and "round 19's failure mode" in warning
+    assert rounds.calibration_warnings(spec, tmp_path) == []                      # its only criterion is on accuracy
+    spec["rule"]["criteria"]["ece"] = {"left": "main.ece.candidate", "op": "<=", "right": 1}
+    [warning] = rounds.calibration_warnings(spec, tmp_path)                        # validate/launch print it before training
+    assert warning.startswith("arm x-trained will be served at a temperature fitted on its trial's evals/v7/decision-v7 development rows") and "rule ece" in warning
+    r19 = rounds.load(ROOT / "experiments/rounds/r19.json")
+    assert len(rounds.calibration_warnings(r19)) == 3 and rounds.calibration_warnings(rounds.load(ROOT / "experiments/rounds/r20.json")) == []
+
+
+# --- calibration by state length -------------------------------------------------------------------------------------
+
+def test_calibration_by_length_on_synthetic_rows(tmp_path):
+    from kev.metrics import calibration_by_length, length_buckets, metrics
+    assert [b[0] for b in length_buckets()] == ["under_8k", "8k_16k", "16k_32k", "32k_64k", "64k_plus", "8k_plus", "16k_plus", "32k_plus"]
+    assert [b[0] for b in length_buckets((4096,))] == ["under_4k", "4k_plus"]
+    with pytest.raises(ValueError): length_buckets((8192, 4096))
+    with pytest.raises(ValueError): length_buckets((5000,))
+    rows = _rows(tmp_path, "r", [f"d/{i}" for i in range(40)], 0)
+    lengths = {f"d/{i}": [100, 9000, 20000, 40000][i % 4] for i in range(40)}
+    rows[0]["state_tokens"] = 70000                                        # a row's own count wins over lengths
+    out = calibration_by_length(rows, lengths)
+    assert {b: out[b]["n"] for b in out} == {"under_8k": 9, "8k_16k": 10, "16k_32k": 10, "32k_64k": 10, "64k_plus": 1, "8k_plus": 31, "16k_plus": 21, "32k_plus": 11}
+    long = [r for i, r in enumerate(rows) if i == 0 or i % 4 in (2, 3)]   # row order kept: the sums match bit for bit
+    assert out["16k_plus"] == {"n": 21, **{m: metrics(long)[m] for m in ("acc", "ece", "brier", "confident_error_rate")}}
+    assert calibration_by_length(rows[1:4], lengths, (65536,))["64k_plus"] == {"n": 0, "acc": None, "ece": None, "brier": None, "confident_error_rate": None}
+    with pytest.raises(KeyError): calibration_by_length(rows, {})
+
+
+def test_a_by_length_panel_reports_buckets_and_takes_a_criterion(tmp_path, monkeypatch):
+    """A panel with `by_length` reports <metric>_<bucket> for both sides (one set of token counts for both); a criterion on
+    a bucket's ECE is a valid path and decides the arm; the table prints the buckets."""
+    spec = _pool_round(tmp_path)
+    spec["rule"]["panels"]["long"] = {"reads": ["main"], "metrics": ["acc"], "by_length": True}
+    spec["rule"]["criteria"]["long_ece"] = {"left": "long.ece_16k_plus.candidate", "op": "<=", "right": 0.5}
+    assert rounds.validate(spec, tmp_path, rows=False, plans=False).problems == []
+    asked = []
+    monkeypatch.setattr(rounds, "panel_lengths", lambda s, panel: asked.append(panel["reads"]) or {f"m/{i}": 1000 * (i % 2) + 17000 * (i % 3 == 0) for i in range(50)})
+    report = rounds.readout(spec, tmp_path)
+    wise = report["arms"]["x-wise"]["panels"]["long"]
+    assert wise["by_length"] == {"edges": [8192, 16384, 32768, 65536], "tokens": {"records": "suite", "tokenizer": list(ADMISSION_TOKENIZER)}}
+    assert wise["ece_16k_plus"]["n"] == 17 and wise["acc_under_8k"]["n"] == 33 and wise["ece_32k_64k"] == {"candidate": None, "parent": None, "n": 0}
+    assert report["arms"]["x-wise"]["criteria"]["long_ece"] is (wise["ece_16k_plus"]["candidate"] <= 0.5) and asked
+    assert "long by state length (candidate/parent): under_8k n=33" in rounds.table(report)
+    spec["rule"]["criteria"]["long_ece"]["left"] = "long.ece_16k_plus.lower"          # value only: no interval
+    spec["rule"]["criteria"]["bucket"] = {"left": "long.ece_12k_plus.candidate", "op": "<=", "right": 1}
+    spec["rule"]["panels"]["bad"] = {"reads": ["main", "transfer"], "metrics": ["acc"], "by_length": {"edges": [5000]}}
+    problems = "\n".join(rounds.validate(spec, tmp_path, rows=False, plans=False).problems)
+    for expected in ("unknown path 'long.ece_16k_plus.lower'", "unknown path 'long.ece_12k_plus.candidate'", "panel bad: by_length: length edges", "panel bad: by_length counts state tokens from a read's suite; 'transfer'"):
+        assert expected in problems, expected
+
+
+def test_a_pooled_read_under_a_by_length_criterion(tmp_path):
+    """A bucket's accuracy is temperature-free; its ECE is not, so a pooled read may not sit under a criterion on it."""
+    spec = _pool_round(tmp_path)
+    spec["rule"]["panels"]["long"] = {"reads": ["cal"], "metrics": ["acc"], "by_length": True}
+    spec["rule"]["criteria"]["long_acc"] = {"left": "long.acc_16k_plus.candidate", "op": ">=", "right": 0}
+    assert rounds.validate(spec, tmp_path, rows=False, plans=False).problems == []
+    spec["rule"]["criteria"]["long_ece"] = {"left": "long.ece_16k_plus.candidate", "op": "<=", "right": 0.05}
+    assert any("criterion long_ece reads long.ece_16k_plus.candidate, which the temperature moves" in p for p in rounds.validate(spec, tmp_path, rows=False, plans=False).problems)
+
+
+# --- scripts/calibrate_checkpoint.py: the shipped temperature -------------------------------------------------------
+
+def _checkpoint(root, suite="evals/sft-v1"):
+    from kev.checkpoint import Meta, write_meta
+    from kev.suite import digest
+    run = root / "runs/t/00-trial-0/checkpoint"; run.mkdir(parents=True)
+    write_meta(run, Meta(base="b", extra={"suite_sha256": digest(ROOT / suite / "manifest.json"), "args": {"suite": f"/root/kev/{suite}"}}))
+    return run
+
+
+def _calibrate(monkeypatch, *args):
+    import sys
+    from scripts import calibrate_checkpoint
+    monkeypatch.setattr(sys, "argv", ["calibrate_checkpoint.py", *map(str, args)])
+    calibrate_checkpoint.main()
+
+
+def test_calibrate_checkpoint_refuses_its_own_training_suite(tmp_path, monkeypatch):
+    """Round 19's fit set: the trial's own development rows of sft-v1. Refused; --allow-in-distribution fits, warns and
+    records it; every fit records the rows' suites, partitions and question counts."""
+    from kev.checkpoint import read_meta
+    from kev.suite import digest
+    run = _checkpoint(tmp_path)
+    _trained_on(tmp_path, "runs/t/00-trial-0", "evals/sft-v1")
+    own = _rows(tmp_path, "runs/t/00-trial-0/development", [f"d/{i}" for i in range(60)], 1, source="boolq")
+    with pytest.raises(SystemExit) as refused:
+        _calibrate(monkeypatch, "--run", run, "--rows", tmp_path / "runs/t/00-trial-0/development/rows.json")
+    message = str(refused.value)
+    assert "evals/sft-v1 is training data" in message and "development partition of evals/sft-v1" in message and "round 19's failure mode" in message
+    assert read_meta(run).temperature == 1.0                                                                  # nothing written
+    _calibrate(monkeypatch, "--run", run, "--rows", tmp_path / "runs/t/00-trial-0/development/rows.json", "--allow-in-distribution")
+    fit = read_meta(run).extra["temperature_fit"]
+    assert fit["in_distribution"]["allowed"] and any("evals/sft-v1 is training data" in p for p in fit["in_distribution"]["problems"])
+    assert fit["fit_rows"] == [{"rows": str(tmp_path / "runs/t/00-trial-0/development/rows.json"), "suite": "evals/sft-v1", "split": "development", "questions": len(own)}]
+    assert "evals/sft-v1" in fit["training_suites"] and "evals/documents-v1" in fit["training_suites"]
+    # held-out datasets: a kev.benchmark read of transfer-r3's calibration partition, two sources kept
+    bench = tmp_path / "runs/x-r3cal"
+    _rows(tmp_path, "runs/x-r3cal", [f"c/{i}" for i in range(50)], 2, source="mmlu")
+    write_json(bench / "report.json", {"suite_sha256": digest(ROOT / "evals/round3/transfer-r3/manifest.json"), "split": "calibration"})
+    _calibrate(monkeypatch, "--run", run, "--rows", f"{bench / 'rows.json'}:mmlu,emotion")
+    fit = read_meta(run).extra["temperature_fit"]
+    assert "in_distribution" not in fit and fit["fit_rows"] == [{"rows": str(bench / "rows.json"), "suite": "evals/round3/transfer-r3", "split": "calibration", "sources": ["mmlu", "emotion"], "questions": 50}]
+
+
+def test_calibrate_checkpoint_refuses_what_it_cannot_place(tmp_path, monkeypatch):
+    """Rows with no suite (no report.json, not a trial's read) and a checkpoint whose training is unknown are refused too."""
+    from kev.checkpoint import Meta, write_meta
+    run = _checkpoint(tmp_path)
+    _rows(tmp_path, "loose", [f"d/{i}" for i in range(30)], 1)
+    with pytest.raises(SystemExit, match="cannot tell which suite these rows were scored on"):
+        _calibrate(monkeypatch, "--run", run, "--rows", tmp_path / "loose/rows.json")
+    write_meta(run, Meta(base="b"))
+    with pytest.raises(SystemExit, match="cannot tell what this checkpoint was trained on"):
+        _calibrate(monkeypatch, "--run", run, "--rows", tmp_path / "loose/rows.json")
 
 
 def test_concurrent_pulls_of_one_study_run_one_at_a_time(tmp_path, monkeypatch):

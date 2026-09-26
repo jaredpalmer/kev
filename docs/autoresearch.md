@@ -53,7 +53,26 @@ A round is a PLAN.md section plus a spec, committed together before any training
    parent read its rule needs, must exist in this checkout; if a parent lacks a read, `launch-reads <spec> --parents` makes it.
 3. New data is a new directory under `evals/` with a `manifest.json` (sha256 per file, inputs' hashes). Under the SFT data
    policy (PLAN.md) private corpora keep only the manifest in git, with a `"mirror"` entry pointing at the private dataset.
-4. `uv run python -m kev.rounds validate experiments/rounds/r<N>.json` (add `--partitions` to verify the partitions) until it
+4. **MUST: every served or shipped temperature comes from a pool of held-out datasets, never from a partition of the training
+   corpus.** A round that reads calibration (ECE, Brier, confident errors, coverage) registers a `temperature` pool for its
+   arms (copy r20: the transfer-r3 calibration partition's eight held-out public sources + transfer-v9 MMLU-Pro), and a release
+   ships the temperature `scripts/calibrate_checkpoint.py` fits on the same pool. The held-out *items* of the training sources
+   (a training suite's `calibration` / `development` partitions) are in distribution: round 19 served its SFT arms at T 0.955
+   fitted on `sft-v1` development rows and failed every calibration criterion (breadth-v1 ECE 0.059); round 20's held-out-datasets
+   pool gave 0.0085 on the same checkpoint. Registering the pool is on you: `validate` does not require one (round 19's spec
+   must keep validating), but for a round without one whose criteria depend on the temperature, `validate` and `launch` print
+   a `!!! warning` per arm trained on a training corpus. Treat that warning as a failure. What enforces the rest:
+   - `kev.rounds validate` refuses a pool read that (a) is an arm's training suite, a component of it (sft-v1's
+     `inputs.components`) or its plan's `data` suite, (b) pools a source any arm trained on, or (c) reads the `calibration` or
+     `development` partition of any training corpus; it also refuses a pool it cannot check (an arm whose training is
+     unknown, a suite without a manifest or listed sources). Checkpoint arms without a trial may name `trained_on`.
+   - The read-out records each arm's `temperature_source`; the table prints `!!!` for an arm served at its trial's
+     development rows of a training corpus (rounds 5-19 all were; from now on such a temperature is screening only).
+   - `scripts/calibrate_checkpoint.py` refuses the same fit sets (checked against head.pt's training suite);
+     `--allow-in-distribution` is for reproducing an old fit only, and it is recorded in `head.pt["temperature_fit"]`.
+   - A trial's in-trial temperature (`result.json` `calibration_fit`) says `role: in-trial screening ... not a served or
+     shipped temperature`.
+5. `uv run python -m kev.rounds validate experiments/rounds/r<N>.json` (add `--partitions` to verify the partitions) until it
    prints `ok`. Commit the PLAN section and the spec in one commit, push. That commit time is the registration time.
 
 ## 4. Run it end to end
@@ -171,7 +190,11 @@ At the end of the session (and in the state file as it goes):
   requests it rejects (for example a 422 past its context) as coverage, never drop them silently.
 - **Temperature: shipped vs in-trial.** A trial's `result.json` and its locked summary are scored at the in-trial fit; a
   release ships the T that `scripts/calibrate_checkpoint.py` wrote into `head.pt`. The first AutoJev head-to-head served
-  Kev-27B at the in-trial 1.19 instead of the shipped 1.38 and had to be corrected. Say which T every number uses.
+  Kev-27B at the in-trial 1.19 instead of the shipped 1.38 and had to be corrected. Say which T every number uses, and
+  where it was fitted (section 3, rule 4: held-out datasets, never the training corpus's own partitions).
+- **Long-context calibration.** A panel with `"by_length": true` reports accuracy, ECE, Brier and confident errors per
+  state-token bucket (under 8k to 64k+, and the 8k+/16k+/32k+ tails), and a criterion can gate one
+  (`long.ece_16k_plus.candidate <= 0.05`). Tokens are counted from the reads' suite records, so both sides share buckets.
 - **Workspace capacity.** The workspace has run at most about ten GPU containers at once; pending containers are capacity,
   not a bug, so do not relaunch them.
 - **Small suites.** A guard on 89 or 144 questions cannot resolve a 2-3 pp floor; gate them through a pooled panel.

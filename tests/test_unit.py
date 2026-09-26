@@ -1237,3 +1237,13 @@ def test_score_trial_uses_the_suites_admission_context(monkeypatch, tmp_path):
     with pytest.raises(Stop):
         E.score_trial("run", "evals/v7/decision-v7", tmp_path, [], "cpu", {"suite_sha256": "x"}, None, 0.0, False)
     assert seen["context"] == E.CONTEXT
+
+
+def test_the_in_trial_temperature_says_it_is_not_shipped():
+    """Round 19: a trial's temperature is fitted on held-out items of its own training sources (in distribution); its record
+    (calibration/temperature.json, result.json calibration_fit) says so, so nobody serves or ships it."""
+    import kev.experiment as E
+    fit = E.calibration_fit(0.95, [{"variant": "clean"}, {"variant": "permuted"}, {"variant": "clean"}], "rows-sha", "suite-sha")
+    assert fit == {"temperature": 0.95, "aggregation": "micro", "objective": "raw-logit NLL", "split": "calibration", "role": E.IN_TRIAL_TEMPERATURE,
+                   "rows_sha256": "rows-sha", "suite_sha256": "suite-sha", "n": 2}
+    assert E.IN_TRIAL_TEMPERATURE.startswith("in-trial screening") and "not a served or shipped temperature" in E.IN_TRIAL_TEMPERATURE

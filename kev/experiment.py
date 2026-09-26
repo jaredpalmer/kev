@@ -296,6 +296,20 @@ def train_checkpoint(config, suite, output, device):
     return run
 
 
+# what a trial's own temperature is (calibration/temperature.json, result.json calibration_fit): a screening number fitted on
+# held-out items of the sources it trained on. Round 19 served full-weight SFT arms at an in-distribution temperature and
+# failed every calibration criterion; a served or shipped temperature comes from a held-out-datasets pool (kev.rounds
+# `temperature`, scripts/calibrate_checkpoint.py).
+IN_TRIAL_TEMPERATURE = ("in-trial screening; fitted on the training suite's calibration partition (held-out items of the training "
+                        "sources: in distribution); not a served or shipped temperature")
+
+
+def calibration_fit(temperature, rows, rows_sha256, suite_hash):
+    """The record of a trial's in-trial temperature (calibration/temperature.json, result.json calibration_fit)."""
+    return {"temperature": temperature, "aggregation": "micro", "objective": "raw-logit NLL", "split": "calibration", "role": IN_TRIAL_TEMPERATURE,
+            "rows_sha256": rows_sha256, "suite_sha256": suite_hash, "n": sum(r["variant"] == "clean" for r in rows)}
+
+
 def score_trial(run, suite, output, expected_sources, device, provenance, transfer_suite, started, legacy):
     """Calibrate on the calibration partition, score development (and the transfer suite), run the mechanism checks, and
     write result.json. `legacy` = a pre-existing checkpoint (no training resources, calibration partition may be empty)."""
@@ -315,14 +329,12 @@ def score_trial(run, suite, output, expected_sources, device, provenance, transf
         if calibration_records:
             _, calibration_rows = evaluate_records(calibration_records, predictor, output / "calibration")
             temperature = fit_temperature(calibration_rows, aggregation="micro")
-            calibration_fit = {"temperature": temperature, "aggregation": "micro", "objective": "raw-logit NLL",
-                               "split": "calibration", "rows_sha256": digest(output / "calibration/rows.json"),
-                               "suite_sha256": suite_hash, "n": sum(r["variant"] == "clean" for r in calibration_rows)}
-            write_json(output / "calibration/temperature.json", calibration_fit)
+            fit = calibration_fit(temperature, calibration_rows, digest(output / "calibration/rows.json"), suite_hash)
+            write_json(output / "calibration/temperature.json", fit)
         else:
             if not legacy:
                 raise ValueError("training studies require a nonempty calibration partition")
-            temperature, calibration_fit = 1.0, {"temperature": 1.0, "split": None, "n": 0}
+            temperature, fit = 1.0, {"temperature": 1.0, "split": None, "n": 0, "role": IN_TRIAL_TEMPERATURE}
         records = load_split(suite, "development")
         heldout = tuple(read_manifest(suite).get("holdout_sources", []))
         report, rows = evaluate_records(records, predictor, output / "development", temperature, heldout_sources=heldout)
@@ -338,7 +350,7 @@ def score_trial(run, suite, output, expected_sources, device, provenance, transf
     if source_hashes() != expected_sources or digest(Path(suite) / "manifest.json") != suite_hash:
         raise ValueError("source or suite changed during the trial; result cannot be ranked")
     report["transfer"] = transfer
-    report.update(provenance=provenance, mechanism_checks=checks, gates=gate_report(report, checks), calibration_fit=calibration_fit,
+    report.update(provenance=provenance, mechanism_checks=checks, gates=gate_report(report, checks), calibration_fit=fit,
                   wall_seconds=time.perf_counter() - started, promotable=False, test_evaluated=False)
     if not legacy:
         report["training_resources"] = read_json(Path(run) / "training_metrics.json")

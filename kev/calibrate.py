@@ -2,7 +2,8 @@
 
     uv run python -m kev.calibrate --rows runs/kev-9b-wanli-v1/rows.json [--out runs/kev-9b-wanli-v1/calibration.json]
 
-A checkpoint ships one temperature fitted on its in-distribution development rows (scripts/calibrate_checkpoint.py). It
+A released checkpoint ships one temperature fitted on its in-distribution development rows (scripts/calibrate_checkpoint.py,
+which now refuses such rows unless --allow-in-distribution: new temperatures come from held-out datasets). It
 transfers to our out-of-domain suites, not necessarily to a deployer's workload: Kev-9B on WANLI-256 is served at
 mean confidence 0.82 against accuracy 0.70. This module reports, on one rows file, four arms of the same predictions:
 

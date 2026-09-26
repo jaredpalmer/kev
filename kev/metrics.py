@@ -187,6 +187,39 @@ def grouped_metrics(rows, key, temperature=1.0):
     return {name: metrics(group, temperature) for name, group in sorted(groups.items())}
 
 
+LENGTH_EDGES = (8192, 16384, 32768, 65536)   # state-token edges of calibration_by_length (long-context calibration)
+LENGTH_METRICS = ("acc", "ece", "brier", "confident_error_rate")
+
+
+def length_buckets(edges=LENGTH_EDGES):
+    """[(name, lo, hi)]: state tokens in [lo, hi) (hi None = no upper bound). The disjoint buckets (under_8k, 8k_16k, 16k_32k,
+    32k_64k, 64k_plus for the default edges), then the tails of every inner edge (8k_plus, 16k_plus, 32k_plus). Edges are
+    increasing multiples of 1,024, which name them."""
+    if not edges or list(edges) != sorted(set(edges)) or any(e <= 0 or e % 1024 for e in edges):
+        raise ValueError("length edges must be increasing positive multiples of 1024")
+    k = lambda n: f"{n // 1024}k"
+    bounds = [0, *edges, None]
+    disjoint = [(f"under_{k(hi)}" if lo == 0 else f"{k(lo)}_plus" if hi is None else f"{k(lo)}_{k(hi)}", lo, hi) for lo, hi in zip(bounds[:-1], bounds[1:])]
+    return disjoint + [(f"{k(lo)}_plus", lo, None) for lo in edges[:-1]]
+
+
+def calibration_by_length(rows, lengths=None, edges=LENGTH_EDGES):
+    """{bucket: {"n", acc, ece, brier, confident_error_rate}} of rows (scored as given, at T=1: pass them served) split by
+    state-token count: the row's own `state_tokens` when it records one, else lengths[row id] ({record id: tokens}). An
+    empty bucket has n 0 and None values. The one home of per-length calibration (kev.rounds panels with `by_length`)."""
+    def tokens(row):
+        if row.get("state_tokens") is not None: return row["state_tokens"]
+        if lengths is None or row["id"] not in lengths: raise KeyError(f"no state-token count for record {row['id']!r}")
+        return lengths[row["id"]]
+    counted = [(tokens(r), r) for r in rows]
+    out = {}
+    for name, lo, hi in length_buckets(edges):
+        group = [r for n, r in counted if n >= lo and (hi is None or n < hi)]
+        scored = metrics(group) if group else {}
+        out[name] = {"n": len(group), **{m: scored.get(m) for m in LENGTH_METRICS}}
+    return out
+
+
 def tempered_row(row, temperature):
     """The row as a calibrated predictor would have returned it: probabilities and logits at `temperature`, so metrics()
     at T=1 scores it (per-row temperatures, e.g. out-of-fold, cannot go through metrics(rows, T)). The recorded

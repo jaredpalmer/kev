@@ -100,7 +100,21 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   60 s apart, then writes `runs/r<N>-readout/round<N>.json`; `confirm <spec> --stage <s>` writes `runs/r<N>-verdict/<size>-<s>.json`.
   Every side is served at the temperature fitted on its own development rows, unless the round registers a `temperature` pool
   for its arms (reads pooled, per-read `sources` allowlist, `exclude_reads`; refused inside any panel a temperature-dependent
-  criterion reads; round 20); an arm may be a checkpoint without a trial (`"checkpoint": "/runs/..."`, its "transfer" rows
+  criterion reads; round 20). `validate` also refuses a pool that shares data with any arm's training (`kev.rounds.pool_conflicts`):
+  (a) a pooled suite is an arm's training suite, a component its manifest names (sft-v1's `inputs.components`) or a plan's `data`
+  suite; (b) it pools sources the arm trained on; (c) it reads the `calibration` or `development` partition of any training corpus
+  (a suite with trainable sources). The arm's training comes from its study in the spec or its trial's `provenance.json` (manifest
+  hash); a checkpoint arm is covered by the round's trial arms or names `trained_on`; unknown training is a problem for a new round.
+  Why: round 19 fitted its SFT arms' temperature on `sft-v1` development rows, held-out *items* of the training sources, so
+  in distribution (T 0.955, breadth-v1 ECE 0.059); round 20's pool of held-out *datasets* gave 0.0085 on the same checkpoint.
+  Each arm's read-out records `temperature_source` (the pool with its reads and question count, or its trial's development rows
+  and their suite) and the printed table warns (`!!!`) when an arm is served at a training corpus's rows; `validate` and `launch`
+  print the same warning for a round with no pool whose criteria depend on the temperature (not a failure: round 19's spec
+  must keep validating). A panel with
+  `"by_length": true` (or `{edges, tokenizer}`) adds acc / ECE / Brier / confident errors per state-token bucket
+  (`kev.metrics.calibration_by_length`: under_8k, 8k_16k, 16k_32k, 32k_64k, 64k_plus and the tails 8k_plus/16k_plus/32k_plus;
+  tokens counted from the reads' suite records with `kev.suite.ADMISSION_TOKENIZER` unless given), and a criterion may read a
+  bucket (`long.ece_16k_plus.candidate <= 0.05`). An arm may be a checkpoint without a trial (`"checkpoint": "/runs/..."`, its "transfer" rows
   from a `transfer_read`), e.g. a WiSE-FT interpolation (`scripts/interpolate_checkpoint.py`, `modal_app.py::interpolate`);
   deltas are `kev.rounds.paired` (2,000 resamples, seed 0, micro). Rounds 5-18 are recorded specs (`"archive": "research-archive-2026-09-24"`): their plans, reads, data builders
   and per-round scripts live on that git tag, not on main; `validate` lists what this checkout lacks instead of failing, and
@@ -170,7 +184,13 @@ Title Case sections, API tables, Authors + License); model cards are formal.
 - Current family (2026-09-21, all Qwen3.5 + the dates/unknowable delta): `jaredpalmer/kev-9b` (`night2-9b-du/00-trial-0`), `jaredpalmer/kev-4b` (`r10-skills/00-trial-0` from the round-10 release: the round-8 checkpoint `r8-small/00-trial-0` (the night2 checkpoint + one epoch on `documents-v1` train) + one epoch on `hard-v1` + `devtools-v1` train; round-8 weights at tag `r8-documents-release`, night2 at `night2-du-release`;
   Qwen3 weights at tag `qwen3`), `jaredpalmer/kev-0.8b` (`r15-08b/00-trial-0` from the round-15 release: `night2-08b-du2/00-trial-0` + one epoch on `documents-v1` + `hard-v1` + `devtools-v1` train together, replay 6000; previous at tag `night2-du-release`), `jaredpalmer/kev-27b` (`r6-27b-v2/01-trial-1`, from the release study "B1 v2" in `PLAN_27b.md` at tag `research-archive-2026-09-24`; base `Qwen/Qwen3.8-27B` rev `1d4bf0f2`, post-trained, not `-Base`; bf16 backbone only (55 GB of weights, ~66 GB resident when serving), so B200, H200 or H100 80 GB, no Mac path; the kev-deploy skill defaults it to B200, then H200, then H100; served merged + fused like the others: `LoadOptions.fused` folds the adapter into the bf16 backbone, `runs/fused-27b-*`). Pre-delta v7 checkpoints at tag `v7-base` (`q35-9b/01-trial-1`, `q35-4b-s23/00-trial-0`, `q35-08b/02-trial-2`).
   Calibration is built into each checkpoint: `head.pt["temperature"]` (fitted by `scripts/calibrate_checkpoint.py` on the trial's development rows; 27B 1.38, 9B 2.30, 4B 2.41 (2.96 after the round-8 delta, 2.14 before it),
-  0.8B 2.35 (2.41 before the round-15 delta)) is applied by `PointerHead` in eval mode; `KEV_TEMPERATURE=1.0` overrides to raw. The script also reports an out-of-fold grouped-CV ECE with bootstrap CIs alongside the in-sample fit (4B: 0.075 raw -> 0.020 OOF, separated) and stores it under `head.pt["temperature_fit"]["cross_validation"]`; re-run it after any new checkpoint before publishing. Opt-in: `KEV_DATE_FACTS=1` (day counts). Delta data: evals/night2/ (scripts/build_night2_data.py). Previous generation, kept for Mac latency: `kev-8b`, `kev-0.6b`, `kev-4b@qwen3` (cards `*-qwen3.md`). Qwen3.5 backbones are hybrid (Gated DeltaNet): `DecisionModel.hybrid`
+  0.8B 2.35 (2.41 before the round-15 delta)) is applied by `PointerHead` in eval mode; `KEV_TEMPERATURE=1.0` overrides to raw.
+  Those were fitted in distribution; the script now refuses rows that share data with the checkpoint's training (its own suite,
+  sources it trained on, a training corpus's calibration/development partition; `kev.rounds.pool_conflicts`, training from
+  head.pt or the trial's provenance, rows' suite from the kev.benchmark `report.json` beside them) unless `--allow-in-distribution`,
+  which warns and is recorded in `head.pt["temperature_fit"]["in_distribution"]`; `temperature_fit["fit_rows"]` records each rows
+  file's suite, partition, sources and question count. Ship a temperature fitted on held-out datasets (round 20's pool). A trial's
+  own `calibration_fit` (`result.json`, `calibration/temperature.json`) is labelled `role: "in-trial screening; ... not a served or shipped temperature"`. The script also reports an out-of-fold grouped-CV ECE with bootstrap CIs alongside the in-sample fit (4B: 0.075 raw -> 0.020 OOF, separated) and stores it under `head.pt["temperature_fit"]["cross_validation"]`; re-run it after any new checkpoint before publishing. Opt-in: `KEV_DATE_FACTS=1` (day counts). Delta data: evals/night2/ (scripts/build_night2_data.py). Previous generation, kept for Mac latency: `kev-8b`, `kev-0.6b`, `kev-4b@qwen3` (cards `*-qwen3.md`). Qwen3.5 backbones are hybrid (Gated DeltaNet): `DecisionModel.hybrid`
   routes `forward()` (so `kev.benchmark`) through `forward_rows_batch` (one causal row per question, state repeated) and serving and `probs()` through `_branch_rows_from_prefix` (state once, #77); the packed
   block-causal mask is only valid on attention-only bases. Needs transformers>=5.17, peft>=0.21; CUDA wants `flash-linear-attention` + `triton>=3.7.1`
   (in the Modal image). MPS has no fast DeltaNet kernels, so on Apple Silicon `kev.serve` runs these checkpoints through `kev/mlx_model.py` (mlx-lm's Metal kernels; M5, 5 questions on a ~270-token state: Kev-4B 721 ms new state / 136 ms cached state vs 3302 / 847 ms for torch bf16; parity with fp32 torch on the full decision-v7 development partition: 4B max |dp| 0.025, 1 flip in 1,264 questions; 0.8B max 0.054, 4 flips (`runs/r4-mlx-parity-*`)). Plan and results: PLAN.md at tag `research-archive-2026-09-24`, History > "Qwen3.5 port".
