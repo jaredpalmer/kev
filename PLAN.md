@@ -340,6 +340,25 @@ The standard recipe: `kev.rl --warmup_episodes 300 --warmup_epochs 2` behaviour-
 
 **Result (uninformative, 2026-09-26T01:10Z).** The warm-up alone solved the environment: 996 solver steps (2 epochs) took held-out greedy return from -0.37 to 0.822 (the solver's own return is 0.82), knowable-correct 0.993, unknowable-escalated 1.00, answer ECE 0.005, in both arms. With imitation already at the ceiling RL has no headroom, so no RL gain can be read (first 5-9 RL iterations moved the sampled return within noise, KL < 0.002). Both arms were stopped (~$3; ~$13 across pilots 1-2) and no panel read was made. Lesson: an environment with a cheap exact solver is a behaviour-cloning problem. RL only adds something where the best action depends on the model's own uncertainty, so no demonstration can supply it: noisy or conflicting records, where opening more costs and the right moment to stop depends on the belief. That redesign comes before any further RL spend or scale-up.
 
+### RL pilot 3 - Sources: belief-dependent stopping (registered 2026-09-26T01:40Z, before any training or read)
+
+**Env** (`kev.envs.Sources`, `--env sources`): where is someone based this week? The candidates are 4 cities. There are 3 of 5 source kinds, each askable once at a cost of 0.05, and their reliabilities are never stated (badge log 0.9, travel booking 0.8, HR record 0.7, team calendar 0.6, colleague's guess 0.4; a wrong report is uniform over the other candidates). Answering scores +1 if correct and -1 if wrong; escalating scores 0. On 3,000 eval-namespace episodes:
+
+| Policy | Mean return |
+|---|---|
+| Warm-up demo (ask the first source, repeat its report) | 0.33 |
+| Ask all, answer the MAP | 0.61 |
+| Bayes-optimal oracle (exact recursion; the ceiling, never a target) | 0.675 |
+| Always escalate | 0 |
+
+So the demo leaves 0.35 of headroom, and closing it means learning which sources to trust, when the reports conflict enough to ask again, and when to stop. **Arms** (Kev-4B@139fdd94; warm-up 300 demo episodes, 1 epoch, label smoothing 0.1; then 150 iterations x 16 worlds x 8 rollouts; replay devtools-v1 train 0.5; eval 400 eval-seed episodes every 25): (a) `rl3-kl0.1` kl_w 0.1 - the candidate; (b) `rl3-kl0.02` - anchor attribution. **Rule**, read against the same run's warm-up policy on the same 400 held-out episodes, greedy and paired by episode:
+- The return gain must have a bootstrap lower bound > 0.
+- `belief_error` (|Kev's answer confidence - the Bayes posterior of that answer|) must not exceed warm-up + 0.02.
+- Answer-step ECE must not exceed warm-up + 0.02.
+- Collapse fails the arm: escalated > 0.9, or step entropy < 0.05.
+
+If the candidate passes, the panel gates of pilot 1 are read (a temperature refit per checkpoint; warm-up and final vs the released parent), and only a pass there opens a scale-up proposal. **Budget**: ~$12 training, ~$10 reads; cap $40 across pilots 1-3 (~$13 so far).
+
 ## Next
 
 Goals and open questions, not registered rounds; each becomes a spec and a PLAN section before it runs.

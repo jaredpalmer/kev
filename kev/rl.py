@@ -6,7 +6,7 @@ Why not REINFORCE on single decisions: its reward is a proper score of one answe
 already minimises; sampling only adds variance. Here the reward is the episode's: which records Kev opened, whether it
 answered or escalated, and whether the answer was right. That credit assignment across steps is what SFT has no label for.
 
-Warm-up (--warmup_episodes): behaviour cloning on solver trajectories from their own seed namespace, kev.train's loss
+Warm-up (--warmup_episodes): behaviour cloning on the env's demo trajectories from their own seed namespace, kev.train's loss
 on raw logits, so RL starts from a policy that sometimes wins (an SFT-only parent that rarely answers right collapses to
 escalating everything; RL pilot 1). The reference the KL anchors to is the policy as RL starts (after any warm-up): a
 snapshot of the trainable weights, swapped in for its forward passes.
@@ -38,7 +38,7 @@ from .api import SystemOneRequest, to_record
 from .checkpoint import Checkpoint, Meta, write_meta
 from .data import load_records, materialize
 from .device import default_device
-from .envs import STEP_COST, investigation
+from .envs import ENVS
 from .metrics import ece
 from .model import DecisionModel, fits, load_tokenizer
 from .suite import read_json, write_json
@@ -57,17 +57,16 @@ def parse_args(argv=None):
     ap.add_argument("--head_lr", type=float, default=0.0, help="pointer head learning rate; 0 = --lr")
     ap.add_argument("--kl_w", type=float, default=0.05, help="weight of KL(pi || pi_sft) per step")
     ap.add_argument("--tau", type=float, default=0.0, help="policy temperature; 0 = the parent's calibration temperature")
-    ap.add_argument("--warmup_episodes", type=int, default=0, help="solver episodes behaviour-cloned before RL")
+    ap.add_argument("--warmup_episodes", type=int, default=0, help="episodes of the env's demo policy behaviour-cloned before RL")
     ap.add_argument("--warmup_epochs", type=int, default=1)
+    ap.add_argument("--warmup_smoothing", type=float, default=0.0, help="label smoothing in the warm-up, so RL still has a spread to sample")
     ap.add_argument("--replay", default="", help="JSONL of labelled requests (kev.data.load_records) replayed with the SFT loss")
     ap.add_argument("--replay_w", type=float, default=0.5)
     ap.add_argument("--replay_batch", type=int, default=8, help="replay records per iteration")
     ap.add_argument("--microbatch", type=int, default=8, help="step encodings per forward")
     ap.add_argument("--eval_episodes", type=int, default=200)
     ap.add_argument("--eval_every", type=int, default=25)
-    ap.add_argument("--n_people", type=int, default=6)
-    ap.add_argument("--max_hops", type=int, default=2)
-    ap.add_argument("--p_redact", type=float, default=0.25)
+    ap.add_argument("--env", choices=sorted(ENVS), default="investigation")
     ap.add_argument("--dtype", choices=["fp32", "bf16"], default="bf16", help="autocast dtype on CUDA")
     ap.add_argument("--checkpointing", type=int, choices=[0, 1], default=1)
     ap.add_argument("--seed", type=int, default=0)
@@ -140,31 +139,31 @@ def policy_loss(z, step, advantage, tau, kl_w):
     return -advantage * logp[step["action"]] + kl_w * kl, kl, entropy
 
 
-def episode_return(ep, traj):
-    """What the episode earned: the terminal reward less the cost of every record opened."""
-    return ep.reward - STEP_COST * sum(s["keys"][s["action"]].startswith("open ") for s in traj)
+def episode_return(ep):
+    """What the episode earned: the terminal reward less its step costs."""
+    return ep.reward - ep.spent
 
 
 def evaluate(policy, tok, a, tau, greedy, autocast):
     """Held-out worlds (the eval seed namespace and template). Answer-step confidence is the policy's probability of the
     chosen answer renormalised over the answer actions: how sure Kev is of the value, apart from whether to answer."""
-    eps = [investigation(s, "eval", a.n_people, a.max_hops, a.p_redact) for s in range(a.eval_episodes)]
+    eps = [ENVS[a.env](s, "eval") for s in range(a.eval_episodes)]
     trajs = rollout(policy, None, tok, eps, tau, random.Random(a.seed + 1), greedy, a.microbatch, autocast)
-    outcomes = Counter((ep.answer() is not None, ep.outcome) for ep in eps)
-    conf, ok, ent = [], [], []
+    conf, ok, ent, belief = [], [], [], []
     for ep, traj in zip(eps, trajs):
         ent += [float(-(s["p"] * s["p"].clamp_min(1e-12).log()).sum()) for s in traj]
         last = traj[-1]
         if ep.outcome in ("correct", "wrong"):
             answer = [i for i, k in enumerate(last["keys"]) if k.startswith("answer ")]
             conf.append(float(last["p"][last["action"]] / last["p"][answer].sum())); ok.append(ep.outcome == "correct")
-    knowable = sum(ep.answer() is not None for ep in eps)
-    return {"mode": "greedy" if greedy else "sampled", "n": len(eps), "return": statistics.fmean(episode_return(e, t) for e, t in zip(eps, trajs)),
-            "knowable_correct": outcomes[(True, "correct")] / max(knowable, 1),
-            "knowable_escalated": outcomes[(True, "escalate")] / max(knowable, 1),
-            "unknowable_escalated": outcomes[(False, "escalate")] / max(len(eps) - knowable, 1),
-            "out_of_budget": sum(v for (_, o), v in outcomes.items() if o == "out_of_budget") / len(eps),
-            "opens": statistics.fmean(sum(s["keys"][s["action"]].startswith("open ") for s in t) for t in trajs),
+            if (post := ep.info().get("answer_posterior")) is not None: belief.append(abs(conf[-1] - post))
+    infos = [ep.info() for ep in eps]
+    env_stats = {k: statistics.fmean(float(i[k]) for i in infos if i[k] is not None) if any(i[k] is not None for i in infos) else None
+                 for k in infos[0] if k != "answer_posterior"}
+    return {"mode": "greedy" if greedy else "sampled", "n": len(eps), "return": statistics.fmean(episode_return(e) for e in eps),
+            "outcomes": {k: v / len(eps) for k, v in sorted(Counter(ep.outcome for ep in eps).items())}, **env_stats,
+            "steps": statistics.fmean(len(t) for t in trajs),
+            "belief_error": statistics.fmean(belief) if belief else None,
             "answer_n": len(ok), "answer_acc": float(np.mean(ok)) if ok else None, "answer_conf": float(np.mean(conf)) if conf else None,
             "answer_ece": ece(conf, ok) if ok else None, "answer_brier": float(np.mean((np.asarray(conf) - np.asarray(ok)) ** 2)) if ok else None,
             "entropy": statistics.fmean(ent)}
@@ -187,28 +186,28 @@ def load_policy(a, dev):
     return tok, policy, ours, init_source
 
 
-def solver_steps(a, tok, policy):
-    """Every step of the solver's trajectories on --warmup_episodes worlds (seeds from 10^6, apart from RL's) as
-    (encoding, internal record labelled with the solver's action)."""
+def demo_steps(a, tok, policy):
+    """Every step of the env's demo trajectories on --warmup_episodes worlds (seeds from 10^6, apart from RL's) as
+    (encoding, internal record labelled with the demo's action)."""
     out = []
     for s in range(10**6, 10**6 + a.warmup_episodes):
-        ep = investigation(s, "train", a.n_people, a.max_hops, a.p_redact)
+        ep = ENVS[a.env](s, "train")
         while not ep.done:
-            rec, keys = step_record(ep); action = ep.oracle()
+            rec, keys = step_record(ep); action = ep.demo()
             rec["questions"][0].update(label=keys.index(action), qtype="choice")
             out.append((policy.encode(tok, rec, strict=True), rec)); ep.step(action)
     return out
 
 
 def warmup(policy, opt, a, tok, dev, rng, autocast):
-    steps = solver_steps(a, tok, policy)
+    steps = demo_steps(a, tok, policy)
     policy.train(); losses = []
     for _ in range(a.warmup_epochs):
         rng.shuffle(steps)
         for i in range(0, len(steps), a.microbatch):
             chunk = steps[i:i + a.microbatch]
             zs = logits_of(policy, [e for e, _ in chunk], a.microbatch, autocast)
-            loss = sum(question_loss(z, r["questions"][0], dev, 0.0) for z, (_, r) in zip(zs, chunk)) / len(chunk)
+            loss = sum(question_loss(z, r["questions"][0], dev, 0.0, label_smoothing=a.warmup_smoothing) for z, (_, r) in zip(zs, chunk)) / len(chunk)
             opt.zero_grad(); loss.backward(); torch.nn.utils.clip_grad_norm_(policy.trainable_parameters(), MAX_GRAD_NORM); opt.step()
             losses.append(loss.item())
     return {"steps": len(steps), "loss_first": statistics.fmean(losses[:10]), "loss_last": statistics.fmean(losses[-10:])}
@@ -246,9 +245,9 @@ def main(argv=None):
     ref = Reference(policy)
     for it in range(1, a.iters + 1):
         seeds = [(it - 1) * a.episodes + k for k in range(a.episodes)]
-        eps = [investigation(s, "train", a.n_people, a.max_hops, a.p_redact) for s in seeds for _ in range(a.group)]
+        eps = [ENVS[a.env](s, "train") for s in seeds for _ in range(a.group)]
         trajs = rollout(policy, ref, tok, eps, tau, rng, False, a.microbatch, autocast)
-        returns = [episode_return(ep, t) for ep, t in zip(eps, trajs)]
+        returns = [episode_return(ep) for ep in eps]
         adv = advantages(returns, a.group)
         steps = [(s, A) for t, A in zip(trajs, adv) for s in t]
         policy.train(); opt.zero_grad()

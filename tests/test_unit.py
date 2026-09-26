@@ -903,6 +903,31 @@ def test_investigation_env_rewards_and_oracle():
     assert ep.request()["questions"]["action"]["criteria"]   # the request validates as a SystemOneRequest in kev.rl.step_record
 
 
+def test_sources_env_bayes_oracle_and_demo():
+    """Sources episodes are reproducible; the posterior is exact Bayes over the asked reports; the Bayes-optimal
+    oracle beats the warm-up demo, which beats escalating everything, so RL has headroom above its warm-up."""
+    from kev.envs import ASK_COST, SOURCE_KINDS, SOURCE_REWARD, sources
+    assert sources(3).request() == sources(3).request() and sources(3, "eval").template == 2
+    ep = sources(3); k = next(iter(ep.sources)); ep.step(f"ask {k}")
+    post, r = ep.posterior(), SOURCE_KINDS[k]
+    assert post[ep.sources[k]] == pytest.approx(r / (r + (1 - r)))   # uniform prior, one report
+    assert sum(post.values()) == pytest.approx(1.0) and f"ask {k}" not in ep.actions()
+
+    def mean_return(policy, n=400):
+        total = 0.0
+        for s in range(n):
+            ep = sources(s)
+            while not ep.done: ep.step(policy(ep))
+            assert ep.reward == SOURCE_REWARD[ep.outcome] and ep.spent == pytest.approx(ASK_COST * len(ep.asked))
+            total += ep.reward - ep.spent
+        return total / n
+    oracle, demo = mean_return(lambda e: e.oracle()), mean_return(lambda e: e.demo())
+    assert oracle > demo + 0.2 and demo > 0.1
+    assert oracle == pytest.approx(sum(sources(s).optimal_value() for s in range(400)) / 400, abs=0.1)
+    ep = sources(5); ep.step("escalate")
+    assert ep.done and ep.info()["escalated"] and ep.info()["answer_posterior"] is None
+
+
 def test_rl_advantage_and_loss_direction():
     """Group-relative advantages centre each world's rollouts; a positive advantage raises the chosen action's
     probability, a negative one lowers it, and the KL term is zero at the reference."""
@@ -919,7 +944,8 @@ def test_rl_advantage_and_loss_direction():
         assert sign * (torch.softmax(z2, -1)[1] - torch.softmax(z.detach(), -1)[1]) > 0
 
 
-def test_rl_runs_from_a_trained_checkpoint(tiny_base, tmp_path, monkeypatch):
+@pytest.mark.parametrize("env", ["investigation", "sources"])
+def test_rl_runs_from_a_trained_checkpoint(tiny_base, tmp_path, monkeypatch, env):
     """kev.rl warm-starts from an SFT run, trains a few iterations with replay, and saves a checkpoint kev.checkpoint
     loads (after a behaviour-cloning warm-up on solver steps), keeping the parent's temperature and marking it for a refit; evaluations cover iteration 0 and the end."""
     from kev import rl
@@ -927,7 +953,7 @@ def test_rl_runs_from_a_trained_checkpoint(tiny_base, tmp_path, monkeypatch):
     from kev.suite import read_json
     train_tiny(tiny_base, tmp_path / "sft", "--max_steps", "2", monkeypatch=monkeypatch)
     rl.main(["--init_from", str(tmp_path / "sft"), "--out", str(tmp_path / "rl"), "--device", "cpu", "--iters", "2", "--episodes", "2", "--group", "2",
-             "--eval_episodes", "4", "--eval_every", "2", "--warmup_episodes", "2", "--replay", str(tiny_base / "data.jsonl"), "--replay_batch", "2", "--checkpointing", "0", "--lr", "1e-3"])
+             "--eval_episodes", "4", "--eval_every", "2", "--warmup_episodes", "2", "--warmup_smoothing", "0.1", "--env", env, "--replay", str(tiny_base / "data.jsonl"), "--replay_batch", "2", "--checkpointing", "0", "--lr", "1e-3"])
     log, evals = read_json(tmp_path / "rl/rl_log.json"), read_json(tmp_path / "rl/evals.json")
     assert [e["iter"] for e in log] == [1, 2] and all(e["replay_ce"] > 0 and e["kl"] >= 0 for e in log)
     assert [(e["phase"], e["iter"], e["mode"]) for e in evals] == [("parent", 0, "greedy"), ("parent", 0, "sampled"), ("warmup", 0, "greedy"), ("warmup", 0, "sampled"),
