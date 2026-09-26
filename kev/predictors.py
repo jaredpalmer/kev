@@ -3,6 +3,7 @@
 LocalPredictor scores a checkpoint in-process; RemotePredictor any TypeSafe System One-compatible endpoint; JevPredictor
 Jev itself through the AI SDK worker in playground/scripts (budget-capped).
 """
+import contextlib
 import json
 import math
 import os
@@ -23,7 +24,20 @@ from kev.model import ROW_PASS_TOKENS, ContextOverflow, rows_of
 from kev.suite import CONTEXT
 
 
+LONG_ROW_KERNELS = "efficient"   # the label of a prediction (and its benchmark rows) that took the long-row kernels below
+
+
 class LocalPredictor:
+    """Scores a checkpoint in-process. Evaluation is fp32-exact (no TF32, no fused SDPA kernels on CUDA), with one
+    exception: on CUDA with the torch backend, a record whose longest row (state + one question) exceeds
+    kev.model.ROW_PASS_TOKENS runs under SDPA's flash / memory-efficient kernels, because the exact math kernel's L x L
+    score matrix does not fit (~200 GB per layer pass at 64k). Such a prediction carries `"kernels": LONG_ROW_KERNELS`,
+    kev.benchmark copies it onto the record's rows and counts them in report.json's `long_rows`; shorter records carry
+    nothing, so their rows and reports are unchanged. The efficient path is CUDA-only: on CPU / MPS attention stays eager
+    and exact and still materialises L x L. A long record on a hybrid torch backbone also runs its state once, its
+    questions continuing from it (kev.shared_prefix), instead of once per question; the MLX backend's forward already
+    runs the state once."""
+
     def __init__(self, run, device, opts=LoadOptions(), context=CONTEXT):
         """opts.temperature=None scores with the temperature the checkpoint carries; 1.0 scores raw logits. context: the
         max_state / max_branch / max_packed a record must encode within (a suite manifest's `context`; the training
@@ -49,14 +63,12 @@ class LocalPredictor:
         sync(self.device)
         start = time.perf_counter()
         state, _, rows = rows_of(enc)
-        if len(state) + max(len(r["ids"]) for r in rows) <= ROW_PASS_TOKENS:
-            logits = self.model.forward(enc)
-        else:
-            # a long row (a state past 16k tokens, up to kev.model.SERVE_MAX_STATE): the exact math attention kernel would hold
-            # an L x L score matrix per head (~200 GB at 64k), so these rows take SDPA's flash / memory-efficient kernels, and a
-            # hybrid backbone runs the state once with its questions continuing from it (kev.shared_prefix) instead of once per question
-            with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]):
-                logits = self.model.forward_batch([enc], shared_prefix=True)[0]
+        long = len(state) + max(len(r["ids"]) for r in rows) > ROW_PASS_TOKENS
+        torch_backend = self.model.backend == "torch"
+        efficient = long and torch_backend and self.device == "cuda"
+        with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]) if efficient else contextlib.nullcontext():
+            if long and torch_backend and self.model.hybrid: logits = self.model.forward_batch([enc], shared_prefix=True)[0]
+            else: logits = self.model.forward(enc)
         ps = [torch.softmax(z, -1).cpu() for z in logits]
         zs = [z.float().cpu() for z in logits]
         sync(self.device)
@@ -64,7 +76,7 @@ class LocalPredictor:
         return {"probabilities": {qid: dict(zip(keys[qid], p.tolist())) for qid, p in zip(keys, ps)},
                 "logits": {qid: dict(zip(keys[qid], z.tolist())) for qid, z in zip(keys, zs)},
                 "inference_temperature": self.temperature,
-                "latency_ms": 1000 * (time.perf_counter() - start), "input_tokens": len(enc["ids"])}
+                "latency_ms": 1000 * (time.perf_counter() - start), "input_tokens": len(enc["ids"]), **({"kernels": LONG_ROW_KERNELS} if efficient else {})}
 
 
 class RemotePredictor:

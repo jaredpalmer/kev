@@ -250,6 +250,26 @@ def test_prefix_cache_keeps_what_survives_the_batch():
     assert PrefixCache(size=0, min_tokens=0).plan([enc("abc")])[2] == [False]
 
 
+def test_prefix_cache_bounds_the_state_tokens_it_holds():
+    """kev.serve.PrefixCache.max_tokens (KEV_PREFIX_MAX_TOKENS, default 65,536): the cached states hold at most that many
+    tokens in all, least recently used evicted first, and a longer state is never cached, so a few 64k-token states
+    cannot pin their keys and values; within the bound the count limit still applies."""
+    from kev.serve import PREFIX_MAX_TOKENS, PrefixCache
+    assert PREFIX_MAX_TOKENS == 65536
+    enc = lambda state: {"ids": list(state) + [0] * 5, "seg": [0] * len(state) + [1] * 5}
+    c = PrefixCache(size=4, min_tokens=0, max_tokens=10)
+    keys, cached, keep = c.plan([enc("a" * 11), enc("b" * 6), enc("c" * 5)])
+    assert keys[0] is None and keep == [False, False, True]   # too long for the cache at all; b and c together exceed 10 tokens
+    c.store(keys, cached, [None, "pb", "pc"])
+    assert list(c.entries.values()) == ["pc"] and (c.hits, c.misses) == (0, 2)
+    keys, cached, keep = c.plan([enc("d" * 4)])
+    c.store(keys, cached, ["pd"])
+    assert list(c.entries.values()) == ["pc", "pd"]            # 5 + 4 tokens fit
+    keys, cached, keep = c.plan([enc("e" * 3)])
+    c.store(keys, cached, ["pe"])
+    assert list(c.entries.values()) == ["pd", "pe"]            # 12 would not: the least recently used goes
+
+
 def test_out_of_memory_drops_the_prefix_cache_and_retries_once():
     """kev.serve.Server._run: a pass out of device memory with states cached clears the cache and runs once more (#75: a
     full cache kept failing every later batch); a second failure fails the batch with the cache left empty, and an
@@ -649,29 +669,57 @@ def test_shared_prefix_unpadded_states_run_without_a_state_mask(tiny_base, check
 
 
 def test_local_predictor_scores_long_rows_through_the_shared_prefix(tiny_base, tmp_path, monkeypatch):
-    """kev.benchmark's predictor runs a row longer than kev.model.ROW_PASS_TOKENS (a state past 16k tokens) through the
-    shared prefix under SDPA's memory-bounded kernels: the state once instead of once per question and no L x L score
-    matrix. Same logits as the row form it takes below that length."""
+    """kev.benchmark's predictor runs a record whose longest row exceeds kev.model.ROW_PASS_TOKENS (a state past 16k
+    tokens) on a hybrid torch backbone through the shared prefix (the state once, not once per question): same logits as
+    the row form. On CUDA such a record also runs under SDPA's flash / memory-efficient kernels, off the fp32-exact
+    contract, so it is labelled: the prediction and its rows carry `kernels`, report.json counts them in `long_rows`. A
+    run with no long row has neither (existing rows and reports are unchanged); on the CPU a long row is exact and
+    unlabelled."""
     from kev import predictors as P
+    from kev.benchmark import evaluate_records
     from kev.checkpoint import LoadOptions
     from kev.data import load_records
+    from kev.model import ROW_PASS_TOKENS
     train_tiny(tiny_base, tmp_path / "full", *FULL, "--max_steps", "1", monkeypatch=monkeypatch)
     predictor = P.LocalPredictor(str(tmp_path / "full"), "cpu", LoadOptions(dtype=torch.float32, temperature=1.0))
     record = load_records(tiny_base / "data.jsonl")[7]
+    record = {**record, "_meta": {**record["_meta"], "group_id": "g", "variant": "clean"}, "questions": {qid: {**q, "src": "tiny"} for qid, q in record["questions"].items()}}
+    short_report, short_rows = evaluate_records([record], predictor, tmp_path / "short")
+    assert "long_rows" not in short_report and not any("kernels" in r for r in short_rows)
     rows = predictor(record)
     real, shared = predictor.model.forward_batch, []
     monkeypatch.setattr(predictor.model, "forward_batch", lambda encs, shared_prefix=False: (shared.append(shared_prefix), real(encs, shared_prefix))[1])
     monkeypatch.setattr(P, "ROW_PASS_TOKENS", 8)   # this record's rows (~20 tokens) are now "long"
     long = predictor(record)
-    assert shared == [True] and long["input_tokens"] == rows["input_tokens"]
+    assert shared == [True] and long["input_tokens"] == rows["input_tokens"] and "kernels" not in long and "kernels" not in rows
     for qid, z in rows["logits"].items():
         assert long["logits"][qid] == pytest.approx(z, abs=1e-5)
-    from kev.benchmark import evaluate_records   # kev.benchmark's scoring loop over such a record
-    suite_record = {**record, "_meta": {**record["_meta"], "group_id": "g", "variant": "clean"},
-                    "questions": {qid: {**q, "src": "tiny"} for qid, q in record["questions"].items()}}
-    report, scored = evaluate_records([suite_record], predictor, tmp_path / "bench")
-    assert report["coverage"]["evaluated_questions"] == 2 and shared == [True, True]
+    monkeypatch.setattr(predictor, "device", "cuda"); monkeypatch.setattr(P, "sync", lambda device: None)   # the CUDA policy, on CPU tensors
+    report, scored = evaluate_records([record], predictor, tmp_path / "long")
+    assert shared == [True, True] and [r["kernels"] for r in scored] == [P.LONG_ROW_KERNELS] * 2
+    assert report["long_rows"] == {"count": 2, "records": 1, "kernels": [P.LONG_ROW_KERNELS], "threshold": ROW_PASS_TOKENS}
     assert [x for r in scored for x in r["logits"]] == pytest.approx([x for z in rows["logits"].values() for x in z.values()], abs=1e-5)
+
+
+def test_local_predictor_long_rows_on_mlx_use_its_forward(monkeypatch):
+    """The MLX backend (what a hybrid checkpoint resolves to on Apple Silicon) has no forward_batch and its forward already
+    runs the state once: a long record goes through model.forward, unlabelled (no CUDA kernels involved)."""
+    from types import SimpleNamespace
+    from kev import predictors as P
+    calls = []
+    class MLXShaped:   # the scoring interface kev.mlx_model.MLXDecisionModel exposes, minus everything unused here
+        backend, hybrid, head = "mlx", True, SimpleNamespace(temperature=1.0)
+        def encode(self, tok, rec, **kw):
+            return {"ids": [1] * 30 + [2, 3, 4], "seg": [0] * 30 + [1, 1, 1], "pos": list(range(33)), "decide_idx": [32], "opt_idx": [[31]]}
+        def forward(self, enc):
+            calls.append(len(enc["ids"])); return [torch.tensor([0.0])]
+    predictor = object.__new__(P.LocalPredictor)
+    predictor.tok, predictor.model, predictor.temperature, predictor.device = None, MLXShaped(), 1.0, "mps"
+    predictor.context = {"max_state": 64, "max_branch": 64, "max_packed": 64}
+    monkeypatch.setattr(P, "ROW_PASS_TOKENS", 8); monkeypatch.setattr(P, "sync", lambda device: None)
+    record = {"state": "x", "questions": {"n": {"type": "choice", "instructions": "q", "criteria": {"a": None}, "label": "a", "src": "t"}}}
+    out = predictor(record)
+    assert calls == [33] and out["probabilities"] == {"n": {"a": 1.0}} and "kernels" not in out
 
 
 def assert_shared_prefix_equals_rows(tiny_base, checkpointing, lora, shapes, attn=None):

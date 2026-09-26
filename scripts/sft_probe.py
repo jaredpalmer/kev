@@ -25,16 +25,19 @@ from kev.budget import GPU_HOURLY, gpu_count, hourly_rate
 from kev.checkpoint import Checkpoint, LoadOptions
 from kev.data import materialize
 from kev.device import allocated_bytes, empty_cache
-from kev.model import MAX_TRAIN_STATE, encode, load_tokenizer, rows_of, training_context, user_tokens
+from kev.model import MAX_TRAIN_STATE, MAX_TRAIN_STATE_8K, encode, load_tokenizer, rows_of, training_context, user_tokens
 from kev.suite import ADMISSION_BRANCH_HEADROOM, load_split, read_json, write_json, write_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]
+# the corpus-mix probe keeps the state limit PR #125's numbers were measured under (the SFT corpus's states reach ~7k
+# tokens); only --state_tokens lifts it, up to kev.model.MAX_TRAIN_STATE
+CORPUS_MAX_STATE = MAX_TRAIN_STATE_8K
 SUITE, PROFILE = ROOT / "evals/v7/decision-v7", ROOT / "experiments/sft-v1-lengths.json"
 
 
 def build(tok, n, seed, mix):
     """-> (labelled requests, per record (record tokens, row tokens, questions), records in the corpus part(s)), shaped like `mix`."""
-    profile, rng, context = read_json(PROFILE), random.Random(seed), training_context(MAX_TRAIN_STATE)
+    profile, rng, context = read_json(PROFILE), random.Random(seed), training_context(CORPUS_MAX_STATE)
     parts = list(profile["parts"]) if mix == "all" else [mix]
     pool = load_split(SUITE, "train")
     shape_of = lambda r: rows_of(encode(tok, materialize(r), max_state=context["max_state"], max_branch=context["max_branch"]))
@@ -120,7 +123,7 @@ def load_check(run, recs, n):
         tok, model = Checkpoint(run).load("cuda", LoadOptions(dtype=dtype, temperature=1.0))
         load_seconds = time.time() - started
         with torch.no_grad():
-            probs[name] = [p for r in recs[:n] for p in model.probs(model.encode(tok, materialize(r), max_state=MAX_TRAIN_STATE, max_branch=training_context(MAX_TRAIN_STATE)["max_branch"]))]
+            probs[name] = [p for r in recs[:n] for p in model.probs(model.encode(tok, materialize(r), max_state=CORPUS_MAX_STATE, max_branch=training_context(CORPUS_MAX_STATE)["max_branch"]))]
         report[name] = {"dtype": model.dtype, "load_seconds": round(load_seconds, 1), "peak_allocated_gb": round(allocated_bytes("cuda") / 1e9, 1)}
         del model; empty_cache("cuda")
     delta = [float((a - b).abs().max()) for a, b in zip(probs["bf16"], probs["fp32"])]
@@ -178,7 +181,7 @@ def main():
     print(data, flush=True)
     if a.resume_dir:   # the trainer writes <out>/resume; point it at the requested directory
         (out / "checkpoint").mkdir(); (out / "checkpoint/resume").symlink_to(a.resume_dir, target_is_directory=True)
-    cmd = train_command(a, out / "checkpoint", out / "probe.jsonl", MAX_TRAIN_STATE, ("--resume 1 " if a.resume_dir else "") + a.train)
+    cmd = train_command(a, out / "checkpoint", out / "probe.jsonl", CORPUS_MAX_STATE, ("--resume 1 " if a.resume_dir else "") + a.train)
     code, memory, seconds = run_training(cmd, out / "train.log", env)
     if code: raise SystemExit(f"kev.train failed ({code}); see {out / 'train.log'}")
     metrics = read_json(out / "checkpoint/training_metrics.json")
@@ -198,7 +201,9 @@ def long_states(a, out, tok, env):
     on rank 0), the container's peak host memory, the mean steady step, seconds per record and tokens per second."""
     report = {"gpu": a.gpu, "base": a.base, "revision": a.revision, "train_args": a.train, "fallbacks": a.fallbacks, "questions": a.questions,
               "warmup": a.warmup, "usd_per_hour": round(hourly_rate(a.gpu, full_ft=True), 2), "lengths": []}
-    for length in (int(x) for x in a.state_tokens.split(",")):
+    lengths = [int(x) for x in a.state_tokens.split(",")]
+    if max(lengths) > MAX_TRAIN_STATE: raise SystemExit(f"--state_tokens go up to kev.model.MAX_TRAIN_STATE ({MAX_TRAIN_STATE})")
+    for length in lengths:
         recs, stats = build_long(tok, a.records, length, a.questions, a.seed)
         write_jsonl(out / f"probe-{length}.jsonl", recs)
         data = {"state_tokens": length, "records": len(recs), "record_tokens_mean": statistics.mean(s[0] for s in stats),
