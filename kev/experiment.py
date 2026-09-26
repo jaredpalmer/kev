@@ -82,8 +82,11 @@ def validated_trial(value, manifest):
             raise ValueError(f"{key} is an int in [{lo}, {hi}] (optional; kev.train's default when absent)")
     if "none_pair_max_state" in result and not result["p_none_pair"] > 0:
         raise ValueError("none_pair_max_state gates none pairs: it needs p_none_pair > 0")
+    # pass_tokens_max also needs a hybrid base (kev.train refuses an attention-only one once the model is built: the packed
+    # mask it runs is not what pass_tokens measures); the base's architecture is not known here
     if "pass_tokens_max" in result and (not result.get("length_sort") or result.get("row_budget") or result["perm_kl"] > 0):
-        raise ValueError("pass_tokens_max caps the passes length_sort 1 plans: it needs length_sort 1, and neither row_budget nor perm_kl")
+        raise ValueError("pass_tokens_max caps the passes length_sort 1 plans: it needs length_sort 1, and neither row_budget nor perm_kl "
+                         "(and a hybrid base; kev.train checks that)")
     if result.get("full_ft"):   # kev.budget.MAX_SNAPSHOTS, over max_steps (an every-N plan needs it); kev.train checks the real count again
         fractions = snapshot_fractions(result.get("snapshot_fractions", SNAPSHOT_FRACTIONS))   # raises ValueError on a bad list
         if problem := too_many_snapshots(fractions, result.get("snapshot_every_steps", 0), result.get("max_steps") or None):

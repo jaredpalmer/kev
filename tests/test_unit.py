@@ -697,6 +697,26 @@ def test_pass_tokens_max_caps_every_pass_with_equal_counts_per_rank():
     assert microbatch_plan(reqs, a, world, 0) == microbatch_plan(reqs, SimpleNamespace(batch=2, accum=2, length_sort=1, shared_prefix=1), world, 0)
 
 
+def test_pass_tokens_max_refuses_an_attention_only_base(tiny_base, tmp_path, monkeypatch):
+    """pass_tokens measures the row form and the shared prefix, which a hybrid backbone always runs; an attention-only one
+    runs the packed mask (rows_form) for records under ROW_PASS_TOKENS, a cost the ceiling does not see, so kev.train
+    refuses the flag there once the model is built (and trains the hybrid tiny base with it)."""
+    import shutil
+    from transformers import Qwen3_5ForCausalLM, Qwen3_5TextConfig
+    base = tmp_path / "attn"
+    config = Qwen3_5TextConfig.from_pretrained(tiny_base / "base")
+    config.layer_types = ["full_attention", "full_attention"]
+    torch.manual_seed(0)
+    Qwen3_5ForCausalLM(config).to(torch.bfloat16).save_pretrained(base)
+    for f in (tiny_base / "base").iterdir():
+        if "token" in f.name or f.name == "special_tokens_map.json": shutil.copy(f, base / f.name)
+    args = ("--length_sort", "1", "--pass_tokens_max", "160", "--lora", "4", "--max_steps", "1")
+    with pytest.raises(SystemExit, match="needs a hybrid backbone"):
+        train_tiny(tiny_base, tmp_path / "refused", "--base", str(base), *args, monkeypatch=monkeypatch)
+    train_tiny(tiny_base, tmp_path / "hybrid", *args, monkeypatch=monkeypatch)
+    assert (tmp_path / "hybrid" / "head.pt").exists()
+
+
 def test_pass_tokens_max_refusals(monkeypatch, capsys):
     """The ceiling caps the passes --length_sort plans: refused without it, with --row_budget and with --perm_kl (a
     permuted copy is a second pass alive at the same time); a study trial the same (kev.experiment.validated_trial), where
@@ -878,7 +898,7 @@ def test_resume_is_bit_identical(tiny_base, tmp_path, ranks, gate):
     assert ("none pairs: " in out) == ("--none_pair_max_state" in gate)
     if "--pass_tokens_max" in gate:   # the first epoch (where the run stops) has more micro-batches than --accum per step; no pass is over
         ceiling = int(gate[-1])
-        plans = [tuple(map(int, m)) for m in re.findall(r"plan: (\d+) micro-batches per rank for (\d+) steps \(--accum \d+\); rank 0's largest pass (\d+)", out)]
+        plans = [tuple(map(int, m)) for m in re.findall(r"plan: (\d+) micro-batches per rank for (\d+) steps \(--accum \d+\); the plan's largest pass (\d+)", out)]
         assert len(plans) == 2 and plans[0][0] > plans[0][1] * (2 // ranks) and all(largest <= ceiling for _, _, largest in plans), out
     _run_train([*args, "--save_every_steps", "3", "--stop_after", "3"], tmp_path / "split", ranks)
     assert (tmp_path / "split/resume/latest.json").exists() and not (tmp_path / "split/model.safetensors").exists()

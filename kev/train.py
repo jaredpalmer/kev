@@ -306,7 +306,11 @@ def plan_shapes(model, tok, a, reqs, epoch, pairs, state_tokens):
     """--pass_tokens_max: {id(record): [(state tokens, [branch tokens of each question]) of every variant it trains this
     epoch (record_variants: augmented, siblings included)]}, the shapes encode_batch will build, exactly. A branch's tokens
     do not depend on the state (kev.model.encode tokenizes each part on its own), so the branches are encoded under an
-    empty state and the state's count comes from state_token_counts: the states are not tokenized a second time."""
+    empty state and the state's count comes from state_token_counts: the states are not tokenized a second time. The
+    branches are tokenized again every epoch (augmentation draws per epoch), a few minutes on the SFT corpus. Encoded
+    under a one-token state, a branch is not checked against its real state's row limit here: one that fits a one-token
+    state but not the real one still raises ContextOverflow in encode_batch, mid-epoch, as without this flag (frozen
+    suites are admitted with branch headroom, so it does not arise on them)."""
     c = training_context(a.max_state)
     branches = lambda v: [len(r["ids"]) for r in rows_of(model.encode(tok, {**materialize(v), "state": ""}, max_state=c["max_state"], max_branch=c["max_branch"]))[2]]
     return {id(r): [(state_tokens[id(r)], branches(v)) for v in record_variants(r, a, epoch, pairs)[0]] for r in reqs}
@@ -550,6 +554,11 @@ def main():
         # base model, so a fine-tune on new data keeps what the released checkpoint knows
         init_source = Checkpoint(a.init_from).warm_start(model, meta)
         print(f"delta: warm start from {init_source['resolved']}: {init_source['tensors']} {meta.weights} tensors and the pointer head loaded", flush=True)
+    if a.pass_tokens_max and not model.hybrid:
+        # pass_tokens is exact for the row form and the shared prefix, which a hybrid backbone always runs; an attention-only
+        # one runs the packed mask (rows_form) unless a record is over ROW_PASS_TOKENS, whose cost it does not measure
+        raise SystemExit("kev.train: --pass_tokens_max needs a hybrid backbone (Gated DeltaNet: every pass runs as rows or a shared "
+                         f"prefix, which pass_tokens measures); {a.base} is attention-only and runs the packed mask")
     if world > 1: full_ft.shard(model)
     print(f"device={dev} world={world} trainable params={sum(p.numel() for p in model.trainable_parameters())/1e6:.1f}M", flush=True)
 
@@ -601,10 +610,11 @@ def main():
             print(f"none pairs: {len(pairs)} of {len(reqs)} records (states of at most {a.none_pair_max_state} tokens, p {a.p_none_pair})", flush=True)
         shapes = plan_shapes(model, tok, a, reqs, ep, pairs, state_tokens) if a.pass_tokens_max else None
         plan = microbatch_plan(reqs, a, world, rank, pairs, shapes)   # every record once per epoch across the ranks (all of them on one GPU)
-        if shapes is not None and not rank:
-            largest = max(pass_tokens([s for r in chunk for s in shapes[id(r)]], a.shared_prefix) for chunk, _, _ in plan)
-            print(f"plan: {len(plan)} micro-batches per rank for {sum(ends for _, _, ends in plan)} steps (--accum {a.accum}); "
-                  f"rank 0's largest pass {largest} of --pass_tokens_max {a.pass_tokens_max} padded tokens", flush=True)
+        if shapes is not None:   # every rank: the largest pass over the ranks is a collective
+            largest = int(full_ft.global_max([max(pass_tokens([s for r in chunk for s in shapes[id(r)]], a.shared_prefix) for chunk, _, _ in plan)])[0])
+            if not rank:
+                print(f"plan: {len(plan)} micro-batches per rank for {sum(ends for _, _, ends in plan)} steps (--accum {a.accum}); "
+                      f"the plan's largest pass {largest} of --pass_tokens_max {a.pass_tokens_max} padded tokens", flush=True)
         for mb in range(start_mb if ep == start_epoch else 0, len(plan)):
             chunk, step_records, ends_step = plan[mb]
             batch = encode_batch(model, tok, a, chunk, ep, pairs)

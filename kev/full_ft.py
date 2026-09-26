@@ -200,6 +200,14 @@ def global_sum(values):
     return total.tolist()
 
 
+def global_max(values):
+    """Per-rank values, the largest over the ranks (every rank calls it: a collective)."""
+    if not dist.is_initialized(): return values
+    top = torch.tensor(values, dtype=torch.float64, device="cuda" if dist.get_backend() == "nccl" else "cpu")
+    dist.all_reduce(top, op=dist.ReduceOp.MAX)
+    return top.tolist()
+
+
 # --- resume points ----------------------------------------------------------------------------------------------------
 
 LATEST = "latest.json"   # the resume point to continue from; written last (atomically) by rank 0, after every rank's file
