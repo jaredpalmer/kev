@@ -1,11 +1,12 @@
 {
   "version": "sft-v2-r21",
-  "description": "Round 21's training suite (private mirror; only this manifest is public): sft-v2's records with states of at most 32,768 tokens (Kev-27B tokenizer) in every partition, same order, and at most 1,200 train records of each of sft-v1's public sources. Round 21's registration explains both: one epoch has to fit three 8-hour attempts on 8 H200s.",
+  "description": "Round 21's training suite (private mirror; only this manifest is public): sft-v2's records with states of at most 32,768 tokens (Kev-27B tokenizer) in every partition, same order, and at most 1,200 train records of each of sft-v1's public sources; calibration and development keep only states of at most 8,192 tokens (in-trial screening only). Round 21's registration explains these: one epoch and its in-trial scoring have to fit three 8-hour attempts on 8 H200s.",
   "derived_from": {
     "suite": "evals/sft-v2",
     "manifest": "evals/sft-v2/manifest.json",
-    "rule": "keep every record whose state (the <state> token + the rendered state) has at most 32768 tokens; of each sft-v1 public source's train records keep the 1200 with the smallest sha256('sft-v2-assemble-20260926:public-cap:' + record digest)"
+    "rule": "keep every record whose state (the <state> token + the rendered state) has at most 32768 tokens; of each sft-v1 public source's train records keep the 1200 with the smallest sha256('sft-v2-assemble-20260926:public-cap:' + record digest); calibration and development keep only states of at most 8192 tokens"
   },
+  "screening_partitions": "calibration and development hold only states of at most 8,192 tokens: they are in-distribution screening partitions (held-out items of the training components; kev.experiment's in-trial temperature and development score), which no round-21 rule criterion reads (every candidate reads transfer-v4 through its own read, and the served temperature comes from the registered held-out-datasets pool), and their longer records took about half of a trial's in-trial scoring time on one GPU",
   "downsampled_sources": {
     "multiwoz": {
       "records": 5580,
@@ -206,10 +207,10 @@
       "dropped_by_public_cap": 65426
     },
     "calibration.jsonl": {
-      "sha256": "c696b9934cc6b5e688671d84771e065dd20c6bf4ee642c696358cab5f86dfd9c",
-      "records": 13939,
-      "questions": 27689,
-      "bytes": 100383743,
+      "sha256": "952e662ed8ed52a5e50597014024db3d6124e14f5fc125cccbb498d758b7500a",
+      "records": 13385,
+      "questions": 25362,
+      "bytes": 55413067,
       "soft_target_questions": 297,
       "by_component": {
         "sft-v1": {
@@ -219,16 +220,16 @@
           "row_tokens_with_prefix_sharing": 6143846
         },
         "tasksource-v1": {
-          "records": 3481,
-          "questions": 4771,
-          "state_tokens": 521042,
-          "row_tokens_with_prefix_sharing": 702971
+          "records": 3480,
+          "questions": 4770,
+          "state_tokens": 511945,
+          "row_tokens_with_prefix_sharing": 693846
         },
         "longdoc": {
-          "records": 409,
-          "questions": 1483,
-          "state_tokens": 6886836,
-          "row_tokens_with_prefix_sharing": 7003023
+          "records": 13,
+          "questions": 42,
+          "state_tokens": 98879,
+          "row_tokens_with_prefix_sharing": 101538
         },
         "ood": {
           "records": 388,
@@ -243,16 +244,16 @@
           "row_tokens_with_prefix_sharing": 135610
         },
         "injection": {
-          "records": 131,
-          "questions": 558,
-          "state_tokens": 255455,
-          "row_tokens_with_prefix_sharing": 296890
+          "records": 122,
+          "questions": 519,
+          "state_tokens": 153107,
+          "row_tokens_with_prefix_sharing": 191349
         },
         "agents": {
-          "records": 213,
-          "questions": 1230,
-          "state_tokens": 2555118,
-          "row_tokens_with_prefix_sharing": 2625258
+          "records": 86,
+          "questions": 492,
+          "state_tokens": 478914,
+          "row_tokens_with_prefix_sharing": 505591
         },
         "guardrails-pii": {
           "records": 219,
@@ -261,22 +262,22 @@
           "row_tokens_with_prefix_sharing": 210949
         },
         "guardrails-grounding": {
-          "records": 258,
-          "questions": 1343,
-          "state_tokens": 673752,
-          "row_tokens_with_prefix_sharing": 764822
+          "records": 237,
+          "questions": 1235,
+          "state_tokens": 349325,
+          "row_tokens_with_prefix_sharing": 433157
         }
       },
       "state_tokens": {
         "min": 2,
-        "median": 161,
-        "mean": 1186.5,
-        "p90": 1862,
-        "p99": 21797,
-        "max": 32525,
-        "total": 16539150
+        "median": 137,
+        "mean": 540.8,
+        "p90": 1448,
+        "p99": 4670,
+        "max": 8181,
+        "total": 7239117
       },
-      "row_tokens_with_prefix_sharing": 18308271,
+      "row_tokens_with_prefix_sharing": 8840788,
       "state_tokens_histogram": {
         "1-256": 7889,
         "257-512": 1321,
@@ -284,18 +285,19 @@
         "1025-2048": 1710,
         "2049-4096": 529,
         "4097-8192": 180,
-        "8193-16384": 299,
-        "16385-32768": 255,
+        "8193-16384": 0,
+        "16385-32768": 0,
         "32769-65536": 0
       },
       "dropped_over_state_cap": 85,
+      "dropped_over_screening_cap": 554,
       "dropped_by_public_cap": 0
     },
     "development.jsonl": {
-      "sha256": "171f50933ee44da959faf50451407b6267610c8f829bef60d3f4ce1b29bae49f",
-      "records": 6432,
-      "questions": 12498,
-      "bytes": 43203210,
+      "sha256": "92211e3207ca89c5d033ea2d7bb59a9fb46a4289722ed70103e06877a50ff5d6",
+      "records": 6201,
+      "questions": 11569,
+      "bytes": 24212402,
       "soft_target_questions": 179,
       "by_component": {
         "sft-v1": {
@@ -305,16 +307,16 @@
           "row_tokens_with_prefix_sharing": 2463332
         },
         "tasksource-v1": {
-          "records": 2088,
-          "questions": 2840,
-          "state_tokens": 350598,
-          "row_tokens_with_prefix_sharing": 457784
+          "records": 2087,
+          "questions": 2839,
+          "state_tokens": 340820,
+          "row_tokens_with_prefix_sharing": 447978
         },
         "longdoc": {
-          "records": 165,
-          "questions": 593,
-          "state_tokens": 2849816,
-          "row_tokens_with_prefix_sharing": 2897279
+          "records": 4,
+          "questions": 15,
+          "state_tokens": 32105,
+          "row_tokens_with_prefix_sharing": 33165
         },
         "ood": {
           "records": 156,
@@ -329,16 +331,16 @@
           "row_tokens_with_prefix_sharing": 58498
         },
         "injection": {
-          "records": 55,
-          "questions": 240,
-          "state_tokens": 131400,
-          "row_tokens_with_prefix_sharing": 149014
+          "records": 49,
+          "questions": 214,
+          "state_tokens": 59718,
+          "row_tokens_with_prefix_sharing": 75230
         },
         "agents": {
-          "records": 88,
-          "questions": 467,
-          "state_tokens": 1033586,
-          "row_tokens_with_prefix_sharing": 1059898
+          "records": 35,
+          "questions": 190,
+          "state_tokens": 188034,
+          "row_tokens_with_prefix_sharing": 198356
         },
         "guardrails-pii": {
           "records": 77,
@@ -347,22 +349,22 @@
           "row_tokens_with_prefix_sharing": 69270
         },
         "guardrails-grounding": {
-          "records": 161,
-          "questions": 822,
-          "state_tokens": 380075,
-          "row_tokens_with_prefix_sharing": 435324
+          "records": 151,
+          "questions": 775,
+          "state_tokens": 205505,
+          "row_tokens_with_prefix_sharing": 257692
         }
       },
       "state_tokens": {
         "min": 2,
-        "median": 125,
-        "mean": 1087.3,
-        "p90": 1702,
-        "p99": 22160,
-        "max": 31958,
-        "total": 6993821
+        "median": 109,
+        "mean": 495.8,
+        "p90": 1380,
+        "p99": 4355,
+        "max": 8185,
+        "total": 3074528
       },
-      "row_tokens_with_prefix_sharing": 7760567,
+      "row_tokens_with_prefix_sharing": 3773689,
       "state_tokens_histogram": {
         "1-256": 3850,
         "257-512": 606,
@@ -370,11 +372,12 @@
         "1025-2048": 711,
         "2049-4096": 219,
         "4097-8192": 72,
-        "8193-16384": 125,
-        "16385-32768": 106,
+        "8193-16384": 0,
+        "16385-32768": 0,
         "32769-65536": 0
       },
       "dropped_over_state_cap": 38,
+      "dropped_over_screening_cap": 231,
       "dropped_by_public_cap": 0
     }
   },
@@ -476,12 +479,12 @@
   "code": {
     "repository": "jaredpalmer/kev-sft (private)",
     "branch": "assemble-v2",
-    "commit": "0d1e87998470fff8bb11d3415dfa38a8c1568fbc",
+    "commit": "581535a0fdbecaede1519e120a8308e2f7c57d0b",
     "dirty": false,
     "files_sha256": {
       "assemble/__init__.py": "07b2d8f66fdb3f9bcde6dab77f7a6b83ca3bf5f8f9f5b82f8401c0aada2c1ed7",
       "assemble/build.py": "3b800bf5f80c9d77f47edb8b1b1c4208c8b3f85ef402235b3f856fa9a2dd15f3",
-      "assemble/build_v2.py": "a5389b9f344e09b4afdc357dcbed5dfc2c5073651f4fdf69dfd3cf8b6afa22b3",
+      "assemble/build_v2.py": "fb014bec1bc8e2f0ae61dbb439444285cf05b780bc2fd03af85014a5dc403877",
       "assemble/epoch_estimate.py": "89baa2e630dbcb0cef93c110cf00f722dc11e3d5b04f36ce49dbfa3908535103",
       "assemble/screen_breadth.py": "0c71380692f80cecf134e13838a52a2ea44d40af63c9b310d670bdc8ccdb1a9c",
       "assemble/screen_components.py": "e05f251e730049b8e60e69f1f77b74adcb2230f941902c49a1d8271ca430fc69",
@@ -492,11 +495,11 @@
       "common/records.py": "e1bad5c362edf2e11e63c1a2132e75a5f53f0bb4a7dc04bddc3c55745cbaae40",
       "common/screen.py": "6965e4c3b604267ecf4fbcaf0f538b7b51caedd0218fcfb484338a7294413270"
     },
-    "code_sha256": "db13b46877622a28cc700ac556d21d28f7adfe4ad42f46a52e0435fce29c0329"
+    "code_sha256": "deec2c8dde3b0b21b71abacb3683f5d56545575bd7dfcf9f23cc8f3e35bb5944"
   },
   "kev_package": {
     "repository": "jaredpalmer/kev",
-    "commit": "f3cefa8b928ce274cd1b75408f46305895fb0d42",
+    "commit": "3d500a89e7f566637131ee649f453780a1422d4c",
     "kev/api.py": "a6f53af5354f8ea17915abc78360fdf291a5108ce39a53a2d9135d48c603ae58",
     "kev/data.py": "e77a2fffeb8ee7e05b118893be8e38b8358aef97c3ca2e143cdce208201b92f9",
     "kev/model.py": "d78fab645f29513a62816e594d10296b02bf166ba77835c55db5eda80c7f1978",
@@ -504,6 +507,6 @@
   },
   "mirror": {
     "dataset": "jaredpalmer/kev-private-train",
-    "revision": "ef38326ef53b1f8b5a61c3cfce9425bb70787c02"
+    "revision": "c00d1c957f4d0f1fd4869621bd4829cf8ce81d2e"
   }
 }

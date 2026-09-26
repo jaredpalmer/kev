@@ -399,8 +399,9 @@ states up to the trained cap, out-of-domain, prompt-injection recognition and ag
 scienthoon and pooled-externals guards on the round-20 evidence, decided here before any read. (Revised before any launch
 after Jared's review of PR #152: 32k states accepted; none pairs kept at 0.25 but only on states of at most 8,192 tokens,
 with their siblings counted in the micro-batch cost, a trainer knob in PR #153, which this round depends on; the per-source
-cap on sft-v1's public sources tightened from 2,000 to 1,200. The first version of `sft-v2-r21`, kev-private-train
-@ `97d545ff`, was never used.)
+cap on sft-v1's public sources tightened from 2,000 to 1,200; `sft-v2-r21`'s calibration and development limited to
+states of at most 8,192 tokens. The earlier versions of `sft-v2-r21`, kev-private-train @ `97d545ff` and @ `ef38326e`,
+were never used.)
 
 **Data** (private; policy in "Data policy for the SFT work"; manifests only in this repo, partitions in
 `jaredpalmer/kev-private-train` / `jaredpalmer/kev-private-evals`; built by kev-sft `assemble-v2` @ `1b5c7f6`,
@@ -468,17 +469,22 @@ State tokens of the train records (the `<state>` token plus the rendered state, 
 `synthetic-v2/tone`, `synthetic-v2-guardrails/injection`, `synthetic-v2-guardrails/grounding`, `synthetic-v2-guardrails/pii`, `synthetic-v2/agent_sessions`). Calibration and development are held-out items of the
 training components, so they are in distribution: in-trial screening only, never a served or shipped temperature.
 
-`evals/sft-v2-r21` (the training suite of this round; kev-private-train @ `ef38326e`): sft-v2's records, same order,
-every partition restricted to states of at most 32,768 tokens, and in train at most 1,200 records of each sft-v1 public
-source (the records with the smallest sha256 of the seed and the record digest): train 233,265 (496,146 questions, 434.2M
-state tokens, 468.0M row tokens with the state shared), calibration 13,939, development 6,432. 3,412 train records over
+`evals/sft-v2-r21` (the training suite of this round; kev-private-train @ `c00d1c95`): sft-v2's records, same order,
+train restricted to states of at most 32,768 tokens and at most 1,200 records of each sft-v1 public source (the records
+with the smallest sha256 of the seed and the record digest), calibration and development to states of at most 8,192
+tokens: train 233,265 (496,146 questions, 434.2M state tokens, 468.0M row tokens with the state shared), calibration
+13,385 (25,362 questions; 554 longer records left), development 6,201 (11,569 questions; 231 left). The screening cap is
+there for in-trial scoring cost: calibration and development are in-distribution screening partitions (held-out items of
+the training components, read only for the trial's in-trial temperature and development score), no rule criterion reads
+them (every candidate reads transfer-v4 through its own read, and the served temperature comes from the held-out-datasets
+pool), and their 785 records over 8k tokens took about half of a trial's in-trial scoring time on one GPU. 3,412 train records over
 the state cap leave (longify 1,600, longdoc 1,443, others 369), and 65,426 leave the 23 capped sources (multiwoz, massive,
 helpsteer3 5,580 → 1,200; helpsteer2, snli, gsm8k, hotpotqa, nq, esci 4,650 and ledgar 4,640 → 1,200; openbookqa, medmcqa,
 math_qa, siqa, cosmos_qa, winogrande, casehold, csqa, aqua_rat, qasc 3,720 → 1,200; arc 2,991, quartz 2,340, strategyqa
 1,215 → 1,200). By component, train: sft-v1 128,821, tasksource-v1 58,190, longdoc 7,617, tone 7,544, ood 7,312, longify
 6,400, guardrails-grounding 5,655, agents 4,875, guardrails-pii 4,152, injection 2,699. State tokens of its train records:
 ≤256 114,262 · 257-512 25,490 · 513-1k 32,383 · 1k-2k 29,841 · 2k-4k 9,563 · 4k-8k 4,257 · 8k-16k 9,359 · 16k-32k 8,110.
-Why 32k and the cap: "Budget and memory" below.
+Why 32k and the caps: "Budget and memory" below.
 
 Eval-only suites (private mirror `d6498d4c`, development partition only, report-only; each is its components' frozen
 records with the same variant rule, so ood-v2 is byte for byte its component file; every sft-v2 record was screened
@@ -553,26 +559,27 @@ long-state probe `runs/sft-probe/lc-27b-8xh200`), a = 1.55 s fitted so the sft-v
 **Budget and memory** (per arm, `evals/sft-v2-r21`, none pairs gated at 8k): training 67,224 s (A) / 64,268 s (B)
 projected, × 1.03 for hourly resume points, plus ~10 min per attempt for the gate's state-token count (PR #153; ~6 min
 on an M-series core) and ~10 min of model load: **19.9 h (A) / 19.1 h (B)** of training container time. In-trial scoring
-(calibration + development + transfer-v4: 20,350 records of ≤ 8k tokens at round 19's measured 0.292 s each, 785 longer
-at ~8 s, longdoc-v1's measured latency) adds **3.4 h**: 23.3 h (A) / 22.4 h (B) of container time. Two timeouts each lose
-up to an hour of training back to the last resume point plus ~15 min of restart (expected 1.5 h in all, worst 2.5 h):
+(calibration + development + transfer-v4: 20,350 records, all of at most 8k tokens, at round 19's measured 0.292 s each)
+adds **1.65 h**: 21.6 h (A) / 20.7 h (B) of container time. Two timeouts each lose up to an hour of training back to the
+last resume point plus ~15 min of restart (expected 1.5 h in all, worst 2.5 h):
 
-| per arm | training done (checkpoint + snapshots committed) | with in-trial scoring | Jared's bar (incl. scoring) |
+| per arm | training done (checkpoint + snapshots committed) | training + in-trial scoring | Jared's bar (incl. scoring) |
 |---|---|---|---|
-| expected | 21.4 h (A) / 20.6 h (B) | 24.8 h (A) / 23.9 h (B) | ~21 h |
-| worst | 22.4 h (A) / 21.6 h (B) | 25.8 h (A) / 24.9 h (B) | ~23 h |
+| expected | 21.4 h (A) / 20.6 h (B) | **23.1 h (A) / 22.2 h (B)** | ~21 h |
+| worst | 22.4 h (A) / 21.6 h (B) | **24.1 h (A) / 23.2 h (B)** | ~23 h |
 
-So training, every snapshot and the final checkpoint fit inside the three 8 h attempts (24 h) with 1.6-3.4 h to spare,
-but in-trial scoring does not: in the expected case the third attempt times out part-way through it. That costs the round
-nothing, because every candidate's rule reads are separate reads (above), and the final checkpoint is committed before
-scoring. The bar is not met; the levers that would meet it, not registered (Jared's call): gate at 2,048 tokens instead of
-8,192 (−1.0 h, B; pairs lost on the 2k-8k records, 13,820 of them); drop the long (> 8k) records from sft-v2-r21's
-calibration / development, whose in-trial scores nobody reads for a verdict (−1.7 h); or both. Finishing the in-trial
-scoring later with `modal_app.py::resume` would cost ~3.4 h × $41.17 ≈ $140 per arm, outside the study bound, and is not
-planned. Peak memory projected ~129 GiB of 140 (round 19 measured 94.6 GB at 7.5k states).
+Training, every snapshot and the final checkpoint fit inside the three 8 h attempts (24 h) with 1.6-3.4 h to spare; with
+the screening cap the in-trial scoring fits too in the expected case (0.9-1.8 h to spare) and in model B's worst case,
+and runs 0.1 h past the last attempt in model A's worst case, where the third attempt would time out in the last minutes
+of scoring. That would cost the round nothing: every candidate's rule reads are separate reads (above), and the final
+checkpoint is committed before scoring. Against Jared's bar the expected case is still 1.2-2.1 h over and the worst case
+0.2-1.1 h over; the remaining lever, not registered (Jared kept the 8k gate), is gating at 2,048 tokens (−1.0 h, B).
+Finishing an interrupted in-trial scoring later with `modal_app.py::resume` would cost ~1.7 h × $41.17 ≈ $70 per arm,
+outside the study bound, and is not planned. Peak memory projected ~129 GiB of 140 (round 19 measured 94.6 GB at 7.5k
+states).
 
 Timeout 28,800 s, `FULL_FT_RETRIES` 2: admission bound **$987.99 per study** (H200:8 at $41.17/h × 8 h × 3), $1,975.98 for
-both; since the third attempt is expected to run to its timeout, expected ≈ the bound, **~$988 per arm**. If the
+both; expected **~$914 (B) - $951 (A) per arm** (22.2 / 23.1 h × $41.17/h). If the
 workspace GPU cap serialises the two trials, as in round 19, the round takes about twice as long. Reads (H200, per-suite
 timeouts of `modal_app.READ_TIMEOUTS`, no size override): per candidate $72-75 of admission bound (longdoc-v1 10,800 s,
 documents-v1 5,400 s, transfer-v9 3,600 s, the rest 1,800 s), 8 candidates **$595**; expected ~$30 each. Parent reads
@@ -580,11 +587,12 @@ Kev-27B still lacks (tsheld, ood, agentsood, guardood): $13 bound. Confirmation,
 + parent, 14 reads) $100, locked $25, serving check ~$6.
 
 Spend against the night's **$5,000 metered** ceiling, baseline **$2,522.65 at 2026-09-26T06:49Z**: at launch $2,522.65 +
-$1,975.98 of study bounds = $4,498.63. Expected at the end of the rule stage ≈ $2,522.65 + $1,976 (studies) + ~$250
-(candidate reads) + ~$10 (parent reads) ≈ **$4,760**; with the confirmation stage (~$60 expected, $131 bound) ≈ $4,820.
+$1,975.98 of study bounds = $4,498.63. Expected at the end of the rule stage ≈ $2,522.65 + $1,828-1,902 (studies) +
+~$250 (candidate reads) + ~$10 (parent reads) ≈ **$4,610-4,685**; with the confirmation stage (~$60 expected, $131 bound)
+≈ $4,670-4,745.
 Under the spend rule (`docs/autoresearch.md` section 2) the reads cannot all be admitted at once once both studies have
 spent their bounds ($4,499 + $595 > $5,000): launch one arm's four candidates, then the other's after the first batch
-lands. The reserve is thin (~$180 expected), so a `resume` of in-trial scoring, or anything else, needs a fresh reading.
+lands. The expected reserve is ~$255-330, so anything beyond the registered reads needs a fresh reading.
 
 **Temperature (MUST, `docs/autoresearch.md` section 3).** Round 20's pool, unchanged: every candidate is served at the
 temperature fitted (`kev.metrics.served`) on its own rows of transfer-r3 **calibration** (read `r3cal`, allowlist
@@ -671,7 +679,8 @@ Goals and open questions, not registered rounds; each becomes a spec and a PLAN 
 
 0. **Round 21: retrain full weights, with long context and extended data.** Registered: "Round 21 (registered)" and
    `experiments/rounds/r21.json`. The notes below are what it started from; the registration records where it departs
-   (32k states; none pairs gated at 8k tokens, PR #153; sft-v1's public sources capped at 1,200 train records). Retraining is allowed (rounds 19-20
+   (32k states; none pairs gated at 8k tokens, PR #153; sft-v1's public sources capped at 1,200 train records;
+   calibration / development limited to states of at most 8k tokens). Retraining is allowed (rounds 19-20
    showed that post-hoc remedies do not move the accuracy guards). What was decided before registration:
    - Context: 64k tokens is the target, 32k the fallback and 16k the last resort (a fit probe decides before registration).
    - Data: `sft-v1` extended into a new version.
