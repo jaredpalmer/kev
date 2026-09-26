@@ -1,0 +1,602 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+device=cuda world=8 trainable params=25627.2M
+384 training requests (holdout=[]), questions by type {'choice': 744}
+[rank7]: Traceback (most recent call last):
+[rank7]:   File "<frozen runpy>", line 198, in _run_module_as_main
+[rank7]:   File "<frozen runpy>", line 88, in _run_code
+[rank7]:   File "/root/kev/train.py", line 668, in <module>
+[rank7]:     main()
+[rank7]:     ~~~~^^
+[rank7]:   File "/root/kev/train.py", line 615, in main
+[rank7]:     (loss / group_records).backward()
+[rank7]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_tensor.py", line 647, in backward
+[rank7]:     torch.autograd.backward(
+[rank7]:     ~~~~~~~~~~~~~~~~~~~~~~~^
+[rank7]:         self, gradient, retain_graph, create_graph, inputs=inputs
+[rank7]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:     )
+[rank7]:     ^
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/__init__.py", line 354, in backward
+[rank7]:     _engine_run_backward(
+[rank7]:     ~~~~~~~~~~~~~~~~~~~~^
+[rank7]:         tensors,
+[rank7]:         ^^^^^^^^
+[rank7]:     ...<5 lines>...
+[rank7]:         accumulate_grad=True,
+[rank7]:         ^^^^^^^^^^^^^^^^^^^^^
+[rank7]:     )
+[rank7]:     ^
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/graph.py", line 829, in _engine_run_backward
+[rank7]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank7]:            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:         t_outputs, *args, **kwargs
+[rank7]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:     )  # Calls into the C++ engine to run the backward pass
+[rank7]:     ^
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1146, in unpack_hook
+[rank7]:     _run_fn_with_dynamo_disabled(frame.recompute_fn, *args)
+[rank7]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_compile.py", line 53, in inner
+[rank7]:     return disable_fn(*args, **kwargs)
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_dynamo/eval_frame.py", line 929, in _fn
+[rank7]:     return fn(*args, **kwargs)
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1116, in _run_fn_with_dynamo_disabled
+[rank7]:     return fn(*args, **kwargs)
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1542, in recompute_fn
+[rank7]:     fn(*args, **kwargs)
+[rank7]:     ~~^^^^^^^^^^^^^^^^^
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/distributed/fsdp/_fully_shard/_fully_shard.py", line 658, in wrapped_method
+[rank7]:     out = orig_method(*args, **kwargs)
+[rank7]:   File "/root/kev/shared_prefix.py", line 129, in _step
+[rank7]:     h_s = layer.forward(h_s, position_embeddings=ropes[0], attention_mask=masks[0], position_ids=positions[0], past_key_values=prefix)
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 911, in forward
+[rank7]:     hidden_states = self.mlp(hidden_states)
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank7]:     return self._call_impl(*args, **kwargs)
+[rank7]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank7]:     return forward_call(*args, **kwargs)
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 836, in forward
+[rank7]:     down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+[rank7]:                                                                 ~~~~~~~~~~~~^^^
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank7]:     return self._call_impl(*args, **kwargs)
+[rank7]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank7]:     return forward_call(*args, **kwargs)
+[rank7]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/linear.py", line 125, in forward
+[rank7]:     return F.linear(input, self.weight, self.bias)
+[rank7]:            ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.05 GiB. GPU 7 has a total capacity of 139.80 GiB of which 2.36 GiB is free. Process 1 has 137.43 GiB memory in use. Of the allocated memory 135.34 GiB is allocated by PyTorch, and 503.45 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank6]: Traceback (most recent call last):
+[rank6]:   File "<frozen runpy>", line 198, in _run_module_as_main
+[rank6]:   File "<frozen runpy>", line 88, in _run_code
+[rank6]:   File "/root/kev/train.py", line 668, in <module>
+[rank6]:     main()
+[rank6]:     ~~~~^^
+[rank6]:   File "/root/kev/train.py", line 615, in main
+[rank6]:     (loss / group_records).backward()
+[rank6]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_tensor.py", line 647, in backward
+[rank6]:     torch.autograd.backward(
+[rank6]:     ~~~~~~~~~~~~~~~~~~~~~~~^
+[rank6]:         self, gradient, retain_graph, create_graph, inputs=inputs
+[rank6]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:     )
+[rank6]:     ^
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/__init__.py", line 354, in backward
+[rank6]:     _engine_run_backward(
+[rank6]:     ~~~~~~~~~~~~~~~~~~~~^
+[rank6]:         tensors,
+[rank6]:         ^^^^^^^^
+[rank6]:     ...<5 lines>...
+[rank6]:         accumulate_grad=True,
+[rank6]:         ^^^^^^^^^^^^^^^^^^^^^
+[rank6]:     )
+[rank6]:     ^
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/graph.py", line 829, in _engine_run_backward
+[rank6]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank6]:            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:         t_outputs, *args, **kwargs
+[rank6]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:     )  # Calls into the C++ engine to run the backward pass
+[rank6]:     ^
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1146, in unpack_hook
+[rank6]:     _run_fn_with_dynamo_disabled(frame.recompute_fn, *args)
+[rank6]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_compile.py", line 53, in inner
+[rank6]:     return disable_fn(*args, **kwargs)
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_dynamo/eval_frame.py", line 929, in _fn
+[rank6]:     return fn(*args, **kwargs)
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1116, in _run_fn_with_dynamo_disabled
+[rank6]:     return fn(*args, **kwargs)
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1542, in recompute_fn
+[rank6]:     fn(*args, **kwargs)
+[rank6]:     ~~^^^^^^^^^^^^^^^^^
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/distributed/fsdp/_fully_shard/_fully_shard.py", line 658, in wrapped_method
+[rank6]:     out = orig_method(*args, **kwargs)
+[rank6]:   File "/root/kev/shared_prefix.py", line 129, in _step
+[rank6]:     h_s = layer.forward(h_s, position_embeddings=ropes[0], attention_mask=masks[0], position_ids=positions[0], past_key_values=prefix)
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 911, in forward
+[rank6]:     hidden_states = self.mlp(hidden_states)
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank6]:     return self._call_impl(*args, **kwargs)
+[rank6]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank6]:     return forward_call(*args, **kwargs)
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 836, in forward
+[rank6]:     down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+[rank6]:                                                                 ~~~~~~~~~~~~^^^
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank6]:     return self._call_impl(*args, **kwargs)
+[rank6]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank6]:     return forward_call(*args, **kwargs)
+[rank6]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/linear.py", line 125, in forward
+[rank6]:     return F.linear(input, self.weight, self.bias)
+[rank6]:            ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.05 GiB. GPU 6 has a total capacity of 139.80 GiB of which 2.36 GiB is free. Process 1 has 137.43 GiB memory in use. Of the allocated memory 135.34 GiB is allocated by PyTorch, and 503.45 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "<frozen runpy>", line 198, in _run_module_as_main
+[rank0]:   File "<frozen runpy>", line 88, in _run_code
+[rank0]:   File "/root/kev/train.py", line 668, in <module>
+[rank0]:     main()
+[rank0]:     ~~~~^^
+[rank0]:   File "/root/kev/train.py", line 615, in main
+[rank0]:     (loss / group_records).backward()
+[rank0]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_tensor.py", line 647, in backward
+[rank0]:     torch.autograd.backward(
+[rank0]:     ~~~~~~~~~~~~~~~~~~~~~~~^
+[rank0]:         self, gradient, retain_graph, create_graph, inputs=inputs
+[rank0]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:     )
+[rank0]:     ^
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/__init__.py", line 354, in backward
+[rank0]:     _engine_run_backward(
+[rank0]:     ~~~~~~~~~~~~~~~~~~~~^
+[rank0]:         tensors,
+[rank0]:         ^^^^^^^^
+[rank0]:     ...<5 lines>...
+[rank0]:         accumulate_grad=True,
+[rank0]:         ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:     )
+[rank0]:     ^
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/graph.py", line 829, in _engine_run_backward
+[rank0]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank0]:            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:         t_outputs, *args, **kwargs
+[rank0]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:     )  # Calls into the C++ engine to run the backward pass
+[rank0]:     ^
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1146, in unpack_hook
+[rank0]:     _run_fn_with_dynamo_disabled(frame.recompute_fn, *args)
+[rank0]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_compile.py", line 53, in inner
+[rank0]:     return disable_fn(*args, **kwargs)
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_dynamo/eval_frame.py", line 929, in _fn
+[rank0]:     return fn(*args, **kwargs)
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1116, in _run_fn_with_dynamo_disabled
+[rank0]:     return fn(*args, **kwargs)
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1542, in recompute_fn
+[rank0]:     fn(*args, **kwargs)
+[rank0]:     ~~^^^^^^^^^^^^^^^^^
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/distributed/fsdp/_fully_shard/_fully_shard.py", line 658, in wrapped_method
+[rank0]:     out = orig_method(*args, **kwargs)
+[rank0]:   File "/root/kev/shared_prefix.py", line 129, in _step
+[rank0]:     h_s = layer.forward(h_s, position_embeddings=ropes[0], attention_mask=masks[0], position_ids=positions[0], past_key_values=prefix)
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 911, in forward
+[rank0]:     hidden_states = self.mlp(hidden_states)
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 836, in forward
+[rank0]:     down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+[rank0]:                                                                 ~~~~~~~~~~~~^^^
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/linear.py", line 125, in forward
+[rank0]:     return F.linear(input, self.weight, self.bias)
+[rank0]:            ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.05 GiB. GPU 0 has a total capacity of 139.80 GiB of which 2.36 GiB is free. Process 1 has 137.43 GiB memory in use. Of the allocated memory 135.34 GiB is allocated by PyTorch, and 503.45 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank4]: Traceback (most recent call last):
+[rank4]:   File "<frozen runpy>", line 198, in _run_module_as_main
+[rank4]:   File "<frozen runpy>", line 88, in _run_code
+[rank4]:   File "/root/kev/train.py", line 668, in <module>
+[rank4]:     main()
+[rank4]:     ~~~~^^
+[rank4]:   File "/root/kev/train.py", line 615, in main
+[rank4]:     (loss / group_records).backward()
+[rank4]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_tensor.py", line 647, in backward
+[rank4]:     torch.autograd.backward(
+[rank4]:     ~~~~~~~~~~~~~~~~~~~~~~~^
+[rank4]:         self, gradient, retain_graph, create_graph, inputs=inputs
+[rank4]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:     )
+[rank4]:     ^
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/__init__.py", line 354, in backward
+[rank4]:     _engine_run_backward(
+[rank4]:     ~~~~~~~~~~~~~~~~~~~~^
+[rank4]:         tensors,
+[rank4]:         ^^^^^^^^
+[rank4]:     ...<5 lines>...
+[rank4]:         accumulate_grad=True,
+[rank4]:         ^^^^^^^^^^^^^^^^^^^^^
+[rank4]:     )
+[rank4]:     ^
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/graph.py", line 829, in _engine_run_backward
+[rank4]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank4]:            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:         t_outputs, *args, **kwargs
+[rank4]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:     )  # Calls into the C++ engine to run the backward pass
+[rank4]:     ^
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1146, in unpack_hook
+[rank4]:     _run_fn_with_dynamo_disabled(frame.recompute_fn, *args)
+[rank4]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_compile.py", line 53, in inner
+[rank4]:     return disable_fn(*args, **kwargs)
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_dynamo/eval_frame.py", line 929, in _fn
+[rank4]:     return fn(*args, **kwargs)
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1116, in _run_fn_with_dynamo_disabled
+[rank4]:     return fn(*args, **kwargs)
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1542, in recompute_fn
+[rank4]:     fn(*args, **kwargs)
+[rank4]:     ~~^^^^^^^^^^^^^^^^^
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/distributed/fsdp/_fully_shard/_fully_shard.py", line 658, in wrapped_method
+[rank4]:     out = orig_method(*args, **kwargs)
+[rank4]:   File "/root/kev/shared_prefix.py", line 129, in _step
+[rank4]:     h_s = layer.forward(h_s, position_embeddings=ropes[0], attention_mask=masks[0], position_ids=positions[0], past_key_values=prefix)
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 911, in forward
+[rank4]:     hidden_states = self.mlp(hidden_states)
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank4]:     return self._call_impl(*args, **kwargs)
+[rank4]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank4]:     return forward_call(*args, **kwargs)
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 836, in forward
+[rank4]:     down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+[rank4]:                                                                 ~~~~~~~~~~~~^^^
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank4]:     return self._call_impl(*args, **kwargs)
+[rank4]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank4]:     return forward_call(*args, **kwargs)
+[rank4]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/linear.py", line 125, in forward
+[rank4]:     return F.linear(input, self.weight, self.bias)
+[rank4]:            ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.05 GiB. GPU 4 has a total capacity of 139.80 GiB of which 2.36 GiB is free. Process 1 has 137.43 GiB memory in use. Of the allocated memory 135.34 GiB is allocated by PyTorch, and 503.45 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "<frozen runpy>", line 198, in _run_module_as_main
+[rank1]:   File "<frozen runpy>", line 88, in _run_code
+[rank1]:   File "/root/kev/train.py", line 668, in <module>
+[rank1]:     main()
+[rank1]:     ~~~~^^
+[rank1]:   File "/root/kev/train.py", line 615, in main
+[rank1]:     (loss / group_records).backward()
+[rank1]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_tensor.py", line 647, in backward
+[rank1]:     torch.autograd.backward(
+[rank1]:     ~~~~~~~~~~~~~~~~~~~~~~~^
+[rank1]:         self, gradient, retain_graph, create_graph, inputs=inputs
+[rank1]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:     )
+[rank1]:     ^
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/__init__.py", line 354, in backward
+[rank1]:     _engine_run_backward(
+[rank1]:     ~~~~~~~~~~~~~~~~~~~~^
+[rank1]:         tensors,
+[rank1]:         ^^^^^^^^
+[rank1]:     ...<5 lines>...
+[rank1]:         accumulate_grad=True,
+[rank1]:         ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:     )
+[rank1]:     ^
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/graph.py", line 829, in _engine_run_backward
+[rank1]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank1]:            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:         t_outputs, *args, **kwargs
+[rank1]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:     )  # Calls into the C++ engine to run the backward pass
+[rank1]:     ^
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1146, in unpack_hook
+[rank1]:     _run_fn_with_dynamo_disabled(frame.recompute_fn, *args)
+[rank1]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_compile.py", line 53, in inner
+[rank1]:     return disable_fn(*args, **kwargs)
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_dynamo/eval_frame.py", line 929, in _fn
+[rank1]:     return fn(*args, **kwargs)
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1116, in _run_fn_with_dynamo_disabled
+[rank1]:     return fn(*args, **kwargs)
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1542, in recompute_fn
+[rank1]:     fn(*args, **kwargs)
+[rank1]:     ~~^^^^^^^^^^^^^^^^^
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/distributed/fsdp/_fully_shard/_fully_shard.py", line 658, in wrapped_method
+[rank1]:     out = orig_method(*args, **kwargs)
+[rank1]:   File "/root/kev/shared_prefix.py", line 129, in _step
+[rank1]:     h_s = layer.forward(h_s, position_embeddings=ropes[0], attention_mask=masks[0], position_ids=positions[0], past_key_values=prefix)
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 911, in forward
+[rank1]:     hidden_states = self.mlp(hidden_states)
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 836, in forward
+[rank1]:     down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+[rank1]:                                                                 ~~~~~~~~~~~~^^^
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/linear.py", line 125, in forward
+[rank1]:     return F.linear(input, self.weight, self.bias)
+[rank1]:            ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.05 GiB. GPU 1 has a total capacity of 139.80 GiB of which 2.36 GiB is free. Process 1 has 137.43 GiB memory in use. Of the allocated memory 135.34 GiB is allocated by PyTorch, and 503.45 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank3]: Traceback (most recent call last):
+[rank3]:   File "<frozen runpy>", line 198, in _run_module_as_main
+[rank3]:   File "<frozen runpy>", line 88, in _run_code
+[rank3]:   File "/root/kev/train.py", line 668, in <module>
+[rank3]:     main()
+[rank3]:     ~~~~^^
+[rank3]:   File "/root/kev/train.py", line 615, in main
+[rank3]:     (loss / group_records).backward()
+[rank3]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_tensor.py", line 647, in backward
+[rank3]:     torch.autograd.backward(
+[rank3]:     ~~~~~~~~~~~~~~~~~~~~~~~^
+[rank3]:         self, gradient, retain_graph, create_graph, inputs=inputs
+[rank3]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:     )
+[rank3]:     ^
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/__init__.py", line 354, in backward
+[rank3]:     _engine_run_backward(
+[rank3]:     ~~~~~~~~~~~~~~~~~~~~^
+[rank3]:         tensors,
+[rank3]:         ^^^^^^^^
+[rank3]:     ...<5 lines>...
+[rank3]:         accumulate_grad=True,
+[rank3]:         ^^^^^^^^^^^^^^^^^^^^^
+[rank3]:     )
+[rank3]:     ^
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/graph.py", line 829, in _engine_run_backward
+[rank3]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank3]:            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:         t_outputs, *args, **kwargs
+[rank3]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:     )  # Calls into the C++ engine to run the backward pass
+[rank3]:     ^
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1146, in unpack_hook
+[rank3]:     _run_fn_with_dynamo_disabled(frame.recompute_fn, *args)
+[rank3]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_compile.py", line 53, in inner
+[rank3]:     return disable_fn(*args, **kwargs)
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_dynamo/eval_frame.py", line 929, in _fn
+[rank3]:     return fn(*args, **kwargs)
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1116, in _run_fn_with_dynamo_disabled
+[rank3]:     return fn(*args, **kwargs)
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1542, in recompute_fn
+[rank3]:     fn(*args, **kwargs)
+[rank3]:     ~~^^^^^^^^^^^^^^^^^
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/distributed/fsdp/_fully_shard/_fully_shard.py", line 658, in wrapped_method
+[rank3]:     out = orig_method(*args, **kwargs)
+[rank3]:   File "/root/kev/shared_prefix.py", line 129, in _step
+[rank3]:     h_s = layer.forward(h_s, position_embeddings=ropes[0], attention_mask=masks[0], position_ids=positions[0], past_key_values=prefix)
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 911, in forward
+[rank3]:     hidden_states = self.mlp(hidden_states)
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank3]:     return self._call_impl(*args, **kwargs)
+[rank3]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank3]:     return forward_call(*args, **kwargs)
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 836, in forward
+[rank3]:     down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+[rank3]:                                                                 ~~~~~~~~~~~~^^^
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank3]:     return self._call_impl(*args, **kwargs)
+[rank3]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank3]:     return forward_call(*args, **kwargs)
+[rank3]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/linear.py", line 125, in forward
+[rank3]:     return F.linear(input, self.weight, self.bias)
+[rank3]:            ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.05 GiB. GPU 3 has a total capacity of 139.80 GiB of which 2.36 GiB is free. Process 1 has 137.43 GiB memory in use. Of the allocated memory 135.34 GiB is allocated by PyTorch, and 503.45 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank2]: Traceback (most recent call last):
+[rank2]:   File "<frozen runpy>", line 198, in _run_module_as_main
+[rank2]:   File "<frozen runpy>", line 88, in _run_code
+[rank2]:   File "/root/kev/train.py", line 668, in <module>
+[rank2]:     main()
+[rank2]:     ~~~~^^
+[rank2]:   File "/root/kev/train.py", line 615, in main
+[rank2]:     (loss / group_records).backward()
+[rank2]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_tensor.py", line 647, in backward
+[rank2]:     torch.autograd.backward(
+[rank2]:     ~~~~~~~~~~~~~~~~~~~~~~~^
+[rank2]:         self, gradient, retain_graph, create_graph, inputs=inputs
+[rank2]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:     )
+[rank2]:     ^
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/__init__.py", line 354, in backward
+[rank2]:     _engine_run_backward(
+[rank2]:     ~~~~~~~~~~~~~~~~~~~~^
+[rank2]:         tensors,
+[rank2]:         ^^^^^^^^
+[rank2]:     ...<5 lines>...
+[rank2]:         accumulate_grad=True,
+[rank2]:         ^^^^^^^^^^^^^^^^^^^^^
+[rank2]:     )
+[rank2]:     ^
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/graph.py", line 829, in _engine_run_backward
+[rank2]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank2]:            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:         t_outputs, *args, **kwargs
+[rank2]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:     )  # Calls into the C++ engine to run the backward pass
+[rank2]:     ^
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1146, in unpack_hook
+[rank2]:     _run_fn_with_dynamo_disabled(frame.recompute_fn, *args)
+[rank2]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_compile.py", line 53, in inner
+[rank2]:     return disable_fn(*args, **kwargs)
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_dynamo/eval_frame.py", line 929, in _fn
+[rank2]:     return fn(*args, **kwargs)
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1116, in _run_fn_with_dynamo_disabled
+[rank2]:     return fn(*args, **kwargs)
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1542, in recompute_fn
+[rank2]:     fn(*args, **kwargs)
+[rank2]:     ~~^^^^^^^^^^^^^^^^^
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/distributed/fsdp/_fully_shard/_fully_shard.py", line 658, in wrapped_method
+[rank2]:     out = orig_method(*args, **kwargs)
+[rank2]:   File "/root/kev/shared_prefix.py", line 129, in _step
+[rank2]:     h_s = layer.forward(h_s, position_embeddings=ropes[0], attention_mask=masks[0], position_ids=positions[0], past_key_values=prefix)
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 911, in forward
+[rank2]:     hidden_states = self.mlp(hidden_states)
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank2]:     return self._call_impl(*args, **kwargs)
+[rank2]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank2]:     return forward_call(*args, **kwargs)
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 836, in forward
+[rank2]:     down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+[rank2]:                                                                 ~~~~~~~~~~~~^^^
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank2]:     return self._call_impl(*args, **kwargs)
+[rank2]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank2]:     return forward_call(*args, **kwargs)
+[rank2]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/linear.py", line 125, in forward
+[rank2]:     return F.linear(input, self.weight, self.bias)
+[rank2]:            ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.05 GiB. GPU 2 has a total capacity of 139.80 GiB of which 2.36 GiB is free. Process 1 has 137.43 GiB memory in use. Of the allocated memory 135.34 GiB is allocated by PyTorch, and 503.45 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank5]: Traceback (most recent call last):
+[rank5]:   File "<frozen runpy>", line 198, in _run_module_as_main
+[rank5]:   File "<frozen runpy>", line 88, in _run_code
+[rank5]:   File "/root/kev/train.py", line 668, in <module>
+[rank5]:     main()
+[rank5]:     ~~~~^^
+[rank5]:   File "/root/kev/train.py", line 615, in main
+[rank5]:     (loss / group_records).backward()
+[rank5]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_tensor.py", line 647, in backward
+[rank5]:     torch.autograd.backward(
+[rank5]:     ~~~~~~~~~~~~~~~~~~~~~~~^
+[rank5]:         self, gradient, retain_graph, create_graph, inputs=inputs
+[rank5]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:     )
+[rank5]:     ^
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/__init__.py", line 354, in backward
+[rank5]:     _engine_run_backward(
+[rank5]:     ~~~~~~~~~~~~~~~~~~~~^
+[rank5]:         tensors,
+[rank5]:         ^^^^^^^^
+[rank5]:     ...<5 lines>...
+[rank5]:         accumulate_grad=True,
+[rank5]:         ^^^^^^^^^^^^^^^^^^^^^
+[rank5]:     )
+[rank5]:     ^
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/autograd/graph.py", line 829, in _engine_run_backward
+[rank5]:     return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+[rank5]:            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:         t_outputs, *args, **kwargs
+[rank5]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:     )  # Calls into the C++ engine to run the backward pass
+[rank5]:     ^
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1146, in unpack_hook
+[rank5]:     _run_fn_with_dynamo_disabled(frame.recompute_fn, *args)
+[rank5]:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_compile.py", line 53, in inner
+[rank5]:     return disable_fn(*args, **kwargs)
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/_dynamo/eval_frame.py", line 929, in _fn
+[rank5]:     return fn(*args, **kwargs)
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1116, in _run_fn_with_dynamo_disabled
+[rank5]:     return fn(*args, **kwargs)
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/utils/checkpoint.py", line 1542, in recompute_fn
+[rank5]:     fn(*args, **kwargs)
+[rank5]:     ~~^^^^^^^^^^^^^^^^^
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/distributed/fsdp/_fully_shard/_fully_shard.py", line 658, in wrapped_method
+[rank5]:     out = orig_method(*args, **kwargs)
+[rank5]:   File "/root/kev/shared_prefix.py", line 129, in _step
+[rank5]:     h_s = layer.forward(h_s, position_embeddings=ropes[0], attention_mask=masks[0], position_ids=positions[0], past_key_values=prefix)
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 911, in forward
+[rank5]:     hidden_states = self.mlp(hidden_states)
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank5]:     return self._call_impl(*args, **kwargs)
+[rank5]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank5]:     return forward_call(*args, **kwargs)
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/transformers/models/qwen3_5/modeling_qwen3_5.py", line 836, in forward
+[rank5]:     down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+[rank5]:                                                                 ~~~~~~~~~~~~^^^
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+[rank5]:     return self._call_impl(*args, **kwargs)
+[rank5]:            ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+[rank5]:     return forward_call(*args, **kwargs)
+[rank5]:   File "/.uv/.venv/lib/python3.13/site-packages/torch/nn/modules/linear.py", line 125, in forward
+[rank5]:     return F.linear(input, self.weight, self.bias)
+[rank5]:            ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.05 GiB. GPU 5 has a total capacity of 139.80 GiB of which 2.36 GiB is free. Process 1 has 137.43 GiB memory in use. Of the allocated memory 135.34 GiB is allocated by PyTorch, and 503.45 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+W0926 13:40:13.613000 2979 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3001 closing signal SIGTERM
+W0926 13:40:13.614000 2979 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3002 closing signal SIGTERM
+W0926 13:40:13.615000 2979 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3003 closing signal SIGTERM
+W0926 13:40:13.615000 2979 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3004 closing signal SIGTERM
+W0926 13:40:13.616000 2979 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3005 closing signal SIGTERM
+W0926 13:40:13.616000 2979 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3006 closing signal SIGTERM
+W0926 13:40:13.617000 2979 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3007 closing signal SIGTERM
+E0926 13:40:17.304000 2979 torch/distributed/elastic/multiprocessing/api.py:874] failed (exitcode: 1) local_rank: 7 (pid: 3008) of binary: /.uv/.venv/bin/python
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/.uv/.venv/lib/python3.13/site-packages/torch/distributed/run.py", line 905, in <module>
+    main()
+    ~~~~^^
+  File "/.uv/.venv/lib/python3.13/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 357, in wrapper
+    return f(*args, **kwargs)
+  File "/.uv/.venv/lib/python3.13/site-packages/torch/distributed/run.py", line 901, in main
+    run(args)
+    ~~~^^^^^^
+  File "/.uv/.venv/lib/python3.13/site-packages/torch/distributed/run.py", line 892, in run
+    elastic_launch(
+    ~~~~~~~~~~~~~~~
+        config=config,
+        ~~~~~~~~~~~~~~
+        entrypoint=cmd,
+        ~~~~~~~~~~~~~~~
+    )(*cmd_args)
+    ~^^^^^^^^^^^
+  File "/.uv/.venv/lib/python3.13/site-packages/torch/distributed/launcher/api.py", line 143, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+  File "/.uv/.venv/lib/python3.13/site-packages/torch/distributed/launcher/api.py", line 277, in launch_agent
+    raise ChildFailedError(
+    ...<2 lines>...
+    )
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+kev.train FAILED
+------------------------------------------------------------
+Failures:
+  <NO_OTHER_FAILURES>
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-09-26_13:40:13
+  host      : localhost
+  rank      : 7 (local_rank: 7)
+  exitcode  : 1 (pid: 3008)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

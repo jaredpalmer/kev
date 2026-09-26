@@ -29,7 +29,16 @@ Title Case sections, API tables, Authors + License); model cards are formal.
     most N tokens (encode's count, `<state>` included) emit none pairs, drawn from each record's own stream
     (`kev.train.none_pairs`), and `--length_sort` counts their two siblings (the state twice more) in the record's cost, so a
     pass cannot outgrow the cost its run was cut to. A pair repeats the whole state, so on long states it tripled a pass
-    past the GPU (round 21's projection).
+    past the GPU (round 21's projection). `--pass_tokens_max N` (plan key `pass_tokens_max`, needs `--length_sort 1`, not
+    with `--row_budget` or `--perm_kl`; absent = today's plan byte for byte): the plan cuts each step on exact token shapes
+    (`kev.train.plan_shapes`: every variant the epoch trains, siblings included, branches encoded without their state, the
+    state counted once by `state_token_counts`) instead of characters, and a step whose costliest pass is over N padded
+    tokens (`pass_tokens`) gets one more micro-batch per rank until none is (every rank the same count; a record over N
+    alone is refused before the first step). Round 21 ran out of memory at its 62nd step on a characters plan: a
+    token-dense PII state set the padding of 16 states at 5,877 tokens, a 98.7k-token pass costed in characters like its
+    slot's other passes of 33-50k tokens.
+    27B, 8 H200: N = 40,960 peaks at 101.6-108.2 GiB per GPU on the worst passes the plan allows
+    (`scripts/sft_probe.py --passes`, `runs/sft-probe/r22-ceiling-27b-8xh200`).
   - architecture / precision: `--lora`, `--lora_targets all|dense|attn|qv` (`dense` freezes the DeltaNet projections on
     hybrid bases), `--head_dim`, `--option_isolation`, `--special_embeddings`, `--dtype` (autocast) vs `--weights_dtype`
     (frozen backbone; bf16 is required by the fused MoE experts of 35B-A3B).

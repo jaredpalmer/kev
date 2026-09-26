@@ -1,0 +1,164 @@
+{
+  "gpu": "H200:8",
+  "base": "Qwen/Qwen3.8-27B",
+  "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "train_args": "--lr 1e-5",
+  "steps": 3,
+  "warmup": 1,
+  "usd_per_hour": 41.17,
+  "passes": [
+    {
+      "name": "max_P_many_states",
+      "variants": 18,
+      "pass_tokens": 40944,
+      "pass_tokens_planned": 40944,
+      "states": 18,
+      "longest_state": 1512,
+      "branches": 39,
+      "longest_branch": 352,
+      "return_code": 0,
+      "seconds": 186,
+      "peak_nvidia_smi_gb": 103.2,
+      "peak_nvidia_smi_gb_per_gpu": [
+        103.2,
+        103.2,
+        103.2,
+        103.2,
+        103.2,
+        103.2,
+        103.2,
+        103.2
+      ],
+      "out_of_memory": false,
+      "seconds_per_step": 18.0875,
+      "step_seconds": [
+        30.989,
+        18.063,
+        18.112
+      ],
+      "fixed_overhead_seconds": 119,
+      "peak_allocated_gb_rank0": 95.9
+    },
+    {
+      "name": "max_nbLs",
+      "variants": 1,
+      "pass_tokens": 30951,
+      "pass_tokens_planned": 30951,
+      "states": 1,
+      "longest_state": 29631,
+      "branches": 10,
+      "longest_branch": 132,
+      "return_code": 0,
+      "seconds": 154,
+      "peak_nvidia_smi_gb": 103.7,
+      "peak_nvidia_smi_gb_per_gpu": [
+        103.7,
+        103.7,
+        103.7,
+        103.7,
+        103.7,
+        103.7,
+        103.7,
+        103.7
+      ],
+      "out_of_memory": false,
+      "seconds_per_step": 18.5445,
+      "step_seconds": [
+        25.894,
+        18.515,
+        18.574
+      ],
+      "fixed_overhead_seconds": 91,
+      "peak_allocated_gb_rank0": 96.7
+    },
+    {
+      "name": "max_states",
+      "variants": 74,
+      "pass_tokens": 38130,
+      "pass_tokens_planned": 38130,
+      "states": 74,
+      "longest_state": 337,
+      "branches": 97,
+      "longest_branch": 136,
+      "return_code": 0,
+      "seconds": 149,
+      "peak_nvidia_smi_gb": 101.6,
+      "peak_nvidia_smi_gb_per_gpu": [
+        101.6,
+        101.6,
+        101.6,
+        101.6,
+        101.6,
+        101.6,
+        101.6,
+        101.6
+      ],
+      "out_of_memory": false,
+      "seconds_per_step": 15.651,
+      "step_seconds": [
+        26.546,
+        15.64,
+        15.662
+      ],
+      "fixed_overhead_seconds": 92,
+      "peak_allocated_gb_rank0": 92.9
+    },
+    {
+      "name": "max_P_two_long",
+      "variants": 2,
+      "pass_tokens": 40958,
+      "pass_tokens_planned": 40958,
+      "states": 2,
+      "longest_state": 18859,
+      "branches": 9,
+      "longest_branch": 360,
+      "return_code": 0,
+      "seconds": 248,
+      "peak_nvidia_smi_gb": 108.2,
+      "peak_nvidia_smi_gb_per_gpu": [
+        108.2,
+        108.2,
+        108.2,
+        108.2,
+        108.2,
+        108.2,
+        108.2,
+        108.2
+      ],
+      "out_of_memory": false,
+      "seconds_per_step": 38.7185,
+      "step_seconds": [
+        46.942,
+        38.701,
+        38.736
+      ],
+      "fixed_overhead_seconds": 124,
+      "peak_allocated_gb_rank0": 102.7
+    },
+    {
+      "name": "r21_step62_rank1",
+      "variants": 16,
+      "pass_tokens": 98682,
+      "pass_tokens_planned": 98682,
+      "states": 16,
+      "longest_state": 5877,
+      "branches": 31,
+      "longest_branch": 150,
+      "return_code": 1,
+      "seconds": 83,
+      "peak_nvidia_smi_gb": 137.4,
+      "peak_nvidia_smi_gb_per_gpu": [
+        137.4,
+        137.4,
+        137.4,
+        137.4,
+        137.4,
+        137.4,
+        137.4,
+        137.4
+      ],
+      "out_of_memory": true,
+      "log_tail": "ting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)\nW0926 13:40:13.613000 2979 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3001 closing signal SIGTERM\nW0926 13:40:13.614000 2979 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3002 closing signal SIGTERM\nW0926 13:40:13.615000 2979 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3003 closing signal SIGTERM\nW0926 13:40:13.615000 2979 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3004 closing signal SIGTERM\nW0926 13:40:13.616000 2979 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3005 closing signal SIGTERM\nW0926 13:40:13.616000 2979 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3006 closing signal SIGTERM\nW0926 13:40:13.617000 2979 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3007 closing signal SIGTERM\nE0926 13:40:17.304000 2979 torch/distributed/elastic/multiprocessing/api.py:874] failed (exitcode: 1) local_rank: 7 (pid: 3008) of binary: /.uv/.venv/bin/python\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/.uv/.venv/lib/python3.13/site-packages/torch/distributed/run.py\", line 905, in <module>\n    main()\n    ~~~~^^\n  File \"/.uv/.venv/lib/python3.13/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py\", line 357, in wrapper\n    return f(*args, **kwargs)\n  File \"/.uv/.venv/lib/python3.13/site-packages/torch/distributed/run.py\", line 901, in main\n    run(args)\n    ~~~^^^^^^\n  File \"/.uv/.venv/lib/python3.13/site-packages/torch/distributed/run.py\", line 892, in run\n    elastic_launch(\n    ~~~~~~~~~~~~~~~\n        config=config,\n        ~~~~~~~~~~~~~~\n        entrypoint=cmd,\n        ~~~~~~~~~~~~~~~\n    )(*cmd_args)\n    ~^^^^^^^^^^^\n  File \"/.uv/.venv/lib/python3.13/site-packages/torch/distributed/launcher/api.py\", line 143, in __call__\n    return launch_agent(self._config, self._entrypoint, list(args))\n  File \"/.uv/.venv/lib/python3.13/site-packages/torch/distributed/launcher/api.py\", line 277, in launch_agent\n    raise ChildFailedError(\n    ...<2 lines>...\n    )\ntorch.distributed.elastic.multiprocessing.errors.ChildFailedError: \n============================================================\nkev.train FAILED\n------------------------------------------------------------\nFailures:\n  <NO_OTHER_FAILURES>\n------------------------------------------------------------\nRoot Cause (first observed failure):\n[0]:\n  time      : 2026-09-26_13:40:13\n  host      : localhost\n  rank      : 7 (local_rank: 7)\n  exitcode  : 1 (pid: 3008)\n  error_file: <N/A>\n  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html\n============================================================\n"
+    }
+  ]
+}

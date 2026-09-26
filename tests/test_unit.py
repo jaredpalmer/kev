@@ -651,6 +651,70 @@ def test_none_pair_max_state_pairs_only_short_states_and_the_plan_counts_them(ti
     assert sorted(r["_meta"]["id"] for p in paired for c, _, _ in p for r in c) == sorted(r["_meta"]["id"] for p in plain for c, _, _ in p for r in c)
 
 
+def test_plan_shapes_are_the_encoded_shapes(tiny_base):
+    """--pass_tokens_max plans on plan_shapes: per record, the (state, branches) token shapes of exactly the variants
+    encode_batch then encodes (augmented, none-pair siblings included), with or without the gate's pairs."""
+    from types import SimpleNamespace
+    from kev.data import load_records
+    from kev.model import MAX_STATE, load_tokenizer
+    from kev.train import encode_batch, none_pairs, plan_shapes, shape, state_token_counts
+    tok = load_tokenizer(str(tiny_base / "base"))
+    model = DecisionModel(str(tiny_base / "base"), tok, "cpu")
+    reqs = load_records(tiny_base / "data.jsonl")
+    counts = state_token_counts(tok, reqs)
+    a = SimpleNamespace(seed=0, p_none=0.3, p_none_distract=0.3, p_distract=0.3, p_none_pair=0.5, none_pair_max_state=12, perm_kl=0.0, perm_frac=0.0,
+                        max_state=MAX_STATE, row_budget=0, shared_prefix=1)
+    for pairs in (none_pairs(a, reqs, 1, counts), None):
+        shapes = plan_shapes(model, tok, a, reqs, 1, pairs, counts)
+        assert all(shapes[id(r)] == [shape(v.enc) for v in encode_batch(model, tok, a, [r], 1, pairs)] for r in reqs)
+        assert any(len(s) == 3 for s in shapes.values()) and any(len(s) == 1 for s in shapes.values())
+
+
+def test_pass_tokens_max_caps_every_pass_with_equal_counts_per_rank():
+    """--pass_tokens_max: on token shapes, a step whose costliest run is over the ceiling gets more micro-batches, the same
+    number on every rank, until no pass is over it; each step still trains its own records once (a short last step with
+    more runs than records repeats its cheapest, counted in the step's normaliser); a record over the ceiling on its
+    own is refused; without shapes the plan is today's."""
+    from kev.train import microbatch_plan, pass_tokens
+    # two full steps of 8 records (2 x 2 per rank) and a last step of 3; the short records at indices divisible by 3 carry siblings
+    sizes = [300, 290, 280, 270, 260, 5, 6, 7, 8, 9, 12, 60, 70, 15, 25, 35, 400, 390, 7]
+    reqs = [{"_meta": {"id": f"r{i}"}, "state": "s" * n, "questions": {"q": {"instr": "x"}}} for i, n in enumerate(sizes)]
+    shapes = {id(r): [(n, [4])] + ([(n, [5]), (n, [5])] if n < 100 and i % 3 == 0 else []) for i, (r, n) in enumerate(zip(reqs, sizes))}
+    cost = lambda chunk: pass_tokens([s for r in chunk for s in shapes[id(r)]], True)
+    a, world = SimpleNamespace(batch=2, accum=2, length_sort=1, shared_prefix=1, pass_tokens_max=450), 2
+    plans = [microbatch_plan(reqs, a, world, rank, None, shapes) for rank in range(world)]
+    assert len(plans[0]) == len(plans[1]) and [e for _, _, e in plans[0]] == [e for _, _, e in plans[1]]
+    assert max(cost(c) for p in plans for c, _, _ in p) <= 450
+    free = [microbatch_plan(reqs, SimpleNamespace(**{**vars(a), "pass_tokens_max": 0}), world, rank, None, shapes) for rank in range(world)]
+    assert max(cost(c) for p in free for c, _, _ in p) > 450 and len(free[0]) == 5 and len(plans[0]) == 7   # steps 1 and 3 got one more each
+    ends = [k for k, (_, _, e) in enumerate(plans[0]) if e]
+    steps = [[r["_meta"]["id"] for p in plans for c, _, _ in p[lo:hi + 1] for r in c] for lo, hi in zip([0] + [k + 1 for k in ends], ends)]
+    assert [sorted(s) for s in steps[:2]] == [sorted(r["_meta"]["id"] for r in reqs[:8]), sorted(r["_meta"]["id"] for r in reqs[8:16])]
+    assert sorted(steps[2]) == ["r16", "r17", "r18", "r18"]   # 4 runs for 3 records: the cheapest repeats
+    assert [plans[0][k][1] for k in ends] == [8, 8, 4]         # and counts in the step's normaliser
+    with pytest.raises(ValueError, match="r16"):
+        microbatch_plan(reqs, SimpleNamespace(**{**vars(a), "pass_tokens_max": 400}), world, 0, None, shapes)   # r16 alone: 400 + 4
+    assert microbatch_plan(reqs, a, world, 0) == microbatch_plan(reqs, SimpleNamespace(batch=2, accum=2, length_sort=1, shared_prefix=1), world, 0)
+
+
+def test_pass_tokens_max_refusals(monkeypatch, capsys):
+    """The ceiling caps the passes --length_sort plans: refused without it, with --row_budget and with --perm_kl (a
+    permuted copy is a second pass alive at the same time); a study trial the same (kev.experiment.validated_trial), where
+    it is optional and absent from today's config hashes."""
+    from kev.experiment import validated_trial
+    for extra in ((), ("--length_sort", "1", "--perm_kl", "0.1"), ("--length_sort", "1", "--row_budget", "8192")):
+        with pytest.raises(SystemExit):
+            _parse_train(monkeypatch, "--pass_tokens_max", "40960", *extra)
+        assert "--pass_tokens_max caps" in capsys.readouterr().err
+    assert _parse_train(monkeypatch, "--pass_tokens_max", "40960", "--length_sort", "1").pass_tokens_max == 40960
+    manifest = {"base_revisions": {"b": "0" * 40}, "trainable_sources": []}
+    assert validated_trial({"base": "b", "length_sort": 1, "pass_tokens_max": 40960}, manifest)["pass_tokens_max"] == 40960
+    assert "pass_tokens_max" not in validated_trial({"base": "b", "length_sort": 1}, manifest)
+    for bad in ({"pass_tokens_max": 40960}, {"length_sort": 1, "pass_tokens_max": 40960, "perm_kl": 0.1}, {"length_sort": 1, "pass_tokens_max": 0}):
+        with pytest.raises(ValueError):
+            validated_trial({"base": "b", **bad}, manifest)
+
+
 @pytest.mark.parametrize("shared", [0, 1])
 def test_row_budget_changes_passes_not_gradients(tiny_base, shared):
     """--row_budget splits a micro-batch into forward/backward passes (here every record by question, each part carrying
@@ -796,17 +860,26 @@ def _run_train(args, out, ranks=1):
     return done.stdout
 
 
-@pytest.mark.parametrize("ranks,gate", [(1, ()), (2, ()), (1, ("--none_pair_max_state", "10")), (2, ("--none_pair_max_state", "10"))])
+@pytest.mark.parametrize("ranks,gate", [(1, ()), (2, ()), (1, ("--none_pair_max_state", "10")), (2, ("--none_pair_max_state", "10")),
+                                        # the ceilings just above the costliest tiny record alone (siblings included: 157 padded
+                                        # tokens with every record's own draw, 127 gated), so some steps split
+                                        (1, ("--pass_tokens_max", "160")), (2, ("--none_pair_max_state", "10", "--pass_tokens_max", "128"))])
 def test_resume_is_bit_identical(tiny_base, tmp_path, ranks, gate):
     """A full-weight run that stops after step 3 (its resume point: fp32 masters and moments, scheduler, RNG, data
     position) and continues with --resume 1 ends with the same bits as an uninterrupted run, across an epoch boundary,
-    on one process and on two FSDP2 ranks; with --none_pair_max_state too (the ranks deal the same gated pairs)."""
+    on one process and on two FSDP2 ranks; with --none_pair_max_state too (the ranks deal the same gated pairs), and with
+    --pass_tokens_max (the continuation plans the same extra micro-batches)."""
+    import re
     from safetensors.torch import load_file
     from kev.checkpoint import read_meta
     args = ["--base", str(tiny_base / "base"), "--data", str(tiny_base / "data.jsonl"), "--device", "cpu", "--batch", "2", "--accum", str(2 // ranks),
             "--lr", "1e-3", "--epochs", "2", "--p_none_pair", "0.5", "--length_sort", "1", *FULL, *gate]
     out = _run_train(args, tmp_path / "whole", ranks)
-    assert ("none pairs: " in out) == bool(gate)
+    assert ("none pairs: " in out) == ("--none_pair_max_state" in gate)
+    if "--pass_tokens_max" in gate:   # the first epoch (where the run stops) has more micro-batches than --accum per step; no pass is over
+        ceiling = int(gate[-1])
+        plans = [tuple(map(int, m)) for m in re.findall(r"plan: (\d+) micro-batches per rank for (\d+) steps \(--accum \d+\); rank 0's largest pass (\d+)", out)]
+        assert len(plans) == 2 and plans[0][0] > plans[0][1] * (2 // ranks) and all(largest <= ceiling for _, _, largest in plans), out
     _run_train([*args, "--save_every_steps", "3", "--stop_after", "3"], tmp_path / "split", ranks)
     assert (tmp_path / "split/resume/latest.json").exists() and not (tmp_path / "split/model.safetensors").exists()
     _run_train([*args, "--resume", "1"], tmp_path / "split", ranks)

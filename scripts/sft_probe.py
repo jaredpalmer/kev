@@ -15,7 +15,7 @@ row form runs (the state once per question). Throughput is the mean step after `
 `--no_conv_kernel` hides causal-conv1d from the trainer (transformers then runs its PyTorch convolution), for an A/B.
 Writes report.json.
 """
-import argparse, bisect, os, random, shlex, shutil, statistics, subprocess, sys, threading, time
+import argparse, bisect, json, os, random, shlex, shutil, statistics, subprocess, sys, threading, time
 from pathlib import Path
 
 import torch
@@ -63,6 +63,18 @@ def build(tok, n, seed, mix):
     return out, stats, sum(profile["records"][p] for p in parts)
 
 
+def exact_text(tok, words, start, n):
+    """Decoded text of `n` tokens of `words` from `start` that encodes (user_tokens) to exactly n tokens: decoding a token
+    slice and encoding it again can merge or split a few tokens at the seams, so the slice is adjusted."""
+    take = n
+    for _ in range(8):
+        text = tok.decode(words[start:start + take])
+        have = len(user_tokens(tok, text))
+        if have == n: return text
+        take += n - have
+    raise ValueError(f"could not cut a text of exactly {n} tokens")
+
+
 def build_long(tok, n, state_tokens, questions, seed):
     """--state_tokens: n records whose state is exactly `state_tokens` tokens (the <state> delimiter included) of
     decision-v7 training text, each with `questions` decision-v7 questions drawn at random. -> (requests, stats as build's)."""
@@ -75,14 +87,7 @@ def build_long(tok, n, state_tokens, questions, seed):
         words += tok("\n\n".join(render(r["state"]) for r in order[used:used + 500]) + "\n\n", add_special_tokens=False).input_ids; used += 500
     out, stats = [], []
     for i in range(n):
-        start, take = rng.randrange(len(words) - state_tokens), state_tokens - 1
-        for _ in range(8):   # decoding a token slice and encoding it again can merge or split a few tokens at the seams
-            text = tok.decode(words[start:start + take])
-            have = len(user_tokens(tok, text))
-            if have == state_tokens - 1: break
-            take += state_tokens - 1 - have
-        else:
-            raise ValueError(f"could not cut a state of exactly {state_tokens} tokens")
+        text = exact_text(tok, words, rng.randrange(len(words) - state_tokens), state_tokens - 1)
         while True:   # questions are drawn again until every branch fits the training context with the admission headroom
             picks = [rng.choice(list(r["questions"].values())) for r in rng.sample(pool, questions)]   # (augmentation may add an option)
             r = {"state": text, "questions": {f"q{j}": q for j, q in enumerate(picks)}, "_meta": {"source": "probe", "id": f"probe/{state_tokens}/{i}"}}
@@ -92,6 +97,40 @@ def build_long(tok, n, state_tokens, questions, seed):
         assert len(S) == state_tokens
         out.append(r); stats.append((len(S) + sum(len(x["ids"]) for x in rows), sum(len(S) + len(x["ids"]) for x in rows), len(rows)))
     return out, stats
+
+
+def build_passes(tok, passes, seed):
+    """--passes: per pass (a list of variants, each (state tokens, [branch tokens])), one record per variant whose state
+    and branches encode to exactly those lengths (decision-v7 training text; each question a two-option Choice whose
+    instruction is cut to length). A none-pair sibling is a variant like any other: the same state length with one
+    question, so the pass runs the tensors of the real one. -> [[record per variant] per pass]."""
+    rng, context = random.Random(seed), training_context(MAX_TRAIN_STATE)
+    pool = load_split(SUITE, "train")
+    words = tok("\n\n".join(render(r["state"]) for r in rng.sample(pool, 3000)), add_special_tokens=False).input_ids
+    branch = lambda instr: len(rows_of(encode(tok, materialize({"state": "", "questions": {"q": {"type": "choice", "instructions": instr, "criteria": {"yes": None, "no": None}, "label": "yes", "src": "probe"}}}),
+                                              max_state=context["max_state"], max_branch=context["max_branch"]))[2][0]["ids"])
+    overhead = branch("")
+    out = []
+    for p, variants in enumerate(passes):
+        recs = []
+        for v, (state, branches) in enumerate(variants):
+            if state + 1 >= len(words): raise ValueError(f"state of {state} tokens is longer than the probe text")
+            questions = {}
+            for j, b in enumerate(branches):
+                n = max(1, b - overhead)
+                for _ in range(8):   # the instruction's own seams: adjust until the branch is exactly b tokens
+                    instr = exact_text(tok, words, rng.randrange(len(words) - n), n)
+                    got = branch(instr)
+                    if got == b: break
+                    n = max(1, n + b - got)
+                questions[f"q{j}"] = {"type": "choice", "instructions": instr, "criteria": {"yes": None, "no": None}, "label": "yes", "src": "probe"}
+            r = {"state": exact_text(tok, words, rng.randrange(len(words) - state), state - 1), "questions": questions,
+                 "_meta": {"source": "probe", "id": f"probe/pass{p}/{v}"}}
+            S, _, rows = rows_of(encode(tok, materialize(r), max_state=context["max_state"], max_branch=context["max_branch"], strict=True))
+            if len(S) != state: raise ValueError(f"built state {len(S)} != {state}")
+            recs.append(r)
+        out.append(recs)
+    return out
 
 
 def host_memory_bytes():
@@ -165,6 +204,10 @@ def main():
                                                        "of exactly that state (--questions each), --max_state set to it; a run that fails is reported, not fatal")
     ap.add_argument("--questions", type=int, default=3, help="questions per record with --state_tokens")
     ap.add_argument("--fallbacks", default="", help="with --state_tokens: ';'-separated extra kev.train arguments tried in order at a length whose run failed")
+    ap.add_argument("--passes", default="", help="pass shapes to replay, each on every rank (replay_passes): a JSON file, or the JSON itself (from "
+                                                 "modal_app.py::sft_probe --flags); --steps optimizer steps each, --max_state the training state limit")
+    ap.add_argument("--steps", type=int, default=3)
+    ap.add_argument("--max_state", type=int, default=32768)
     a = ap.parse_args()
     out = Path(a.out); out.mkdir(parents=True)
     tok = load_tokenizer(a.base, revision=a.revision)
@@ -173,6 +216,7 @@ def main():
         (out / "stub/causal_conv1d").mkdir(parents=True); (out / "stub/causal_conv1d/__init__.py").write_text("raise ImportError('hidden by sft_probe')\n", encoding="utf-8")
         env["PYTHONPATH"] = f"{out / 'stub'}:{env.get('PYTHONPATH', '')}"
     if a.state_tokens: return long_states(a, out, tok, env)
+    if a.passes: return replay_passes(a, out, tok, env)
     recs, stats, corpus = build(tok, a.records, a.seed, a.mix)
     write_jsonl(out / "probe.jsonl", recs)
     mean = lambda i: statistics.mean(s[i] for s in stats)
@@ -192,6 +236,48 @@ def main():
     if a.check_load: report["load_check"] = load_check(str(out / "checkpoint"), recs, a.check_load)
     write_json(out / "report.json", report)
     print({k: v for k, v in report.items() if k != "training_metrics"}, flush=True)
+
+
+def replay_passes(a, out, tok, env):
+    """--passes FILE ([{"name", "variants": [[state tokens, [branch tokens]], ...]}, ...]): per pass, a short run in which
+    every rank's every micro-batch is exactly that pass (the plain dealing, --batch = its variants, --accum 1; the data is
+    laid out so that kev.train's epoch shuffle, random.Random(seed), puts it there), `--steps` optimizer steps. Reports
+    per pass what long_states does, plus the pass's padded tokens (kev.train.pass_tokens) as built. A failed run (out of
+    memory, say) is reported and the next pass runs."""
+    from kev.train import pass_tokens
+    spec = json.loads(a.passes) if a.passes.lstrip().startswith("[") else read_json(a.passes)
+    world = gpu_count(a.gpu)
+    report = {"gpu": a.gpu, "base": a.base, "revision": a.revision, "train_args": a.train, "steps": a.steps, "warmup": a.warmup,
+              "usd_per_hour": round(hourly_rate(a.gpu, full_ft=True), 2), "passes": []}
+    for p, recs in zip(spec, build_passes(tok, [p["variants"] for p in spec], a.seed)):
+        context = training_context(MAX_TRAIN_STATE)
+        shapes = [(len(S), [len(x["ids"]) for x in rows]) for S, _, rows in
+                  (rows_of(encode(tok, materialize(r), max_state=context["max_state"], max_branch=context["max_branch"])) for r in recs)]
+        k, n = len(recs), len(recs) * world * a.steps
+        order = list(range(n)); random.Random(a.seed).shuffle(order)   # kev.train: reqs[i] after the shuffle is data[order[i]]
+        data = [None] * n
+        for i, at in enumerate(order): data[at] = recs[(i // world) % k]   # rank r's micro-batch m holds shuffled[(m*k + t)*world + r] = variant t
+        write_jsonl(out / f"pass-{p['name']}.jsonl", data)
+        entry = {"name": p["name"], "variants": k, "pass_tokens": pass_tokens(shapes, True), "pass_tokens_planned": pass_tokens([tuple(v) for v in p["variants"]], True),
+                 "states": k, "longest_state": max(s for s, _ in shapes), "branches": sum(len(b) for _, b in shapes), "longest_branch": max(x for _, b in shapes for x in b)}
+        print(entry, flush=True)
+        ckpt, log = out / f"checkpoint-{p['name']}", out / f"train-{p['name']}.log"
+        extra = f"--batch {k} --accum 1 --length_sort 0 --max_steps {a.steps} --p_none 0 --p_none_distract 0 --p_distract 0 --p_none_pair 0 --seed {a.seed} {a.train}"
+        code, memory, seconds = run_training(train_command(a, ckpt, out / f"pass-{p['name']}.jsonl", a.max_state, extra), log, env)
+        text = log.read_text(encoding="utf-8")
+        entry.update({"return_code": code, "seconds": round(seconds), "peak_nvidia_smi_gb": round(memory.peak / 1024, 1),
+                      "peak_nvidia_smi_gb_per_gpu": [round(m / 1024, 1) for m in memory.per_gpu], "out_of_memory": "OutOfMemoryError" in text or "out of memory" in text})
+        if code:
+            entry["log_tail"] = text[-3000:]
+        else:
+            metrics = read_json(ckpt / "training_metrics.json")
+            steady = metrics["step_seconds"][a.warmup:] or metrics["step_seconds"]
+            entry.update({"seconds_per_step": statistics.mean(steady), "step_seconds": metrics["step_seconds"], "fixed_overhead_seconds": round(seconds - sum(metrics["step_seconds"])),
+                          "peak_allocated_gb_rank0": round(metrics["peak_device_bytes"] / 1e9, 1)})
+        shutil.rmtree(ckpt, ignore_errors=True)
+        report["passes"].append(entry)
+        print({k: v for k, v in entry.items() if k != "log_tail"}, flush=True)
+        write_json(out / "report.json", report)
 
 
 def long_states(a, out, tok, env):
