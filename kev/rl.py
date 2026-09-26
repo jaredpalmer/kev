@@ -166,7 +166,7 @@ def evaluate(policy, tok, a, tau, greedy, autocast):
             "belief_error": statistics.fmean(belief) if belief else None,
             "answer_n": len(ok), "answer_acc": float(np.mean(ok)) if ok else None, "answer_conf": float(np.mean(conf)) if conf else None,
             "answer_ece": ece(conf, ok) if ok else None, "answer_brier": float(np.mean((np.asarray(conf) - np.asarray(ok)) ** 2)) if ok else None,
-            "entropy": statistics.fmean(ent)}
+            "entropy": statistics.fmean(ent), "episode_returns": [round(episode_return(e), 4) for e in eps]}
 
 
 def load_policy(a, dev):
