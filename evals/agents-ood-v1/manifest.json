@@ -1,0 +1,70 @@
+{
+  "version": "agents-ood-v1",
+  "eval_only": true,
+  "report_only": true,
+  "partitions": [
+    "development"
+  ],
+  "description": "Eval-only records set aside by sft-v2's components, never trained on (their frozen records, concatenated; a non-clean _meta.variant moved to _meta.twin as in sft-v2, other lines byte for byte): agents/ood_eval.jsonl: evaluation only, never trained on: the held-out world (work types security_incident and ml_experiment never seen in training, namespaced MCP-style tool catalogs, agent product names and the `spans` trace format never used in training)",
+  "record_changes": "a _meta.variant other than clean moved to _meta.twin, variant set to clean (kev.benchmark scores only clean rows); counts per part below",
+  "roles": {
+    "development": "never trained on; read per candidate (report only)"
+  },
+  "files": {
+    "development.jsonl": {
+      "sha256": "dab5d4a9a93c50d941d507e30663a6ca82f9e1f2d08647a1cd89adbdfbf7999d",
+      "records": 373,
+      "questions": 2084,
+      "bytes": 17719668,
+      "in_git": false,
+      "state_tokens": {
+        "min": 2220,
+        "median": 12666,
+        "mean": 14646.7,
+        "p90": 27435,
+        "p99": 48546,
+        "max": 51149
+      },
+      "question_types": {
+        "choice": 860,
+        "noul": 1082,
+        "score": 142
+      }
+    }
+  },
+  "trainable_sources": [],
+  "eval_only_sources": [
+    "synthetic-v2/agent_sessions"
+  ],
+  "holdout_sources": [],
+  "source_note": "the source names are the ones the same components' training records carry in sft-v2 (same generators, held-out domains, carriers or wordings): never a temperature pool",
+  "base_revisions": {
+    "Qwen/Qwen3.8-27B": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "context": {
+    "max_state": 65536,
+    "max_branch": 73728,
+    "max_packed": 139264,
+    "truncate": false,
+    "note": "the serving context (64k-token states)"
+  },
+  "parts": [
+    {
+      "component": "agents",
+      "file": "ood_eval.jsonl",
+      "dataset_path": "sft-v2/agents/ood_eval.jsonl",
+      "revision": "45ff503c4ab3a89a80dbd7dc43f6df0ba4b2bc49",
+      "sha256": "fad6b72ad0e47c9b915a1bb898ff9da25746ad747da2bb6fd6640baf387ec069",
+      "records": 373,
+      "variant_moved_to_twin": 373,
+      "manifest": "jaredpalmer/kev-sft (private) synthetic/manifests/sft-v2-agents.manifest.json",
+      "manifest_sha256": "a1ccf4cb5a9ae78d853b31cf986f8f0a0cec1cb00af9d4dff73e2d1d0312faa1"
+    }
+  ],
+  "missing_parts": [],
+  "screen": "each component's own screen (its manifest); every sft-v2 training record is screened against this partition (evals/sft-v2/manifest.json)",
+  "mirror": {
+    "dataset": "jaredpalmer/kev-private-evals",
+    "revision": "d6498d4c42a3f85865dc776a24bf076ae0e1e267"
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "version": "guardrails-ood-v1",
+  "eval_only": true,
+  "report_only": true,
+  "partitions": [
+    "development"
+  ],
+  "description": "Eval-only records set aside by sft-v2's components, never trained on (their frozen records, concatenated; a non-clean _meta.variant moved to _meta.twin as in sft-v2, other lines byte for byte): guardrails-pii/ood.jsonl: EVAL ONLY, never trained on: held-out record formats (SMS thread, CSV export, call transcript, HR onboarding checklist, packing slip) and held-out countries (Brazil CPF, Poland PESEL, Singapore NRIC, South Korea RRN, South Africa ID; their phone and IBAN formats); guardrails-grounding/ood.jsonl: EVAL ONLY, never trained on: held-out document types (meeting transcript, email thread, contract, table export, FAQ), a held-out answer format (JSON claim list) and held-out perturbations (over-generalised scope, negation, unit/scale swap); long OOD records are buried among OOD passages only; injection/ood.jsonl: eval only, never trained on: carrier types unseen in every other partition (chat_export, csv_export, source_code, voicemail_transcript), and for half of its payloads addressee / directive wordings no other partition has (payloads.OOD_*); _meta.facts.payload.heldout_wording marks them",
+  "record_changes": "a _meta.variant other than clean moved to _meta.twin, variant set to clean (kev.benchmark scores only clean rows); counts per part below",
+  "roles": {
+    "development": "never trained on; read per candidate (report only)"
+  },
+  "files": {
+    "development.jsonl": {
+      "sha256": "99f8a1aa2608caff9d90aea3dc900f00817cb7d7f263006ebb690b901103f428",
+      "records": 1263,
+      "questions": 4949,
+      "bytes": 15297080,
+      "in_git": false,
+      "state_tokens": {
+        "min": 122,
+        "median": 1064,
+        "mean": 2081.1,
+        "p90": 2064,
+        "p99": 24081,
+        "max": 39073
+      },
+      "question_types": {
+        "choice": 2362,
+        "noul": 2292,
+        "score": 295
+      }
+    }
+  },
+  "trainable_sources": [],
+  "eval_only_sources": [
+    "synthetic-v2-guardrails/grounding",
+    "synthetic-v2-guardrails/injection",
+    "synthetic-v2-guardrails/pii"
+  ],
+  "holdout_sources": [],
+  "source_note": "the source names are the ones the same components' training records carry in sft-v2 (same generators, held-out domains, carriers or wordings): never a temperature pool",
+  "base_revisions": {
+    "Qwen/Qwen3.8-27B": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "context": {
+    "max_state": 65536,
+    "max_branch": 73728,
+    "max_packed": 139264,
+    "truncate": false,
+    "note": "the serving context (64k-token states)"
+  },
+  "parts": [
+    {
+      "component": "guardrails-pii",
+      "file": "ood.jsonl",
+      "dataset_path": "sft-v2/guardrails/pii/ood.jsonl",
+      "revision": "0ad2dbc65591e2c957521f4c429ffa22833fa00d",
+      "sha256": "0074c5eb79cf6a1b96501d3446a4a9aaeec444d880df87281ff582e3c20be097",
+      "records": 477,
+      "variant_moved_to_twin": 477,
+      "manifest": "jaredpalmer/kev-sft (private) synthetic/manifests/sft-v2-guardrails-pii.manifest.json",
+      "manifest_sha256": "3ea53f24c4f466943b549994cb56a158219b2a9c21ea9710aef2310acbc89b92"
+    },
+    {
+      "component": "guardrails-grounding",
+      "file": "ood.jsonl",
+      "dataset_path": "sft-v2/guardrails/grounding/ood.jsonl",
+      "revision": "0ad2dbc65591e2c957521f4c429ffa22833fa00d",
+      "sha256": "3b43a0643015a61c1288f4c6ac2a3c09cf6183a8ca7f5d5bf6935fa5159220b0",
+      "records": 380,
+      "variant_moved_to_twin": 380,
+      "manifest": "jaredpalmer/kev-sft (private) synthetic/manifests/sft-v2-guardrails-grounding.manifest.json",
+      "manifest_sha256": "5030180295ff9a5840618ffac145c974dec7af8dc0980fa94ea30db44115885c"
+    },
+    {
+      "component": "injection",
+      "file": "ood.jsonl",
+      "dataset_path": "sft-v2/guardrails/injection/ood.jsonl",
+      "revision": "9160a875c85853333c24e9cfe3c9e6889dbcc5d3",
+      "sha256": "2db05842ce289fa9fd30c78d6a084b04750f3da04d91cfdce1e84d73c62e7661",
+      "records": 406,
+      "variant_moved_to_twin": 406,
+      "manifest": "jaredpalmer/kev-sft (private) synthetic/manifests/sft-v2-guardrails-injection.manifest.json",
+      "manifest_sha256": "257257856eaad4ead7e94c12f7921fb13cd2a9268488455fc639f172356bcca8"
+    }
+  ],
+  "missing_parts": [],
+  "screen": "each component's own screen (its manifest); every sft-v2 training record is screened against this partition (evals/sft-v2/manifest.json)",
+  "mirror": {
+    "dataset": "jaredpalmer/kev-private-evals",
+    "revision": "d6498d4c42a3f85865dc776a24bf076ae0e1e267"
+  }
+}

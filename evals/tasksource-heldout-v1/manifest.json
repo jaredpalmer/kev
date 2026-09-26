@@ -1,0 +1,93 @@
+{
+  "version": "tasksource-heldout-v1",
+  "description": "Eval-only held-out-datasets suite: 24 whole dataset families of a public multi-task collection, held out of the private training component tasksource-v1 (part of sft-v2) and never trained on. Private: the text is in the private evaluation mirror and the family list in the private manifest; this public manifest carries hashes and counts only (Jared's decision, 2026-09-26).",
+  "eval_only": true,
+  "partitions": [
+    "development",
+    "test"
+  ],
+  "locked": [
+    "test"
+  ],
+  "roles": {
+    "development": "scored per trial",
+    "test": "locked; read once per registered confirmation (--allow-test)"
+  },
+  "files": {
+    "development.jsonl": {
+      "sha256": "5032ef8f2cb84dae78e6da8a204479e1ce04c133d3a7b893d5ce8015ff11c25a",
+      "records": 2386,
+      "questions": 2788,
+      "bytes": 3246507,
+      "soft_target_questions": 0,
+      "question_types": {
+        "choice": 2351,
+        "noul": 352,
+        "score": 85
+      },
+      "state_tokens": {
+        "min": 3,
+        "median": 33,
+        "p90": 170,
+        "p99": 492,
+        "max": 1643
+      },
+      "in_git": false
+    },
+    "test.jsonl": {
+      "sha256": "ea73d5e5373810e111ef8b239b449f956c894fe0c3f31256ee3ce8092d5564f5",
+      "records": 2395,
+      "questions": 2833,
+      "bytes": 3277980,
+      "soft_target_questions": 0,
+      "question_types": {
+        "choice": 2366,
+        "noul": 377,
+        "score": 90
+      },
+      "state_tokens": {
+        "min": 4,
+        "median": 33,
+        "p90": 171,
+        "p99": 530,
+        "max": 1969
+      },
+      "in_git": false
+    }
+  },
+  "families": 24,
+  "records_per_family": "100 per partition (a few families have slightly fewer after the evaluation-side screen)",
+  "trainable_sources": [],
+  "eval_only_sources": [],
+  "holdout_sources": [],
+  "sources_note": "the 24 families (record sources 'tasksource:<family>') are listed only in the private manifest. Rows written by kev.benchmark carry those sources, so this suite's rows.json and per-source reports stay in the private dataset (scripts/private_rows.py), like sft-v1's. No source is listed here, so this suite cannot serve as a temperature pool read (kev.rounds refuses a pool it cannot check).",
+  "base_revisions": {
+    "Qwen/Qwen3.8-27B": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "context": {
+    "tokenizer": {
+      "model": "Qwen/Qwen3.8-27B",
+      "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+    },
+    "max_state": 65536,
+    "max_branch": 66176,
+    "max_packed": 67200,
+    "truncate": false,
+    "admission_branch_headroom": 64,
+    "note": "admitted in kev.model.training_context(MAX_TRAIN_STATE) (PR #149: 65,536 state tokens); states are short (max 1,969 tokens)"
+  },
+  "label_policy": "tasksource's native labels, vote shares and exact posteriors, recast by tasksource's own deterministic code; no model labels anything here. Sources whose text or labels come from closed or undisclosed models are excluded (open-weight-only policy).",
+  "screen": "every record was screened against every Kev training partition (dropped when a Kev training record overlaps it or repeats its state); sft-v2's training records are screened against both partitions (evals/sft-v2/manifest.json)",
+  "private_manifest": {
+    "repository": "jaredpalmer/kev-sft (private)",
+    "branch": "tasksource-v1",
+    "commit": "3ffc81b46e147b368fb3bc410c33f04292c5b46a",
+    "path": "tasksource/manifests/tasksource-heldout-v1.manifest.json",
+    "sha256": "a628ab7c9db4045e86e2fd59a48b57bf26c4417545c8a663af357a0bfc1c0b32",
+    "built_at": "53ed4dfd14a3de7788d9aaa3ccdac11857a676bc"
+  },
+  "mirror": {
+    "dataset": "jaredpalmer/kev-private-evals",
+    "revision": "e4f2c71de2b1c9d1d6f2a939aff20f8d12d24471"
+  }
+}

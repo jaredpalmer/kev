@@ -1,0 +1,605 @@
+{
+  "round": 21,
+  "registered": "PLAN.md > Round 21 - full-weight SFT of Qwen3.8-27B on sft-v2 (long states, extended data), registered with this spec's commit, before any round-21 training or read",
+  "gpu": "H200",
+  "app": "kev-sft",
+  "studies": {
+    "r21-27b-lr2e6": {
+      "plan": "experiments/round21/lr2e6.json",
+      "suite": "evals/sft-v2-r21",
+      "transfer": "evals/v4/transfer-v4",
+      "gpu": "H200:8",
+      "timeout": 28800,
+      "budget": 988
+    },
+    "r21-27b-lr1e6": {
+      "plan": "experiments/round21/lr1e6.json",
+      "suite": "evals/sft-v2-r21",
+      "transfer": "evals/v4/transfer-v4",
+      "gpu": "H200:8",
+      "timeout": 28800,
+      "budget": 988
+    }
+  },
+  "reads": {
+    "breadth": {
+      "suite": "evals/breadth-v1"
+    },
+    "tsheld": {
+      "suite": "evals/tasksource-heldout-v1"
+    },
+    "hard": {
+      "suite": "evals/hard-v1"
+    },
+    "devtools": {
+      "suite": "evals/devtools-v1"
+    },
+    "docs": {
+      "suite": "evals/documents-v1"
+    },
+    "semif": {
+      "suite": "evals/external/semif-v1"
+    },
+    "scienthoon": {
+      "suite": "evals/external/scienthoon-v1"
+    },
+    "wanli2": {
+      "suite": "evals/external/wanli-v2"
+    },
+    "typesafe": {
+      "suite": "evals/external/typesafe-v1"
+    },
+    "v9": {
+      "suite": "evals/v9/transfer-v9"
+    },
+    "r3test": {
+      "suite": "evals/round3/transfer-r3",
+      "flags": "--allow-test"
+    },
+    "r3cal": {
+      "suite": "evals/round3/transfer-r3",
+      "flags": "--split calibration"
+    },
+    "transfer4": {
+      "suite": "evals/v4/transfer-v4"
+    },
+    "longdoc": {
+      "suite": "evals/longdoc-v1"
+    },
+    "ood": {
+      "suite": "evals/ood-v2"
+    },
+    "agentsood": {
+      "suite": "evals/agents-ood-v1"
+    },
+    "guardood": {
+      "suite": "evals/guardrails-ood-v1"
+    },
+    "breadthtest": {
+      "suite": "evals/breadth-v1",
+      "flags": "--allow-test"
+    },
+    "tshtest": {
+      "suite": "evals/tasksource-heldout-v1",
+      "flags": "--allow-test"
+    },
+    "hardtest": {
+      "suite": "evals/hard-v1",
+      "flags": "--allow-test"
+    },
+    "devtest": {
+      "suite": "evals/devtools-v1",
+      "flags": "--allow-test"
+    },
+    "docs1test": {
+      "suite": "evals/documents-v1",
+      "flags": "--allow-test"
+    },
+    "docs2": {
+      "suite": "evals/documents-v2",
+      "flags": "--allow-test"
+    },
+    "longdoctest": {
+      "suite": "evals/longdoc-v1",
+      "flags": "--allow-test"
+    },
+    "locked": {
+      "entrypoint": "locked_test",
+      "decision": "evals/v7/decision-v7"
+    }
+  },
+  "temperature": {
+    "reads": [
+      "r3cal",
+      "v9"
+    ],
+    "sources": {
+      "v9": [
+        "mmlu_pro"
+      ],
+      "r3cal": [
+        "composition_holdout",
+        "emotion",
+        "legacy_holdout",
+        "mmlu",
+        "paws",
+        "qnli",
+        "sciq",
+        "tweet_offensive"
+      ]
+    },
+    "exclude_reads": [
+      "transfer"
+    ]
+  },
+  "drop_ids": [
+    "codereviewer/cls-test/13657",
+    "codereviewer/cls-test/19245"
+  ],
+  "locked_args": {
+    "27b": [
+      "--timeout",
+      "14400",
+      "--memory-mb",
+      "131072"
+    ]
+  },
+  "parents": {
+    "27b": {
+      "trial": "runs/r6-27b-v2/01-trial-1",
+      "checkpoint": "jaredpalmer/kev-27b@01b81998019be550f0ae858727df49bac9511195",
+      "reads": {
+        "breadth": "runs/breadth-v1-kev-27b",
+        "tsheld": "runs/r21-P27-tsheld",
+        "hard": "runs/hv1-27b",
+        "devtools": "runs/dt1-27b",
+        "docs": "runs/r6-27bv2-s2-docs",
+        "v9": "runs/r6-27bv2-s2-v9",
+        "r3test": "runs/r19-P27-r3test",
+        "semif": "runs/r6-27bv2-s2-semif",
+        "scienthoon": "runs/r6-27bv2-s2-scienthoon",
+        "wanli2": "runs/r6-27bv2-s2-wanli2",
+        "typesafe": "runs/r6-27bv2-s2-typesafe",
+        "longdoc": "runs/longdoc-v1-kev-27b",
+        "ood": "runs/r21-P27-ood",
+        "agentsood": "runs/r21-P27-agentsood",
+        "guardood": "runs/r21-P27-guardood",
+        "locked": "runs/locked/kev-27b-v2-ungated/transfer"
+      }
+    }
+  },
+  "arms": {
+    "27b-lr2e6-s25": {
+      "checkpoint": "/runs/r21-27b-lr2e6/00-trial-0/snapshots/step-0000490/checkpoint",
+      "parent": "27b",
+      "transfer_read": "transfer4",
+      "trained_on": [
+        "evals/sft-v2-r21"
+      ]
+    },
+    "27b-lr2e6-s50": {
+      "checkpoint": "/runs/r21-27b-lr2e6/00-trial-0/snapshots/step-0000980/checkpoint",
+      "parent": "27b",
+      "transfer_read": "transfer4",
+      "trained_on": [
+        "evals/sft-v2-r21"
+      ]
+    },
+    "27b-lr2e6-s75": {
+      "checkpoint": "/runs/r21-27b-lr2e6/00-trial-0/snapshots/step-0001470/checkpoint",
+      "parent": "27b",
+      "transfer_read": "transfer4",
+      "trained_on": [
+        "evals/sft-v2-r21"
+      ]
+    },
+    "27b-lr2e6": {
+      "trial": "runs/r21-27b-lr2e6/00-trial-0",
+      "parent": "27b"
+    },
+    "27b-lr1e6-s25": {
+      "checkpoint": "/runs/r21-27b-lr1e6/00-trial-0/snapshots/step-0000490/checkpoint",
+      "parent": "27b",
+      "transfer_read": "transfer4",
+      "trained_on": [
+        "evals/sft-v2-r21"
+      ]
+    },
+    "27b-lr1e6-s50": {
+      "checkpoint": "/runs/r21-27b-lr1e6/00-trial-0/snapshots/step-0000980/checkpoint",
+      "parent": "27b",
+      "transfer_read": "transfer4",
+      "trained_on": [
+        "evals/sft-v2-r21"
+      ]
+    },
+    "27b-lr1e6-s75": {
+      "checkpoint": "/runs/r21-27b-lr1e6/00-trial-0/snapshots/step-0001470/checkpoint",
+      "parent": "27b",
+      "transfer_read": "transfer4",
+      "trained_on": [
+        "evals/sft-v2-r21"
+      ]
+    },
+    "27b-lr1e6": {
+      "trial": "runs/r21-27b-lr1e6/00-trial-0",
+      "parent": "27b"
+    }
+  },
+  "rule": {
+    "panels": {
+      "breadth": {
+        "reads": [
+          "breadth"
+        ],
+        "metrics": [
+          "acc",
+          "ece"
+        ]
+      },
+      "tasksource_heldout": {
+        "reads": [
+          "tsheld"
+        ],
+        "metrics": [
+          "acc",
+          "ece"
+        ]
+      },
+      "kev": {
+        "reads": [
+          "transfer",
+          "hard",
+          "devtools",
+          "docs"
+        ],
+        "metrics": [
+          "acc",
+          "ece"
+        ]
+      },
+      "short": {
+        "reads": [
+          "transfer",
+          "r3test"
+        ],
+        "metrics": [
+          "acc",
+          "brier",
+          "confident_error_rate"
+        ]
+      },
+      "scienthoon": {
+        "reads": [
+          "scienthoon"
+        ],
+        "metrics": [
+          "acc"
+        ]
+      },
+      "wanli2": {
+        "reads": [
+          "wanli2"
+        ],
+        "metrics": [
+          "acc"
+        ]
+      },
+      "pooled_external": {
+        "reads": [
+          "semif",
+          "scienthoon",
+          "wanli2",
+          "typesafe"
+        ],
+        "metrics": [
+          "acc"
+        ]
+      },
+      "long": {
+        "reads": [
+          "longdoc"
+        ],
+        "source": "longdoc_cuad",
+        "metrics": [
+          "acc",
+          "ece"
+        ],
+        "by_length": {
+          "tokenizer": [
+            "Qwen/Qwen3.8-27B",
+            "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+          ]
+        }
+      },
+      "long_generated": {
+        "reads": [
+          "longdoc"
+        ],
+        "source": "longdoc_synthetic",
+        "report": [
+          "acc",
+          "ece"
+        ],
+        "by_length": {
+          "tokenizer": [
+            "Qwen/Qwen3.8-27B",
+            "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+          ]
+        }
+      },
+      "ood": {
+        "reads": [
+          "ood"
+        ],
+        "report": [
+          "acc",
+          "ece"
+        ]
+      },
+      "agents_ood": {
+        "reads": [
+          "agentsood"
+        ],
+        "report": [
+          "acc",
+          "ece"
+        ]
+      },
+      "guardrails_ood": {
+        "reads": [
+          "guardood"
+        ],
+        "report": [
+          "acc",
+          "ece"
+        ]
+      }
+    },
+    "unknowable": "v9",
+    "criteria": {
+      "1_breadth_lower_above_0": {
+        "left": "breadth.acc.lower",
+        "op": ">",
+        "right": 0
+      },
+      "1_tasksource_heldout_lower_above_0": {
+        "left": "tasksource_heldout.acc.lower",
+        "op": ">",
+        "right": 0
+      },
+      "1_kev_lower_at_least_minus_1pp": {
+        "left": "kev.acc.lower",
+        "op": ">=",
+        "right": -0.01
+      },
+      "2_short_acc_lower_at_least_minus_2pp": {
+        "left": "short.acc.lower",
+        "op": ">=",
+        "right": -0.02
+      },
+      "2_short_brier_upper_at_most_0.01": {
+        "left": "short.brier.upper",
+        "op": "<=",
+        "right": 0.01
+      },
+      "2_short_confident_errors_upper_at_most_1pp": {
+        "left": "short.confident_error_rate.upper",
+        "op": "<=",
+        "right": 0.01
+      },
+      "2_wanli2_lower_at_least_minus_2pp": {
+        "left": "wanli2.acc.lower",
+        "op": ">=",
+        "right": -0.02
+      },
+      "2_scienthoon_lower_at_least_minus_4pp": {
+        "left": "scienthoon.acc.lower",
+        "op": ">=",
+        "right": -0.04
+      },
+      "2_pooled_lower_at_least_minus_2.5pp": {
+        "left": "pooled_external.acc.lower",
+        "op": ">=",
+        "right": -0.025
+      },
+      "2_long_cuad_lower_at_least_minus_2pp": {
+        "left": "long.acc.lower",
+        "op": ">=",
+        "right": -0.02
+      },
+      "2_long_cuad_16k_plus_at_least_minus_2pp": {
+        "left": [
+          "long.acc_16k_plus.candidate",
+          "long.acc_16k_plus.parent"
+        ],
+        "op": ">=",
+        "right": -0.02
+      },
+      "2_unknowable_at_most_0.05": {
+        "left": "unknowable.candidate",
+        "op": "<=",
+        "right": 0.05
+      },
+      "3_breadth_ece_at_most_parent_plus_0.01": {
+        "left": "breadth.ece.candidate",
+        "op": "<=",
+        "right": "breadth.ece.parent",
+        "plus": 0.01
+      },
+      "3_kev_ece_at_most_parent_plus_0.01": {
+        "left": "kev.ece.candidate",
+        "op": "<=",
+        "right": "kev.ece.parent",
+        "plus": 0.01
+      },
+      "3_tasksource_heldout_ece_at_most_parent_plus_0.01": {
+        "left": "tasksource_heldout.ece.candidate",
+        "op": "<=",
+        "right": "tasksource_heldout.ece.parent",
+        "plus": 0.01
+      },
+      "3_long_cuad_ece_16k_plus_at_most_parent_plus_0.01": {
+        "left": "long.ece_16k_plus.candidate",
+        "op": "<=",
+        "right": "long.ece_16k_plus.parent",
+        "plus": 0.01
+      }
+    },
+    "rank": [
+      {
+        "by": [
+          "breadth.acc.delta",
+          "tasksource_heldout.acc.delta",
+          "kev.acc.delta"
+        ],
+        "order": "desc"
+      }
+    ]
+  },
+  "confirm": {
+    "tests": {
+      "candidate_reads": "runs/r21c-{size}-cand-{tag}",
+      "parent_reads": "runs/r21c-{size}-parent-{tag}",
+      "panels": {
+        "breadthtest": {
+          "reads": [
+            "breadthtest"
+          ],
+          "metrics": [
+            "acc"
+          ],
+          "report": [
+            "ece"
+          ]
+        },
+        "tshtest": {
+          "reads": [
+            "tshtest"
+          ],
+          "metrics": [
+            "acc"
+          ],
+          "report": [
+            "ece"
+          ]
+        },
+        "pooled": {
+          "reads": [
+            "hardtest",
+            "devtest",
+            "docs1test"
+          ],
+          "metrics": [
+            "acc"
+          ]
+        },
+        "hardtest": {
+          "reads": [
+            "hardtest"
+          ],
+          "metrics": [
+            "acc"
+          ]
+        },
+        "devtest": {
+          "reads": [
+            "devtest"
+          ],
+          "metrics": [
+            "acc"
+          ]
+        },
+        "docs1test": {
+          "reads": [
+            "docs1test"
+          ],
+          "metrics": [
+            "acc"
+          ]
+        },
+        "docs2": {
+          "reads": [
+            "docs2"
+          ],
+          "metrics": [
+            "acc"
+          ]
+        },
+        "longtest": {
+          "reads": [
+            "longdoctest"
+          ],
+          "source": "longdoc_cuad",
+          "metrics": [
+            "acc"
+          ],
+          "report": [
+            "ece"
+          ],
+          "by_length": {
+            "tokenizer": [
+              "Qwen/Qwen3.8-27B",
+              "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+            ]
+          }
+        },
+        "longtest_generated": {
+          "reads": [
+            "longdoctest"
+          ],
+          "source": "longdoc_synthetic",
+          "report": [
+            "acc",
+            "ece"
+          ]
+        }
+      },
+      "criteria": {
+        "breadthtest_lower_above_0": {
+          "left": "breadthtest.acc.lower",
+          "op": ">",
+          "right": 0
+        },
+        "tshtest_lower_above_0": {
+          "left": "tshtest.acc.lower",
+          "op": ">",
+          "right": 0
+        },
+        "pooled_lower_at_least_minus_1pp": {
+          "left": "pooled.acc.lower",
+          "op": ">=",
+          "right": -0.01
+        }
+      }
+    },
+    "locked": {
+      "candidate_reads": {
+        "locked": "runs/locked/kev-{size}-r21-ungated/transfer"
+      },
+      "panels": {
+        "locked": {
+          "reads": [
+            "locked"
+          ],
+          "metrics": [
+            "acc",
+            "brier"
+          ]
+        }
+      },
+      "criteria": {
+        "locked_acc_at_least_0.886": {
+          "left": "locked.acc.candidate",
+          "op": ">=",
+          "right": 0.886
+        },
+        "served_brier_at_most_0.165": {
+          "left": "locked.brier.candidate",
+          "op": "<=",
+          "right": 0.165
+        }
+      }
+    }
+  }
+}

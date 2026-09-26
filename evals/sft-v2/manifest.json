@@ -1,0 +1,979 @@
+{
+  "version": "sft-v2",
+  "description": "The extended SFT corpus (private mirror; only this manifest is public): sft-v1 plus a licence- and provenance-filtered public multi-task component, long-state records built from sft-v1 train, code-assembled long documents, open-weight out-of-domain, tone minimal-pair and further synthetic components; every record admitted at 64k-token states; screened against every Kev evaluation item.",
+  "seed": "sft-v2-assemble-20260926",
+  "partitions": [
+    "train",
+    "calibration",
+    "development"
+  ],
+  "eval_only": false,
+  "roles": {
+    "train": "training",
+    "calibration": "never trained on; held-out items of the training components (in distribution): kev.experiment's in-trial temperature only (screening), never a served or shipped temperature",
+    "development": "never trained on; held-out items of the training components (in distribution): scored per trial for screening only; served and shipped temperatures come from a pool of held-out datasets (docs/autoresearch.md section 3)"
+  },
+  "files": {
+    "train.jsonl": {
+      "sha256": "42398d5c0d8932c66d193fdc5cea9e45767e94f332595acc348ef6c46c2005a2",
+      "records": 302103,
+      "questions": 586690,
+      "bytes": 3245395052,
+      "soft_target_questions": 19947,
+      "by_component": {
+        "sft-v1": {
+          "records": 194247,
+          "questions": 330932,
+          "state_tokens": 112523805,
+          "row_tokens_with_prefix_sharing": 135889212
+        },
+        "tasksource-v1": {
+          "records": 58191,
+          "questions": 79530,
+          "state_tokens": 8579696,
+          "row_tokens_with_prefix_sharing": 11611041
+        },
+        "longify": {
+          "records": 8000,
+          "questions": 17241,
+          "state_tokens": 186737154,
+          "row_tokens_with_prefix_sharing": 188250077
+        },
+        "longdoc": {
+          "records": 9060,
+          "questions": 32821,
+          "state_tokens": 195548412,
+          "row_tokens_with_prefix_sharing": 198346298
+        },
+        "ood": {
+          "records": 7312,
+          "questions": 21968,
+          "state_tokens": 5927674,
+          "row_tokens_with_prefix_sharing": 7923593
+        },
+        "tone": {
+          "records": 7544,
+          "questions": 31849,
+          "state_tokens": 1226017,
+          "row_tokens_with_prefix_sharing": 2642794
+        },
+        "injection": {
+          "records": 2761,
+          "questions": 11756,
+          "state_tokens": 7737564,
+          "row_tokens_with_prefix_sharing": 8607124
+        },
+        "agents": {
+          "records": 5174,
+          "questions": 23776,
+          "state_tokens": 71644572,
+          "row_tokens_with_prefix_sharing": 72973405
+        },
+        "guardrails-pii": {
+          "records": 4152,
+          "questions": 10663,
+          "state_tokens": 3422591,
+          "row_tokens_with_prefix_sharing": 4110239
+        },
+        "guardrails-grounding": {
+          "records": 5662,
+          "questions": 26154,
+          "state_tokens": 15683310,
+          "row_tokens_with_prefix_sharing": 17443068
+        }
+      },
+      "state_tokens": {
+        "min": 2,
+        "median": 197,
+        "mean": 2016.0,
+        "p90": 2866,
+        "p99": 35172,
+        "max": 65526,
+        "total": 609030795
+      },
+      "row_tokens_with_prefix_sharing": 647796851,
+      "state_tokens_histogram": {
+        "1-256": 163741,
+        "257-512": 30612,
+        "513-1024": 36473,
+        "1025-2048": 35323,
+        "2049-4096": 10697,
+        "4097-8192": 4376,
+        "8193-16384": 9359,
+        "16385-32768": 8110,
+        "32769-65536": 3412
+      }
+    },
+    "calibration.jsonl": {
+      "sha256": "419028ebb3f2d4deadc81d44ca3b87795b396697689d92339e203ac6507bc6df",
+      "records": 14024,
+      "questions": 28018,
+      "bytes": 119140141,
+      "soft_target_questions": 297,
+      "by_component": {
+        "sft-v1": {
+          "records": 8468,
+          "questions": 14958,
+          "state_tokens": 5095734,
+          "row_tokens_with_prefix_sharing": 6143846
+        },
+        "tasksource-v1": {
+          "records": 3481,
+          "questions": 4771,
+          "state_tokens": 521042,
+          "row_tokens_with_prefix_sharing": 702971
+        },
+        "longdoc": {
+          "records": 484,
+          "questions": 1756,
+          "state_tokens": 10311729,
+          "row_tokens_with_prefix_sharing": 10461709
+        },
+        "ood": {
+          "records": 388,
+          "questions": 1143,
+          "state_tokens": 315681,
+          "row_tokens_with_prefix_sharing": 424902
+        },
+        "tone": {
+          "records": 372,
+          "questions": 1647,
+          "state_tokens": 61039,
+          "row_tokens_with_prefix_sharing": 135610
+        },
+        "injection": {
+          "records": 133,
+          "questions": 566,
+          "state_tokens": 323228,
+          "row_tokens_with_prefix_sharing": 365327
+        },
+        "agents": {
+          "records": 221,
+          "questions": 1278,
+          "state_tokens": 2875236,
+          "row_tokens_with_prefix_sharing": 2947873
+        },
+        "guardrails-pii": {
+          "records": 219,
+          "questions": 556,
+          "state_tokens": 174493,
+          "row_tokens_with_prefix_sharing": 210949
+        },
+        "guardrails-grounding": {
+          "records": 258,
+          "questions": 1343,
+          "state_tokens": 673752,
+          "row_tokens_with_prefix_sharing": 764822
+        }
+      },
+      "state_tokens": {
+        "min": 2,
+        "median": 166,
+        "mean": 1451.2,
+        "p90": 1963,
+        "p99": 26788,
+        "max": 58659,
+        "total": 20351934
+      },
+      "row_tokens_with_prefix_sharing": 22158009,
+      "state_tokens_histogram": {
+        "1-256": 7889,
+        "257-512": 1321,
+        "513-1024": 1756,
+        "1025-2048": 1710,
+        "2049-4096": 529,
+        "4097-8192": 180,
+        "8193-16384": 299,
+        "16385-32768": 255,
+        "32769-65536": 85
+      }
+    },
+    "development.jsonl": {
+      "sha256": "1f7f43dcbc1a12ed9906aa378dc71b2b63e93bfd677a27f2fc948355b7984a9a",
+      "records": 6470,
+      "questions": 12655,
+      "bytes": 51472051,
+      "soft_target_questions": 179,
+      "by_component": {
+        "sft-v1": {
+          "records": 3483,
+          "questions": 6146,
+          "state_tokens": 2036669,
+          "row_tokens_with_prefix_sharing": 2463332
+        },
+        "tasksource-v1": {
+          "records": 2088,
+          "questions": 2840,
+          "state_tokens": 350598,
+          "row_tokens_with_prefix_sharing": 457784
+        },
+        "longdoc": {
+          "records": 197,
+          "questions": 713,
+          "state_tokens": 4280227,
+          "row_tokens_with_prefix_sharing": 4341012
+        },
+        "ood": {
+          "records": 156,
+          "questions": 484,
+          "state_tokens": 128316,
+          "row_tokens_with_prefix_sharing": 170168
+        },
+        "tone": {
+          "records": 159,
+          "questions": 712,
+          "state_tokens": 26197,
+          "row_tokens_with_prefix_sharing": 58498
+        },
+        "injection": {
+          "records": 55,
+          "questions": 240,
+          "state_tokens": 131400,
+          "row_tokens_with_prefix_sharing": 149014
+        },
+        "agents": {
+          "records": 93,
+          "questions": 498,
+          "state_tokens": 1267791,
+          "row_tokens_with_prefix_sharing": 1295998
+        },
+        "guardrails-pii": {
+          "records": 77,
+          "questions": 194,
+          "state_tokens": 57164,
+          "row_tokens_with_prefix_sharing": 69270
+        },
+        "guardrails-grounding": {
+          "records": 162,
+          "questions": 828,
+          "state_tokens": 413206,
+          "row_tokens_with_prefix_sharing": 468898
+        }
+      },
+      "state_tokens": {
+        "min": 2,
+        "median": 127,
+        "mean": 1343.4,
+        "p90": 1769,
+        "p99": 26180,
+        "max": 57950,
+        "total": 8691568
+      },
+      "row_tokens_with_prefix_sharing": 9473974,
+      "state_tokens_histogram": {
+        "1-256": 3850,
+        "257-512": 606,
+        "513-1024": 743,
+        "1025-2048": 711,
+        "2049-4096": 219,
+        "4097-8192": 72,
+        "8193-16384": 125,
+        "16385-32768": 106,
+        "32769-65536": 38
+      }
+    }
+  },
+  "trainable_sources": [
+    "aegis",
+    "agnews",
+    "amazon",
+    "aqua_rat",
+    "arc",
+    "banking77",
+    "boolq",
+    "casehold",
+    "cfpb",
+    "codereviewer",
+    "commitpackft",
+    "compositional",
+    "cosmos_qa",
+    "csqa",
+    "dbpedia14",
+    "esci",
+    "flakeflagger",
+    "gsm8k",
+    "hard_ambiguous",
+    "hard_judge",
+    "hard_long_policy",
+    "hard_multi_hop",
+    "hard_probability",
+    "hard_temporal_numeric",
+    "hard_tradeoff",
+    "helpsteer2",
+    "helpsteer3",
+    "hotpotqa",
+    "imdb",
+    "ledgar",
+    "legacy_policy",
+    "longify",
+    "longstate",
+    "massive",
+    "math_qa",
+    "medmcqa",
+    "mnli",
+    "multiwoz",
+    "night2_dates",
+    "night2_unknowable",
+    "night2_unknowable_control",
+    "nq",
+    "openbookqa",
+    "poem_sentiment",
+    "qasc",
+    "quartz",
+    "siqa",
+    "snli",
+    "sst5",
+    "strategyqa",
+    "synthetic-v1/abstention",
+    "synthetic-v1/intent",
+    "synthetic-v1/long_doc",
+    "synthetic-v1/numeric",
+    "synthetic-v1/retrieval",
+    "synthetic-v1/rubric_judge",
+    "synthetic-v1/tool_routing",
+    "synthetic-v2-guardrails/grounding",
+    "synthetic-v2-guardrails/injection",
+    "synthetic-v2-guardrails/pii",
+    "synthetic-v2/agent_sessions",
+    "synthetic-v2/longdoc",
+    "synthetic-v2/ood",
+    "synthetic-v2/tone",
+    "tasksource",
+    "trec",
+    "winogrande",
+    "yelp"
+  ],
+  "eval_only_sources": [],
+  "holdout_sources": [],
+  "base_revisions": {
+    "Qwen/Qwen3.8-27B": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "context": {
+    "max_state": 65536,
+    "max_branch": 66176,
+    "max_packed": 67200,
+    "truncate": false,
+    "admission_branch_headroom": 64,
+    "tokenizer": {
+      "model": "Qwen/Qwen3.8-27B",
+      "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+    },
+    "note": "train with --max_state 65536"
+  },
+  "components": [
+    "sft-v1",
+    "tasksource-v1",
+    "longify",
+    "longdoc",
+    "ood",
+    "tone",
+    "injection",
+    "agents",
+    "guardrails-pii",
+    "guardrails-grounding"
+  ],
+  "composition": {
+    "train": "sft-v1 train + tasksource-v1 train + longify train + longdoc train + ood train + tone train+soft + injection train + agents train+soft + guardrails-pii train+soft + guardrails-grounding train+soft",
+    "calibration": "sft-v1 calibration + tasksource-v1 calibration + longdoc calibration + ood calibration + tone calibration + injection calibration + agents calibration + guardrails-pii calibration + guardrails-grounding calibration",
+    "development": "sft-v1 development + tasksource-v1 development + longdoc development + ood development + tone development + injection development + agents development + guardrails-pii development + guardrails-grounding development"
+  },
+  "selection": "validation (materialize, soft targets, strict admission in kev.model.training_context(MAX_TRAIN_STATE) under the Kev-27B tokenizer); the screen below; cross-component state duplicates keep the first component's copy; calibration states leave development, calibration/development states leave train; seeded order",
+  "screen": {
+    "rule": "exact normalised state or content string (>= 5 words, in <= 5 reference items), word 8-gram Jaccard > 0.2, or smaller-side containment >= 0.5 (smaller side >= 10 grams); 8-grams in > 50 reference items ignored (kev-sft common/screen.py; assemble/screen_v2.py)",
+    "reference_partitions": 102,
+    "reference_items": 76549,
+    "reference_sets": [
+      "jevbench:easy.jsonl",
+      "jevbench:hard.jsonl",
+      "jevbench:original.jsonl",
+      "kev:breadth-v1/development.jsonl",
+      "kev:breadth-v1/test.jsonl",
+      "kev:decision-v1/calibration.jsonl",
+      "kev:decision-v1/development.jsonl",
+      "kev:decision-v1/test.jsonl",
+      "kev:decision-v2/calibration.jsonl",
+      "kev:decision-v2/development.jsonl",
+      "kev:decision-v2/test.jsonl",
+      "kev:devtools-v1/development.jsonl",
+      "kev:devtools-v1/test.jsonl",
+      "kev:diagnostics/binding-v1.jsonl",
+      "kev:documents-v1/development.jsonl",
+      "kev:documents-v1/test.jsonl",
+      "kev:documents-v2/test.jsonl",
+      "kev:external/ekzhang-mmlupro-v1/records.jsonl",
+      "kev:external/scienthoon-v1/development.jsonl",
+      "kev:external/semif-v1/development.jsonl",
+      "kev:external/typesafe-v1/development.jsonl",
+      "kev:external/wanli-v1/development.jsonl",
+      "kev:external/wanli-v2/development.jsonl",
+      "kev:hard-v1/development.jsonl",
+      "kev:hard-v1/test.jsonl",
+      "kev:longdoc-v1/development.jsonl",
+      "kev:longdoc-v1/test.jsonl",
+      "kev:public-pool-v4/calibration.jsonl",
+      "kev:public-pool-v4/development.jsonl",
+      "kev:public-pool-v4/test.jsonl",
+      "kev:public-pool-v5/calibration.jsonl",
+      "kev:public-pool-v5/development.jsonl",
+      "kev:public-pool-v5/test.jsonl",
+      "kev:public-pool-v6/calibration.jsonl",
+      "kev:public-pool-v6/development.jsonl",
+      "kev:public-pool-v6/test.jsonl",
+      "kev:round3/decision-r3/calibration.jsonl",
+      "kev:round3/decision-r3/development.jsonl",
+      "kev:round3/transfer-r3/calibration.jsonl",
+      "kev:round3/transfer-r3/development.jsonl",
+      "kev:round3/transfer-r3/test.jsonl",
+      "kev:round4/longstate-v1/development.jsonl",
+      "kev:round5/longstate-v2/development.jsonl",
+      "kev:round5/transfer-r5/calibration.jsonl",
+      "kev:round5/transfer-r5/development.jsonl",
+      "kev:round5/transfer-r5/test.jsonl",
+      "kev:round8/longstate-x1/development.jsonl",
+      "kev:smoke-v1/calibration.jsonl",
+      "kev:smoke-v1/development.jsonl",
+      "kev:smoke-v1/test.jsonl",
+      "kev:tasksource-heldout-v1/development.jsonl",
+      "kev:tasksource-heldout-v1/test.jsonl",
+      "kev:transfer-v1/development.jsonl",
+      "kev:transfer-v1/test.jsonl",
+      "kev:transfer-v2/development.jsonl",
+      "kev:transfer-v2/test.jsonl",
+      "kev:v3/decision-v3/calibration.jsonl",
+      "kev:v3/decision-v3/development.jsonl",
+      "kev:v3/decision-v3/test.jsonl",
+      "kev:v3/smoke-v3/calibration.jsonl",
+      "kev:v3/smoke-v3/development.jsonl",
+      "kev:v3/transfer-v3/development.jsonl",
+      "kev:v3/transfer-v3/test.jsonl",
+      "kev:v4/decision-v4/calibration.jsonl",
+      "kev:v4/decision-v4/development.jsonl",
+      "kev:v4/decision-v4/test.jsonl",
+      "kev:v4/transfer-v4/development.jsonl",
+      "kev:v4/transfer-v4/test.jsonl",
+      "kev:v5/decision-v5/calibration.jsonl",
+      "kev:v5/decision-v5/development.jsonl",
+      "kev:v5/decision-v5/test.jsonl",
+      "kev:v5/transfer-v5/development.jsonl",
+      "kev:v5/transfer-v5/test.jsonl",
+      "kev:v6/decision-v6/calibration.jsonl",
+      "kev:v6/decision-v6/development.jsonl",
+      "kev:v6/decision-v6/test.jsonl",
+      "kev:v6/transfer-v6/development.jsonl",
+      "kev:v6/transfer-v6/test.jsonl",
+      "kev:v7/decision-v7/calibration.jsonl",
+      "kev:v7/decision-v7/development.jsonl",
+      "kev:v7/decision-v7/test.jsonl",
+      "kev:v8/decision-v8/calibration.jsonl",
+      "kev:v8/decision-v8/development.jsonl",
+      "kev:v8/decision-v8/test.jsonl",
+      "kev:v9/transfer-v9/development.jsonl",
+      "kev:v9/transfer-v9/test.jsonl",
+      "new:agents-ood-v1",
+      "new:agents/ood_eval_soft",
+      "new:guardrails-ood-v1",
+      "new:ood-v2"
+    ],
+    "dropped": {
+      "train": 6388,
+      "calibration": 130,
+      "development": 63
+    },
+    "dropped_by_component": {
+      "agents": 135,
+      "guardrails-grounding": 4,
+      "guardrails-pii": 816,
+      "injection": 466,
+      "ood": 88,
+      "sft-v1": 4446,
+      "tasksource-v1": 626
+    },
+    "dropped_by_reference_suite": {
+      "kev:decision-v1": 114,
+      "kev:decision-v2": 694,
+      "kev:hard-v1": 2794,
+      "kev:longdoc-v1": 11,
+      "kev:public-pool-v5": 3,
+      "kev:round3": 58,
+      "kev:round5": 24,
+      "kev:tasksource-heldout-v1": 627,
+      "kev:v5/decision-v5": 650,
+      "kev:v9/transfer-v9": 95,
+      "new:agents-ood-v1": 135,
+      "new:guardrails-ood-v1": 1286,
+      "new:ood-v2": 90
+    }
+  },
+  "dedupe": {
+    "cross_component_states_dropped": {},
+    "repeated_states_within_component_kept": {
+      "train|agents": 1144,
+      "train|guardrails-grounding": 700,
+      "train|sft-v1": 6286,
+      "train|tone": 539
+    },
+    "development_states_also_in_calibration": 0,
+    "train_states_in_calibration_or_development": {}
+  },
+  "record_changes": {
+    "variant": "a _meta.variant other than clean (longdoc abstention twins, tone versions) moved to _meta.twin; variant set to clean (kev.benchmark scores only clean rows)",
+    "tasksource": "_meta.source 'tasksource:<family>' -> 'tasksource', family in _meta.tasksource_source (families private)",
+    "counts": {
+      "agents:variant->twin": 5623,
+      "guardrails-grounding:variant->twin": 6086,
+      "guardrails-pii:variant->twin": 5264,
+      "injection:variant->twin": 3415,
+      "longdoc:variant->twin": 2850,
+      "tasksource-v1:source": 64386,
+      "tone:variant->twin": 8075
+    }
+  },
+  "inputs": {
+    "components": {
+      "sft-v1": {
+        "suite": "evals/sft-v1",
+        "manifest_sha256": "6e0d01505df4b12416571b0ca895f40729262e8058ea902457a052dff646d78a"
+      }
+    },
+    "private_components": {
+      "sft-v1": {
+        "kind": "the round-19 corpus as frozen",
+        "manifest": "jaredpalmer/kev-sft (private) assemble/manifests/sft-v1.manifest.json",
+        "manifest_commit": "1a08a990e23c26b2433439090da66145a220f19c",
+        "manifest_sha256": "6e0d01505df4b12416571b0ca895f40729262e8058ea902457a052dff646d78a",
+        "mirror": {
+          "dataset": "jaredpalmer/kev-private-train",
+          "revision": "119c1e7da94e763d912025585b9a85ecf207e0c1"
+        },
+        "code_commit": "ac0fb2a37bcee42f7d3dadb5b289b6abd1c18a93",
+        "files": {
+          "train.jsonl": {
+            "sha256": "334c18b8bd70ff5145694826b86243b25d9e003e119ef56dcb32a53d4a16346e",
+            "records": 198691,
+            "into": "train"
+          },
+          "calibration.jsonl": {
+            "sha256": "c011d6d9c1f3f05b4e36b0a5bea130c9a9585a8a53b11e50cf260237bab36bf9",
+            "records": 8470,
+            "into": "calibration"
+          },
+          "development.jsonl": {
+            "sha256": "a5941af2227d513f823b2d24aee5840d5ece0d419e6a95e3748d5ad4da07b104",
+            "records": 3483,
+            "into": "development"
+          }
+        },
+        "not_merged": {},
+        "eval_suites": {}
+      },
+      "tasksource-v1": {
+        "kind": "public multi-task collection, native labels (families private)",
+        "manifest": "jaredpalmer/kev-sft (private) tasksource/manifests/tasksource-v1.manifest.json",
+        "manifest_commit": "3ffc81b46e147b368fb3bc410c33f04292c5b46a",
+        "manifest_sha256": "74cbf3c4fc22469f5a0d82d336d2724a803a9daef9a09dd827cff7c628a2c49a",
+        "mirror": {
+          "dataset": "jaredpalmer/kev-private-train",
+          "revision": "f572d8f6a853233338c48e22d5802f3997f60f63"
+        },
+        "code_commit": "53ed4dfd14a3de7788d9aaa3ccdac11857a676bc",
+        "files": {
+          "train.jsonl": {
+            "sha256": "1ab61464fbf529aa9b2d188c8290e3657cdb2e8cdbae44ce3e40d8eb860bfb07",
+            "records": 58749,
+            "into": "train"
+          },
+          "calibration.jsonl": {
+            "sha256": "45b40dd004f6c6b9938f72d1dda4c0a32ba818d3e61994c158257a6f1856fe67",
+            "records": 3524,
+            "into": "calibration"
+          },
+          "development.jsonl": {
+            "sha256": "75a57ded0a1d667e40376a782383309c24fb8e764eeb057e34436fb412f21894",
+            "records": 2113,
+            "into": "development"
+          }
+        },
+        "not_merged": {},
+        "eval_suites": {},
+        "sources": "private: the families are listed only in the private manifest; its trained records carry source 'tasksource'"
+      },
+      "longify": {
+        "kind": "long states (8k-64k) built from sft-v1 train, exact labels, no teacher",
+        "manifest": "jaredpalmer/kev-sft (private) longify/manifests/sft-v2-longify.manifest.json",
+        "manifest_commit": "c3225781b97631bd444a361d01a700a3e79e9a1a",
+        "manifest_sha256": "60e2c76a8b316b7461bfea79e4849d99aea35dd06a24d8db78da56858517f145",
+        "mirror": {
+          "dataset": "jaredpalmer/kev-private-train",
+          "path": "sft-v2/longify",
+          "revision": "0bfa4c69ec756337c84486b6790e344ce4d50866"
+        },
+        "code_commit": "f2c8284e899cb88c2b056c40fb8a4144900918a8",
+        "files": {
+          "train.jsonl": {
+            "sha256": "35736f0fda2e6163e37769cf789ca1702e298806af026804ba8a4fb9ac33d759",
+            "records": 8000,
+            "into": "train"
+          }
+        },
+        "not_merged": {
+          "monitor_calibration.jsonl": {
+            "sha256": "fde8a06cf62d72ea23fb3c04c850601bd029c7a04747d180ff3712dfab777db5",
+            "records": 400,
+            "why": "built from sft-v1 TRAIN records, which sft-v2 trains on: in-distribution monitoring, not held-out items"
+          },
+          "monitor_development.jsonl": {
+            "sha256": "91b23c7678a0d8111b45c788f7a5e9e2986362084e28f60f46776bdd2da56028",
+            "records": 400,
+            "why": "built from sft-v1 TRAIN records, which sft-v2 trains on: in-distribution monitoring, not held-out items"
+          }
+        },
+        "eval_suites": {}
+      },
+      "longdoc": {
+        "kind": "code-assembled long documents (8k-64k), code labels, open-weight verifiers",
+        "manifest": "jaredpalmer/kev-sft (private) synthetic/manifests/sft-v2-longdoc.manifest.json",
+        "manifest_commit": "d0bbe23f01768016c2df8f4918f6e459bc3687c2",
+        "manifest_sha256": "65d75543b767a6bb5293c5e241eb79222371008bf1efc25439a33997dfbbb1d9",
+        "mirror": {
+          "dataset": "jaredpalmer/kev-private-train",
+          "revision": "dce09c2999c1431aa5296ec95aa650dce4ad996f",
+          "path": "sft-v2/longdoc/"
+        },
+        "code_commit": "87c486e412d2cfde9b1e58293f538b5e48e98284",
+        "files": {
+          "train.jsonl": {
+            "sha256": "f23167073cee7502feef9cfd6b7503a012eb94385d4fd51d347c7b725bbe161e",
+            "records": 9060,
+            "into": "train"
+          },
+          "calibration.jsonl": {
+            "sha256": "99f1cc75eead20afdeabfce3a81a35f224feaff55a6d2022f55ab4052adbddb5",
+            "records": 484,
+            "into": "calibration"
+          },
+          "development.jsonl": {
+            "sha256": "4f819840406029311e226aa267f9534df237a53aae6f89e838c091fe583e1645",
+            "records": 197,
+            "into": "development"
+          }
+        },
+        "not_merged": {
+          "programmatic_split.jsonl": {
+            "sha256": "96e7e57755be3527c51abf0ee6abcaf91a6754a7af45ef0e96281dea4d60ba37",
+            "records": 756,
+            "why": "not in the component's default mix"
+          }
+        },
+        "eval_suites": {}
+      },
+      "ood": {
+        "kind": "open-weight out-of-domain diversity",
+        "manifest": "jaredpalmer/kev-sft (private) synthetic/manifests/sft-v2-ood.manifest.json",
+        "manifest_commit": "d0bbe23f01768016c2df8f4918f6e459bc3687c2",
+        "manifest_sha256": "6621d76ffa45d2099bf3b12104c038a36a360577620f810c8a48a4ae46e33263",
+        "mirror": {
+          "dataset": "jaredpalmer/kev-private-train",
+          "revision": "3550e29bd89a15b05f221dd656c1513b54f266d1",
+          "path": "sft-v2/ood/"
+        },
+        "code_commit": "87c486e412d2cfde9b1e58293f538b5e48e98284",
+        "files": {
+          "train.jsonl": {
+            "sha256": "70b03d9b61e87681ac2ca04eb1de7af1333e826c2e398d9376a947231c24bd74",
+            "records": 7388,
+            "into": "train"
+          },
+          "calibration.jsonl": {
+            "sha256": "cce576914dc60c7e214b58df2dfaba7b0a4d2cbdc49b67c235f8b2f944bfebbb",
+            "records": 398,
+            "into": "calibration"
+          },
+          "development.jsonl": {
+            "sha256": "fe259a8f792d80bc5d9dacfe030a21d5a9b642dac6e1fe7c9f7720818c26b48d",
+            "records": 158,
+            "into": "development"
+          }
+        },
+        "not_merged": {
+          "adjudicated.jsonl": {
+            "sha256": "8ac5c9cca6a41aee6296cf5fe6e7be9fc253a523fc533ea2f748031d48a184b6",
+            "records": 956,
+            "why": "not in the component's default mix"
+          }
+        },
+        "eval_suites": {
+          "ood-v2": "evals/ood-v2 (its ood_eval.jsonl; non-clean variants moved to _meta.twin)"
+        }
+      },
+      "tone": {
+        "kind": "open-weight tone minimal pairs (calm / frustrated / angry)",
+        "manifest": "jaredpalmer/kev-sft (private) synthetic/manifests/sft-v2-tone.manifest.json",
+        "manifest_commit": "90f661dac8a945cc480278442ce3228a682eef85",
+        "manifest_sha256": "4560845b4424ee1c26ca53a2ff54839c98a1d5ddaf6c3416ef3105d342e21d01",
+        "mirror": {
+          "dataset": "jaredpalmer/kev-private-train",
+          "revision": "0a56df5d939787ec296ecb9fad2aa6211a73459f",
+          "path": "sft-v2/tone/"
+        },
+        "code_commit": "2c1c9e65cb92041092cbcd176dcd8b8eb9ea4739",
+        "files": {
+          "train.jsonl": {
+            "sha256": "27249138a7c14ad7b4fbe95766eb377b882aa945a0e50f3d9cb5df5e677cb969",
+            "records": 7005,
+            "into": "train"
+          },
+          "soft.jsonl": {
+            "sha256": "f5ca8553c8d98dc0f7d4f8661b5b0c9550c547f82ae91e114d8ecec3b8e8a2b2",
+            "records": 539,
+            "into": "train"
+          },
+          "calibration.jsonl": {
+            "sha256": "b7805bf394f9ec3e58fc08d85430a870802a0a0fd9a5b2d39f22de04d20c412c",
+            "records": 372,
+            "into": "calibration"
+          },
+          "development.jsonl": {
+            "sha256": "6f128add2642c1bc321ced958d9423932c8a937351a5530e69eba450173f92fb",
+            "records": 159,
+            "into": "development"
+          }
+        },
+        "not_merged": {},
+        "eval_suites": {}
+      },
+      "injection": {
+        "kind": "code-inserted indirect prompt injection recognition (defensive), open-weight carriers and labels",
+        "manifest": "jaredpalmer/kev-sft (private) synthetic/manifests/sft-v2-guardrails-injection.manifest.json",
+        "manifest_commit": "2b699d4461f8ffb8887482e01ee2237ea2405cb7",
+        "manifest_sha256": "257257856eaad4ead7e94c12f7921fb13cd2a9268488455fc639f172356bcca8",
+        "mirror": {
+          "dataset": "jaredpalmer/kev-private-train",
+          "revision": "9160a875c85853333c24e9cfe3c9e6889dbcc5d3",
+          "path": "sft-v2/guardrails/injection/"
+        },
+        "code_commit": "6ff92de1a07f7a478d8a40a73a204d504505051e",
+        "files": {
+          "train.jsonl": {
+            "sha256": "5edccc991ecc198bb73b9b74cb95fb5e95283ce90b7f9bfbc5f163009d017f0d",
+            "records": 3196,
+            "into": "train"
+          },
+          "calibration.jsonl": {
+            "sha256": "cec2bd4d558c1e361b4d051519b21145b7f358cfa0abfa5340fc46e7d15d5082",
+            "records": 150,
+            "into": "calibration"
+          },
+          "development.jsonl": {
+            "sha256": "06ab509affabf86432bb3998e058d0e5bb31dd18cf12201bc96d5658a089162d",
+            "records": 69,
+            "into": "development"
+          }
+        },
+        "not_merged": {
+          "adjudicated.jsonl": {
+            "sha256": "9897cba7ffd9aa529360d96668b3ba0717c1b66920eaf804600cd230b43c1395",
+            "records": 287,
+            "why": "not in the component's default mix"
+          }
+        },
+        "eval_suites": {
+          "guardrails-ood-v1": "evals/guardrails-ood-v1 (its ood.jsonl; non-clean variants moved to _meta.twin)"
+        }
+      },
+      "agents": {
+        "kind": "agent-session analytics over code-generated traces, open-weight labels",
+        "manifest": "jaredpalmer/kev-sft (private) synthetic/manifests/sft-v2-agents.manifest.json",
+        "manifest_commit": "dd8f0676b4ca844efde9920e544a3c30b8e71a36",
+        "manifest_sha256": "a1ccf4cb5a9ae78d853b31cf986f8f0a0cec1cb00af9d4dff73e2d1d0312faa1",
+        "mirror": {
+          "dataset": "jaredpalmer/kev-private-train",
+          "revision": "45ff503c4ab3a89a80dbd7dc43f6df0ba4b2bc49",
+          "path": "sft-v2/agents/"
+        },
+        "code_commit": "0fb99cc4962bc0b9abc751021c24999bdcdd0406",
+        "files": {
+          "train.jsonl": {
+            "sha256": "77c89e2d3813972a12b133837b2c412bf2eaf96fdde470a4cdd03abf05f1a95f",
+            "records": 4121,
+            "into": "train"
+          },
+          "soft.jsonl": {
+            "sha256": "41a3af37220701a23ff099fd0ddbcf00a52ec110d976a90e583850c104f56ce5",
+            "records": 1174,
+            "into": "train"
+          },
+          "calibration.jsonl": {
+            "sha256": "c153f7474fca0075a2cb4a5254a0cee741e7c982eeeb5db876dbe168343849e8",
+            "records": 232,
+            "into": "calibration"
+          },
+          "development.jsonl": {
+            "sha256": "e88f75f7304b7a7b24442c6fd877c4ed40f5f5de7861a801e96ea07881549dbb",
+            "records": 96,
+            "into": "development"
+          }
+        },
+        "not_merged": {
+          "adjudicated.jsonl": {
+            "sha256": "b41c3416b39f2eb875f3b499477113207806256f3a2f426064f2d21bbf135949",
+            "records": 735,
+            "why": "not in the component's default mix"
+          },
+          "ood_eval_soft.jsonl": {
+            "sha256": "00541038041448eb23392fca724d3959c9bef0067772e0933c5cd1dc0b1781b9",
+            "records": 111,
+            "why": "evaluation-only soft-target questions of the held-out world: screened against, not a suite (kev.benchmark scores hard labels)"
+          }
+        },
+        "eval_suites": {
+          "agents-ood-v1": "evals/agents-ood-v1 (its ood_eval.jsonl; non-clean variants moved to _meta.twin)"
+        }
+      },
+      "guardrails-pii": {
+        "kind": "PII classification (code-inserted fake PII), open-weight labels",
+        "manifest": "jaredpalmer/kev-sft (private) synthetic/manifests/sft-v2-guardrails-pii.manifest.json",
+        "manifest_commit": "52a08d6b52f18f9a1be3c6cf46e3179be4cb1b39",
+        "manifest_sha256": "3ea53f24c4f466943b549994cb56a158219b2a9c21ea9710aef2310acbc89b92",
+        "mirror": {
+          "dataset": "jaredpalmer/kev-private-train",
+          "revision": "0ad2dbc65591e2c957521f4c429ffa22833fa00d",
+          "path": "sft-v2/guardrails/pii/"
+        },
+        "code_commit": "5eb47c4",
+        "files": {
+          "train.jsonl": {
+            "sha256": "22ec92bab33087b8d8ab5e34411061cc7c20c2d95ae20710d44edad02e1becfd",
+            "records": 4902,
+            "into": "train"
+          },
+          "soft.jsonl": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "records": 0,
+            "into": "train"
+          },
+          "calibration.jsonl": {
+            "sha256": "9ead20f513414892dbc90b8feb62aa8ba2b37693f95095bf38dff8859a4c0611",
+            "records": 266,
+            "into": "calibration"
+          },
+          "development.jsonl": {
+            "sha256": "d3b603e1f0413075205dd5cb6cc56f2d9056674c863207920367ddd3efce3124",
+            "records": 96,
+            "into": "development"
+          }
+        },
+        "not_merged": {
+          "adjudicated.jsonl": {
+            "sha256": "47b8e7fd095e0df1c790bed9c2b7e49309054840070e59dec9074449f4dc21fd",
+            "records": 346,
+            "why": "not in the component's default mix"
+          }
+        },
+        "eval_suites": {
+          "guardrails-ood-v1": "evals/guardrails-ood-v1 (its ood.jsonl; non-clean variants moved to _meta.twin)"
+        }
+      },
+      "guardrails-grounding": {
+        "kind": "grounding / claim support (code-built claims), open-weight labels",
+        "manifest": "jaredpalmer/kev-sft (private) synthetic/manifests/sft-v2-guardrails-grounding.manifest.json",
+        "manifest_commit": "52a08d6b52f18f9a1be3c6cf46e3179be4cb1b39",
+        "manifest_sha256": "5030180295ff9a5840618ffac145c974dec7af8dc0980fa94ea30db44115885c",
+        "mirror": {
+          "dataset": "jaredpalmer/kev-private-train",
+          "revision": "0ad2dbc65591e2c957521f4c429ffa22833fa00d",
+          "path": "sft-v2/guardrails/grounding/"
+        },
+        "code_commit": "5eb47c4",
+        "files": {
+          "train.jsonl": {
+            "sha256": "0462ee7c74c2acf25e2737be3ec50835a4d1ef7364d8db25d089705363a2cef1",
+            "records": 4948,
+            "into": "train"
+          },
+          "soft.jsonl": {
+            "sha256": "8c60c6d81d83a232cc36f6723ffe086c1bcb03006f800efbdd4bb1b590fd95ff",
+            "records": 718,
+            "into": "train"
+          },
+          "calibration.jsonl": {
+            "sha256": "d13fd4331dc764867c1f62619b8bbb5ce3a858f3b78f7d8ef9c17f17846de362",
+            "records": 258,
+            "into": "calibration"
+          },
+          "development.jsonl": {
+            "sha256": "e9ef2a3231065f3aee2f717181f547f860cefe5b423603cb5bf8a24a2e8d496f",
+            "records": 162,
+            "into": "development"
+          }
+        },
+        "not_merged": {
+          "adjudicated.jsonl": {
+            "sha256": "c4b382d5ed3596b26073545b03cd2961ce23587a9b994dcc7db23661b254654e",
+            "records": 387,
+            "why": "not in the component's default mix"
+          }
+        },
+        "eval_suites": {
+          "guardrails-ood-v1": "evals/guardrails-ood-v1 (its ood.jsonl; non-clean variants moved to _meta.twin)"
+        }
+      }
+    },
+    "note": "`components` names suites of this repo (kev.rounds follows their manifests); `private_components` have no suite directory here, so their trained sources are listed in this manifest's trainable_sources"
+  },
+  "eval_suites": {
+    "ood-v2": {
+      "parts": [
+        "ood/ood_eval.jsonl"
+      ],
+      "missing_parts": []
+    },
+    "agents-ood-v1": {
+      "parts": [
+        "agents/ood_eval.jsonl"
+      ],
+      "missing_parts": []
+    },
+    "guardrails-ood-v1": {
+      "parts": [
+        "guardrails-pii/ood.jsonl",
+        "guardrails-grounding/ood.jsonl",
+        "injection/ood.jsonl"
+      ],
+      "missing_parts": []
+    }
+  },
+  "licences": "per source in the component manifests (private mirror); share-alike records flagged per record",
+  "code": {
+    "repository": "jaredpalmer/kev-sft (private)",
+    "branch": "assemble-v2",
+    "commit": "1b5c7f6e434bc15fd0c566478c1cd451d22d4054",
+    "dirty": false,
+    "files_sha256": {
+      "assemble/__init__.py": "07b2d8f66fdb3f9bcde6dab77f7a6b83ca3bf5f8f9f5b82f8401c0aada2c1ed7",
+      "assemble/build.py": "3b800bf5f80c9d77f47edb8b1b1c4208c8b3f85ef402235b3f856fa9a2dd15f3",
+      "assemble/build_v2.py": "4cab51fe23aa5fe419dd8a81b3f7ab2cd8448730a5bb1233a61a0e02342dd2cd",
+      "assemble/epoch_estimate.py": "4422f1ebad4470cd714e7e0ef8a731cee071455b7610d910981e5bfb27b549e4",
+      "assemble/screen_breadth.py": "0c71380692f80cecf134e13838a52a2ea44d40af63c9b310d670bdc8ccdb1a9c",
+      "assemble/screen_components.py": "e05f251e730049b8e60e69f1f77b74adcb2230f941902c49a1d8271ca430fc69",
+      "assemble/screen_v2.py": "04114880330a240a09fc97c02a815158d0edbd257da87af13cc496e6dde47178",
+      "common/__init__.py": "30f75923540794caec9fd6335fdb903eaf8bd1bd7e15d5ee318ae06add5501d7",
+      "common/admission.py": "ffbf0781b9145859d37dda320686c09fca760c6e02e85c9b0cf74ba2f47ffee9",
+      "common/hub.py": "de285c05340d2833c20ffd90599a7e30a8f735086e31381e00939ce1c62e0d54",
+      "common/records.py": "e1bad5c362edf2e11e63c1a2132e75a5f53f0bb4a7dc04bddc3c55745cbaae40",
+      "common/screen.py": "6965e4c3b604267ecf4fbcaf0f538b7b51caedd0218fcfb484338a7294413270"
+    },
+    "code_sha256": "7e41142dccf94978dad92911ce5dba2409e27d55ca279d35243bc580fe6dff6f"
+  },
+  "kev_package": {
+    "repository": "jaredpalmer/kev",
+    "commit": "58d94380d4441d2d9fbb7e5e6d30d9a5b93578ae",
+    "kev/api.py": "a6f53af5354f8ea17915abc78360fdf291a5108ce39a53a2d9135d48c603ae58",
+    "kev/data.py": "e77a2fffeb8ee7e05b118893be8e38b8358aef97c3ca2e143cdce208201b92f9",
+    "kev/model.py": "d78fab645f29513a62816e594d10296b02bf166ba77835c55db5eda80c7f1978",
+    "kev/suite.py": "ae2847cc46808dbbaafeb6a7a6ea179e9cb9ec59a4ec9da291f65e90090b80e4"
+  },
+  "mirror": {
+    "dataset": "jaredpalmer/kev-private-train",
+    "revision": "97d545ff4c316cbff1e0d59232e6155128e461d8"
+  }
+}

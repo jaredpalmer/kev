@@ -171,6 +171,20 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   4k-16k buckets on the exact path and its 32k / 64k rows through the long-row rule (> `ROW_PASS_TOKENS`: state once, fused kernels, `kernels: efficient`).
   Read-out `scripts/longdoc_report.py` (`--parity` compares two reads row by row), overlap `scripts/screen_longdoc_v1.py`, serving cost
   `scripts/longdoc_serving.py` (`modal_app.py::script`); results in `runs/longdoc-v1-report/README.md`. Its synthetic part is at ceiling for every system read.
+  `evals/sft-v2` is the extended SFT corpus (private mirror `jaredpalmer/kev-private-train`, manifest only; built by kev-sft `assemble-v2`,
+  `assemble/build_v2.py`): sft-v1 plus the private components tasksource-v1, longify (8k-64k states built from sft-v1 train), longdoc (code-assembled long documents), ood,
+  tone (calm / frustrated / angry minimal pairs), injection, agents, guardrails-pii and guardrails-grounding, each hash-checked against its own manifest
+  (recorded with path, commit and mirror revision under `inputs.private_components`). tasksource-v1's family list stays private: its records carry source
+  `tasksource`. Every record is admitted at 64k states and screened (kev-sft `assemble/screen_v2.py`, the kev-sft screen rule) against every evaluation
+  partition of every frozen Kev suite, the private evaluation mirror, JevBench public and the eval-only suites below; a non-clean `_meta.variant` moves
+  to `_meta.twin` (`kev.benchmark` scores only clean rows). Its calibration/development partitions are held-out items of the training components: in
+  distribution, in-trial screening only. `evals/sft-v2-r21` is the same records with states of at most 32,768 tokens, round 21's training suite (PLAN
+  "Round 21"; one epoch of the 64k corpus does not fit three 8-hour attempts on 8 H200s, so it also caps each
+  of sft-v1's public sources at 2,000 train records). Eval-only suites set aside by its components (private mirror
+  `jaredpalmer/kev-private-evals`, development only, report-only; source names shared with sft-v2's training records, so never a temperature pool):
+  `evals/ood-v2`, `evals/agents-ood-v1`, `evals/guardrails-ood-v1` (PII + grounding + injection). `evals/tasksource-heldout-v1` (development + locked test; 24 whole dataset families held out of tasksource-v1: held-out
+  datasets) publishes hashes and counts only; its family list is in the private kev-sft manifest, so its rows and per-source reports stay in the
+  private dataset (`scripts/private_rows.py`), and with no sources listed it cannot be a temperature pool read.
   `kev.jev --count-refusals` counts HTTP 400/413/422, and a 5xx on a request past 1.5 x Jev's ~32k-token context (the gateway answers oversize with either), as refused.
   Partitions over ~10 MB are not in git; they are mirrored at the Hub dataset `jaredpalmer/kev-suites` (revision pinned
   in `kev/suite.py: SUITES_REVISION`) and `load_split` fetches + verifies them on first use. After freezing a new suite:

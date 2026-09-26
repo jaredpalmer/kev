@@ -1,0 +1,70 @@
+{
+  "version": "ood-v2",
+  "eval_only": true,
+  "report_only": true,
+  "partitions": [
+    "development"
+  ],
+  "description": "Eval-only records set aside by sft-v2's components, never trained on (their frozen records, concatenated; a non-clean _meta.variant moved to _meta.twin as in sft-v2, other lines byte for byte): ood/ood_eval.jsonl: never trained on: records from held-out domains (aviation maintenance, agriculture, port operations, peer review, game rules) or in Portuguese",
+  "record_changes": "a _meta.variant other than clean moved to _meta.twin, variant set to clean (kev.benchmark scores only clean rows); counts per part below",
+  "roles": {
+    "development": "never trained on; read per candidate (report only)"
+  },
+  "files": {
+    "development.jsonl": {
+      "sha256": "ba48a07be0274fdd90b8b3678bab98a56b2981167045c08c9ddcb28e4a9817e3",
+      "records": 1686,
+      "questions": 4988,
+      "bytes": 10490233,
+      "in_git": false,
+      "state_tokens": {
+        "min": 116,
+        "median": 552,
+        "mean": 795.8,
+        "p90": 1684,
+        "p99": 3288,
+        "max": 4911
+      },
+      "question_types": {
+        "choice": 2258,
+        "noul": 1429,
+        "score": 1301
+      }
+    }
+  },
+  "trainable_sources": [],
+  "eval_only_sources": [
+    "synthetic-v2/ood"
+  ],
+  "holdout_sources": [],
+  "source_note": "the source names are the ones the same components' training records carry in sft-v2 (same generators, held-out domains, carriers or wordings): never a temperature pool",
+  "base_revisions": {
+    "Qwen/Qwen3.8-27B": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "context": {
+    "max_state": 65536,
+    "max_branch": 73728,
+    "max_packed": 139264,
+    "truncate": false,
+    "note": "the serving context (64k-token states)"
+  },
+  "parts": [
+    {
+      "component": "ood",
+      "file": "ood_eval.jsonl",
+      "dataset_path": "sft-v2/ood/ood_eval.jsonl",
+      "revision": "3550e29bd89a15b05f221dd656c1513b54f266d1",
+      "sha256": "ba48a07be0274fdd90b8b3678bab98a56b2981167045c08c9ddcb28e4a9817e3",
+      "records": 1686,
+      "variant_moved_to_twin": 0,
+      "manifest": "jaredpalmer/kev-sft (private) synthetic/manifests/sft-v2-ood.manifest.json",
+      "manifest_sha256": "6621d76ffa45d2099bf3b12104c038a36a360577620f810c8a48a4ae46e33263"
+    }
+  ],
+  "missing_parts": [],
+  "screen": "each component's own screen (its manifest); every sft-v2 training record is screened against this partition (evals/sft-v2/manifest.json)",
+  "mirror": {
+    "dataset": "jaredpalmer/kev-private-evals",
+    "revision": "d6498d4c42a3f85865dc776a24bf076ae0e1e267"
+  }
+}
