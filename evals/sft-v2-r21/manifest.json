@@ -1,99 +1,103 @@
 {
   "version": "sft-v2-r21",
-  "description": "Round 21's training suite (private mirror; only this manifest is public): sft-v2's records with states of at most 32,768 tokens (Kev-27B tokenizer) in every partition, same order, and at most 2,000 train records of each of sft-v1's public sources. Round 21's registration explains both: one epoch has to fit three 8-hour attempts on 8 H200s.",
+  "description": "Round 21's training suite (private mirror; only this manifest is public): sft-v2's records with states of at most 32,768 tokens (Kev-27B tokenizer) in every partition, same order, and at most 1,200 train records of each of sft-v1's public sources. Round 21's registration explains both: one epoch has to fit three 8-hour attempts on 8 H200s.",
   "derived_from": {
     "suite": "evals/sft-v2",
     "manifest": "evals/sft-v2/manifest.json",
-    "rule": "keep every record whose state (the <state> token + the rendered state) has at most 32768 tokens; of each sft-v1 public source's train records keep the 2000 with the smallest sha256('sft-v2-assemble-20260926:public-cap:' + record digest)"
+    "rule": "keep every record whose state (the <state> token + the rendered state) has at most 32768 tokens; of each sft-v1 public source's train records keep the 1200 with the smallest sha256('sft-v2-assemble-20260926:public-cap:' + record digest)"
   },
   "downsampled_sources": {
     "multiwoz": {
       "records": 5580,
-      "kept": 2000
+      "kept": 1200
     },
     "helpsteer2": {
       "records": 4650,
-      "kept": 2000
+      "kept": 1200
     },
     "arc": {
       "records": 2991,
-      "kept": 2000
+      "kept": 1200
     },
     "openbookqa": {
       "records": 3720,
-      "kept": 2000
+      "kept": 1200
     },
     "medmcqa": {
       "records": 3720,
-      "kept": 2000
+      "kept": 1200
     },
     "massive": {
       "records": 5580,
-      "kept": 2000
+      "kept": 1200
     },
     "snli": {
       "records": 4650,
-      "kept": 2000
+      "kept": 1200
     },
     "math_qa": {
       "records": 3720,
-      "kept": 2000
+      "kept": 1200
     },
     "helpsteer3": {
       "records": 5580,
-      "kept": 2000
+      "kept": 1200
     },
     "gsm8k": {
       "records": 4650,
-      "kept": 2000
+      "kept": 1200
     },
     "siqa": {
       "records": 3720,
-      "kept": 2000
+      "kept": 1200
     },
     "quartz": {
       "records": 2340,
-      "kept": 2000
+      "kept": 1200
     },
     "hotpotqa": {
       "records": 4650,
-      "kept": 2000
+      "kept": 1200
     },
     "cosmos_qa": {
       "records": 3720,
-      "kept": 2000
+      "kept": 1200
     },
     "nq": {
       "records": 4650,
-      "kept": 2000
+      "kept": 1200
     },
     "esci": {
       "records": 4650,
-      "kept": 2000
+      "kept": 1200
     },
     "ledgar": {
       "records": 4640,
-      "kept": 2000
+      "kept": 1200
     },
     "winogrande": {
       "records": 3720,
-      "kept": 2000
+      "kept": 1200
     },
     "casehold": {
       "records": 3720,
-      "kept": 2000
+      "kept": 1200
     },
     "csqa": {
       "records": 3720,
-      "kept": 2000
+      "kept": 1200
+    },
+    "strategyqa": {
+      "records": 1215,
+      "kept": 1200
     },
     "aqua_rat": {
       "records": 3720,
-      "kept": 2000
+      "kept": 1200
     },
     "qasc": {
       "records": 3720,
-      "kept": 2000
+      "kept": 1200
     }
   },
   "seed": "sft-v2-assemble-20260926",
@@ -110,17 +114,17 @@
   },
   "files": {
     "train.jsonl": {
-      "sha256": "c4d98ea460b8d64f6ab944cdf3f142e7f5786999187e272398aae0557cf5ea7f",
-      "records": 250880,
-      "questions": 516845,
-      "bytes": 2434848094,
+      "sha256": "233487bd5fb7abca9d5084e0d4dc7d93d81dc09750194d72d64c0da7b6d6d6a7",
+      "records": 233265,
+      "questions": 496146,
+      "bytes": 2400450866,
       "soft_target_questions": 19868,
       "by_component": {
         "sft-v1": {
-          "records": 146436,
-          "questions": 271365,
-          "state_tokens": 97483264,
-          "row_tokens_with_prefix_sharing": 117918568
+          "records": 128821,
+          "questions": 250666,
+          "state_tokens": 93118057,
+          "row_tokens_with_prefix_sharing": 112528617
         },
         "tasksource-v1": {
           "records": 58190,
@@ -179,27 +183,27 @@
       },
       "state_tokens": {
         "min": 2,
-        "median": 239,
-        "mean": 1748.0,
-        "p90": 3146,
-        "p99": 25652,
+        "median": 274,
+        "mean": 1861.3,
+        "p90": 3583,
+        "p99": 26047,
         "max": 32765,
-        "total": 438547981
+        "total": 434182774
       },
-      "row_tokens_with_prefix_sharing": 473365335,
+      "row_tokens_with_prefix_sharing": 467975384,
       "state_tokens_histogram": {
-        "1-256": 128300,
-        "257-512": 26701,
-        "513-1024": 33279,
-        "1025-2048": 31069,
-        "2049-4096": 9781,
-        "4097-8192": 4281,
+        "1-256": 114262,
+        "257-512": 25490,
+        "513-1024": 32383,
+        "1025-2048": 29841,
+        "2049-4096": 9563,
+        "4097-8192": 4257,
         "8193-16384": 9359,
         "16385-32768": 8110,
         "32769-65536": 0
       },
       "dropped_over_state_cap": 3412,
-      "dropped_by_public_cap": 47811
+      "dropped_by_public_cap": 65426
     },
     "calibration.jsonl": {
       "sha256": "c696b9934cc6b5e688671d84771e065dd20c6bf4ee642c696358cab5f86dfd9c",
@@ -472,27 +476,27 @@
   "code": {
     "repository": "jaredpalmer/kev-sft (private)",
     "branch": "assemble-v2",
-    "commit": "1b5c7f6e434bc15fd0c566478c1cd451d22d4054",
+    "commit": "0d1e87998470fff8bb11d3415dfa38a8c1568fbc",
     "dirty": false,
     "files_sha256": {
       "assemble/__init__.py": "07b2d8f66fdb3f9bcde6dab77f7a6b83ca3bf5f8f9f5b82f8401c0aada2c1ed7",
       "assemble/build.py": "3b800bf5f80c9d77f47edb8b1b1c4208c8b3f85ef402235b3f856fa9a2dd15f3",
-      "assemble/build_v2.py": "4cab51fe23aa5fe419dd8a81b3f7ab2cd8448730a5bb1233a61a0e02342dd2cd",
-      "assemble/epoch_estimate.py": "4422f1ebad4470cd714e7e0ef8a731cee071455b7610d910981e5bfb27b549e4",
+      "assemble/build_v2.py": "a5389b9f344e09b4afdc357dcbed5dfc2c5073651f4fdf69dfd3cf8b6afa22b3",
+      "assemble/epoch_estimate.py": "89baa2e630dbcb0cef93c110cf00f722dc11e3d5b04f36ce49dbfa3908535103",
       "assemble/screen_breadth.py": "0c71380692f80cecf134e13838a52a2ea44d40af63c9b310d670bdc8ccdb1a9c",
       "assemble/screen_components.py": "e05f251e730049b8e60e69f1f77b74adcb2230f941902c49a1d8271ca430fc69",
-      "assemble/screen_v2.py": "04114880330a240a09fc97c02a815158d0edbd257da87af13cc496e6dde47178",
+      "assemble/screen_v2.py": "09826dcdf00af9f4a3aae764189214f67fc3c0d666e25666b1a3cb9516e195f3",
       "common/__init__.py": "30f75923540794caec9fd6335fdb903eaf8bd1bd7e15d5ee318ae06add5501d7",
       "common/admission.py": "ffbf0781b9145859d37dda320686c09fca760c6e02e85c9b0cf74ba2f47ffee9",
       "common/hub.py": "de285c05340d2833c20ffd90599a7e30a8f735086e31381e00939ce1c62e0d54",
       "common/records.py": "e1bad5c362edf2e11e63c1a2132e75a5f53f0bb4a7dc04bddc3c55745cbaae40",
       "common/screen.py": "6965e4c3b604267ecf4fbcaf0f538b7b51caedd0218fcfb484338a7294413270"
     },
-    "code_sha256": "7e41142dccf94978dad92911ce5dba2409e27d55ca279d35243bc580fe6dff6f"
+    "code_sha256": "db13b46877622a28cc700ac556d21d28f7adfe4ad42f46a52e0435fce29c0329"
   },
   "kev_package": {
     "repository": "jaredpalmer/kev",
-    "commit": "58d94380d4441d2d9fbb7e5e6d30d9a5b93578ae",
+    "commit": "f3cefa8b928ce274cd1b75408f46305895fb0d42",
     "kev/api.py": "a6f53af5354f8ea17915abc78360fdf291a5108ce39a53a2d9135d48c603ae58",
     "kev/data.py": "e77a2fffeb8ee7e05b118893be8e38b8358aef97c3ca2e143cdce208201b92f9",
     "kev/model.py": "d78fab645f29513a62816e594d10296b02bf166ba77835c55db5eda80c7f1978",
@@ -500,6 +504,6 @@
   },
   "mirror": {
     "dataset": "jaredpalmer/kev-private-train",
-    "revision": "97d545ff4c316cbff1e0d59232e6155128e461d8"
+    "revision": "ef38326ef53b1f8b5a61c3cfce9425bb70787c02"
   }
 }

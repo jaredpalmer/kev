@@ -185,7 +185,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   to `_meta.twin` (`kev.benchmark` scores only clean rows). Its calibration/development partitions are held-out items of the training components: in
   distribution, in-trial screening only. `evals/sft-v2-r21` is the same records with states of at most 32,768 tokens, round 21's training suite (PLAN
   "Round 21"; one epoch of the 64k corpus does not fit three 8-hour attempts on 8 H200s, so it also caps each
-  of sft-v1's public sources at 2,000 train records). Eval-only suites set aside by its components (private mirror
+  of sft-v1's public sources at 1,200 train records; none pairs gated at 8k, `--none_pair_max_state`). Eval-only suites set aside by its components (private mirror
   `jaredpalmer/kev-private-evals`, development only, report-only; source names shared with sft-v2's training records, so never a temperature pool):
   `evals/ood-v2`, `evals/agents-ood-v1`, `evals/guardrails-ood-v1` (PII + grounding + injection). `evals/tasksource-heldout-v1` (development + locked test; 24 whole dataset families held out of tasksource-v1: held-out
   datasets) publishes hashes and counts only; its family list is in the private kev-sft manifest, so its rows and per-source reports stay in the
