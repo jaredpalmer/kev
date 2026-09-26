@@ -359,6 +359,16 @@ So the demo leaves 0.35 of headroom, and closing it means learning which sources
 
 If the candidate passes, the panel gates of pilot 1 are read (a temperature refit per checkpoint; warm-up and final vs the released parent), and only a pass there opens a scale-up proposal. **Budget**: ~$12 training, ~$10 reads; cap $40 across pilots 1-3 (~$13 so far).
 
+**Result (fail, 2026-09-26T02:25Z).** Held-out greedy numbers:
+
+| Checkpoint | Return | Answer ECE | belief_error | Step entropy |
+|---|---|---|---|---|
+| Parent (escalates 86%) | 0.083 | 0.12 | 0.23 | 1.60 |
+| Warm-up (600 steps) | 0.38 | 0.108 | 0.155 | 1.77 |
+| RL, both arms, iterations 25 and 50 | 0.38 | 0.28 | 0.31 | 0.17-0.25 |
+
+In the RL rows the outcomes and asks (1.0) are identical to the warm-up's. The sampled training return oscillated between 0.07 and 0.62 with no trend. KL to the warm-up policy was 0.6-0.7 nats and step entropy fell to 0.02-0.12. RL sharpened the demonstrated behaviour (ask one source, repeat it) instead of discovering the Bayes policy (ceiling 0.658). Sharpening without a behaviour change is exactly the calibration failure the guards were for: answer ECE and belief error both roughly doubled, failing the rule. Stopped at iteration ~50 (~$7; ~$20 across pilots 1-3); no panel read. Reading: sampled deviations from a cloned deterministic heuristic rarely reach a better complete behaviour (ask again, then answer the posterior argmax) within a group of 8, so the most consistent gradient is towards the demo itself.
+
 ## Next
 
 Goals and open questions, not registered rounds; each becomes a spec and a PLAN section before it runs.
