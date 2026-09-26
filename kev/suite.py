@@ -13,7 +13,8 @@ from pathlib import Path
 from kev.composition import DEV_SHAPES, HELD_OUT_KEYS, TEST_SHAPES, TRAIN_SHAPES
 from kev.contrastive import FAMILIES, generate
 from kev.data import ALL_REPOS, ALL_SOURCES, EVAL_ONLY, REPOS, SOURCES, TRAINABLE, TRANSFER_REPOS, TRANSFER_SOURCES, build, dataset_ref, materialize, source_seed
-from kev.model import MAX_BRANCH, SERVE_MAX_BRANCH, SERVE_MAX_PACKED, SERVE_MAX_STATE, fits, load_tokenizer, training_context
+from kev.model import (MAX_BRANCH, SERVE_MAX_BRANCH, SERVE_MAX_BRANCH_8K, SERVE_MAX_PACKED, SERVE_MAX_STATE, SERVE_MAX_STATE_8K, fits, load_tokenizer,
+                       training_context)
 
 SPLITS = ("train", "calibration", "development", "test")
 BASES = ("Qwen/Qwen2.5-0.5B", "Qwen/Qwen3-0.6B-Base")
@@ -21,6 +22,10 @@ BASES = ("Qwen/Qwen2.5-0.5B", "Qwen/Qwen3-0.6B-Base")
 CONTEXT = {**training_context(), "truncate": False}
 # what a manifest records for an eval-only suite frozen as published rather than admitted to the training context
 SERVING_CONTEXT = {"max_state": SERVE_MAX_STATE, "max_branch": SERVE_MAX_BRANCH, "max_packed": SERVE_MAX_PACKED, "truncate": False}
+# the serving context before 64k states: what the suites frozen until then record and were admitted under; their builders
+# (hard-v1, devtools-v1, breadth-v1, long states, semif/typesafe, documents-v1) keep it and kev.model.MAX_TRAIN_STATE_8K,
+# so they still rebuild byte for byte
+SERVING_CONTEXT_8K = {"max_state": SERVE_MAX_STATE_8K, "max_branch": SERVE_MAX_BRANCH_8K, "max_packed": SERVE_MAX_STATE_8K + SERVE_MAX_BRANCH_8K, "truncate": False}
 # Clean records are admitted with this many branch tokens to spare, so the variants that add an option (contrast_cases'
 # none-of-these, training-time none/distractor augmentation) still encode under MAX_BRANCH.
 ADMISSION_BRANCH_HEADROOM = 64

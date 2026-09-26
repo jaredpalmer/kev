@@ -25,6 +25,11 @@ RULES = [
      r"\[\s*\"false\"\s*,\s*\"true\"\s*\]|\[str\(i\) for i in range\(len\(", {"kev/api.py", "tests/test_unit.py"}),   # the unit test pins the contract
     ("the training context is kev.model.MAX_STATE/MAX_BRANCH/MAX_PACKED, lifted only through kev.model.training_context (kev.suite.CONTEXT in manifests), and kev.model.fits",
      r"(?<![\w.])(>|<=|>=|<)\s*2048\b|\b2048\s*(<|>)|max_(branch|state|packed)\"?\s*[=:]\s*\d{3,}", {"kev/model.py"}),
+    ("the serving / long-state limits (SERVE_MAX_*, ROW_PASS_TOKENS, MAX_TRAIN_STATE) and the pre-64k aliases the frozen suites' builders "
+     "rebuild byte for byte with (SERVE_MAX_*_8K, MAX_TRAIN_STATE_8K) are defined only in kev.model",
+     r"^\s*(SERVE_MAX_(STATE|BRANCH|PACKED)|ROW_PASS_TOKENS|MAX_TRAIN_STATE)(_8K)?\s*(=|,[^\n=]*=)|(?<![\w.])7552\b", {"kev/model.py"}),
+    ("the serving contexts manifests record (SERVING_CONTEXT, and SERVING_CONTEXT_8K for the suites frozen before 64k states) are defined only in kev.suite",
+     r"^\s*SERVING_CONTEXT(_8K)?\s*=", {"kev/suite.py"}),
     ("text files are read and written as UTF-8 (kev.suite.read_json/read_jsonl/write_json/write_jsonl, or an explicit encoding=); "
      "the platform locale must never decide how a frozen partition is decoded (issue #12)",
      r"\.read_text\(\)|\.write_text\((?![^\n]*encoding=)|json\.loads?\(open\(|encoding=None|(?<![\w.])open\((?![^\n]*encoding=)(?![^\n]*\"[rwax]b\")", {"kev/suite.py"}),

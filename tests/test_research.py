@@ -997,13 +997,14 @@ def test_rotation_averaging_cancels_a_position_bias():
 
 def test_max_state_lifts_row_and_packed_limits_together():
     from kev.experiment import validated_trial
-    from kev.model import MAX_BRANCH, MAX_PACKED, MAX_STATE, MAX_TRAIN_STATE, SERVE_MAX_BRANCH, training_context
+    from kev.model import MAX_BRANCH, MAX_PACKED, MAX_STATE, MAX_TRAIN_STATE, SERVE_MAX_BRANCH, SERVE_MAX_STATE, training_context
     from kev.suite import CONTEXT
     assert training_context() == {k: v for k, v in CONTEXT.items() if k != "truncate"} == {"max_state": MAX_STATE, "max_branch": MAX_BRANCH, "max_packed": MAX_PACKED}
     long = 12 * MAX_STATE                                                              # the 4.12 delta's state limit
     lifted = training_context(long)
     assert lifted["max_branch"] - MAX_BRANCH == lifted["max_packed"] - MAX_PACKED == long - MAX_STATE
-    assert training_context(MAX_TRAIN_STATE)["max_branch"] == SERVE_MAX_BRANCH          # the served row limit still fits a training branch
+    assert MAX_TRAIN_STATE == SERVE_MAX_STATE == 65536                                   # 64k states train and serve
+    assert training_context(MAX_TRAIN_STATE)["max_branch"] <= SERVE_MAX_BRANCH          # the served row limit still fits a training branch
     with pytest.raises(ValueError):
         training_context(MAX_TRAIN_STATE + 1)
     manifest = {"base_revisions": {"model": "pinned"}}

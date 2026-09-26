@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from kev.data import materialize  # noqa: E402
 from kev.model import fits, load_tokenizer, user_tokens  # noqa: E402
-from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, GIT_LIMIT, SERVING_CONTEXT, digest, normalise_text, read_json, read_jsonl, text_digest, write_json, write_jsonl  # noqa: E402
+from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, GIT_LIMIT, SERVING_CONTEXT_8K as SERVING_CONTEXT, digest, normalise_text, read_json, read_jsonl, text_digest, write_json, write_jsonl  # noqa: E402
 from scripts.build_devtools_v1 import deal_groups, fetch, hub_file, line_safe, parquet_rows, round_robin, state_key  # noqa: E402
 
 VERSION = SEED = "breadth-v1"

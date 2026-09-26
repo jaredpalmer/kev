@@ -19,7 +19,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from kev.suite import CONTEXT, SERVING_CONTEXT, digest, read_jsonl, record_digest, write_json, write_jsonl
+from kev.suite import CONTEXT, SERVING_CONTEXT_8K as SERVING_CONTEXT, digest, read_jsonl, record_digest, write_json, write_jsonl
 
 SOURCES = {
     "wanli": {"source": "wanli", "rows": 256, "context": CONTEXT,

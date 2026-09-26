@@ -5,7 +5,7 @@ Run: uv run --extra serve python -m kev.serve --run runs/kev --port 8008
 TypeSafe-compatible: POST /v1/systemone, GET /v1/models, the `x-typesafe-request-id` response header, and bearer auth
 when KEV_API_KEY is set (unset = open server, the local default). Demo extras: POST /v1/systemone/permute (one Choice
 under several option orders) and POST /v1/systemone/separate (each question in its own pass, for the packed-vs-separate
-comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS size the state-prefix cache; KEV_DATE_FACTS=1 opts into the
+comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS / KEV_PREFIX_MAX_TOKENS size the state-prefix cache; KEV_DATE_FACTS=1 opts into the
 date preprocessing (api.with_date_facts). Backend and precision follow LoadOptions (KEV_BACKEND, KEV_DTYPE, ...): on Apple
 Silicon the hybrid Qwen3.5 checkpoints run on MLX by default, elsewhere on torch in bf16.
 """
@@ -24,6 +24,8 @@ from .model import SERVE_MAX_BRANCH, SERVE_MAX_STATE
 
 PREFIX_CACHE_SIZE = int(os.environ.get("KEV_PREFIX_CACHE", "4"))          # states kept (KV + DeltaNet states; attention-only backbones also the state's hidden states); 0 disables
 PREFIX_MIN_TOKENS = os.environ.get("KEV_PREFIX_MIN_TOKENS")               # states shorter than this are not cached; default = the model's prefix_min_tokens (0 for hybrid backbones and MLX, 384 for attention-only torch models)
+PREFIX_MAX_TOKENS = int(os.environ.get("KEV_PREFIX_MAX_TOKENS", "65536"))  # state tokens the cache holds in all (least recently used evicted first); a longer state is not cached.
+                                                                         # One 64k state (Kev-27B: ~1.3 GB of keys, values and DeltaNet states), or four 16k ones, not four 64k ones
 DATE_FACTS = os.environ.get("KEV_DATE_FACTS", "0") == "1"
 API_KEY = os.environ.get("KEV_API_KEY")                                  # unset = open server; set = require Authorization: Bearer <key>, as the TypeSafe clients always send
 MAX_BATCH = 64                                                           # requests the model thread takes at once (kev.cuda_graphs splits them to fit its buffers)
@@ -33,10 +35,12 @@ MODEL_NAMES = ("kev-latest", "jev-latest")                               # both 
 @dataclass
 class PrefixCache:
     """State prefixes kept across requests, least recently used first: (state token ids, option_isolation) -> prefix.
-    States shorter than min_tokens are not cached. A batch keeps (copies) only the new states that will still be here
-    after it, its last `size` distinct ones: the rest would be evicted by the batch itself."""
+    At most `size` states and `max_tokens` state tokens in all; states shorter than min_tokens or longer than max_tokens
+    are not cached. A batch keeps (copies) only the new states that will still be here after it, its last distinct ones
+    within both bounds: the rest would be evicted by the batch itself."""
     size: int
     min_tokens: int
+    max_tokens: int = PREFIX_MAX_TOKENS
     entries: dict = field(default_factory=dict)
     hits: int = 0
     misses: int = 0
@@ -45,9 +49,12 @@ class PrefixCache:
     def plan(self, encs):
         """-> (key per request, None when its state is not cached; its cached prefix or None; whether to keep a new one)."""
         lengths = [enc["seg"].count(0) for enc in encs]
-        keys = [(tuple(enc["ids"][:n]), bool(enc.get("option_isolation"))) if self.size and n >= self.min_tokens else None
+        keys = [(tuple(enc["ids"][:n]), bool(enc.get("option_isolation"))) if self.size and self.min_tokens <= n <= self.max_tokens else None
                 for enc, n in zip(encs, lengths)]
-        survivors = set(list(dict.fromkeys(k for k in reversed(keys) if k is not None))[:self.size])
+        survivors, tokens = set(), 0
+        for key in dict.fromkeys(k for k in reversed(keys) if k is not None):   # most recent first, as store() keeps them
+            if len(survivors) == self.size or tokens + len(key[0]) > self.max_tokens: break
+            survivors.add(key); tokens += len(key[0])
         return keys, [self.entries.get(k) if k is not None else None for k in keys], [k in survivors for k in keys]
 
     def store(self, keys, cached, prefixes):
@@ -57,7 +64,7 @@ class PrefixCache:
             self.hits += old is not None; self.misses += old is None
             if new is None: continue
             self.entries.pop(key, None); self.entries[key] = new
-            while len(self.entries) > self.size: self.entries.pop(next(iter(self.entries)))
+            while len(self.entries) > self.size or sum(len(k[0]) for k in self.entries) > self.max_tokens: self.entries.pop(next(iter(self.entries)))
 
     def clear(self):
         self.entries.clear()
@@ -254,7 +261,7 @@ def models():
             "run": ck.requested, "base": meta.base, "lora": meta.lora, "device": s.device, "backend": s.model.backend, "dtype": s.model.dtype,
             "temperature": s.model.head.temperature,
             "cuda_graphs": graphs.stats() if (graphs := getattr(s.model, "graphs", None)) else None,
-            "prefix_cache": {"size": s.prefix_cache.size, "min_state_tokens": s.prefix_cache.min_tokens, "hits": s.prefix_cache.hits,
+            "prefix_cache": {"size": s.prefix_cache.size, "min_state_tokens": s.prefix_cache.min_tokens, "max_tokens": s.prefix_cache.max_tokens, "hits": s.prefix_cache.hits,
                              "misses": s.prefix_cache.misses, "cached_states": len(s.prefix_cache.entries), "oom_retries": s.prefix_cache.oom_retries},
             "batches": {"count": s.batches, "requests": s.batched_requests, "queued": s.queue.qsize()}}
     return {"models": [{"name": name, **card} for name in MODEL_NAMES]}

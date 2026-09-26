@@ -147,7 +147,7 @@ def test_row_batching_and_packed_fallback_do_not_change_answers(smoke_run, monke
     enc = m.encode(tok, rec)
     with torch.no_grad():
         packed = torch.cat(m.probs(enc)); prefix_packed = m.prefix(enc)
-        monkeypatch.setattr(M, "SERVE_MAX_PACKED", len(enc["ids"]) - 1)   # now "too long to pack": every path takes the row form
+        monkeypatch.setattr(M, "ROW_PASS_TOKENS", len(enc["ids"]) - 1)   # now "too long to pack": every path takes the row form
         assert m.rows_form([enc])
         full = lambda: torch.cat([torch.softmax(z, -1) for z in m.forward(enc)])   # the row form (probs() would take the prefix path)
         rows_full = full(); rows_miss, prefix_rows = m.probs_and_prefix(enc)
@@ -155,7 +155,7 @@ def test_row_batching_and_packed_fallback_do_not_change_answers(smoke_run, monke
         rows_hit = torch.cat(m.probs_with_prefix(enc, prefix_rows)); rows_probs = torch.cat(m.probs(enc))   # probs() on an attention-only record too long to pack
         monkeypatch.setattr(M, "rows_per_pass", lambda rows, prefix_len=0, budget=0: 1)   # one row per pass
         one_at_a_time = full(); one_at_a_time_hit = torch.cat(m.probs_with_prefix(enc, prefix_rows))
-        monkeypatch.setattr(M, "SERVE_MAX_PACKED", len(enc["ids"]))   # packable again: the prefix made by rows, reused packed
+        monkeypatch.setattr(M, "ROW_PASS_TOKENS", len(enc["ids"]))   # packable again: the prefix made by rows, reused packed
         packed_hit_from_rows_prefix = torch.cat(m.probs_with_prefix(enc, prefix_rows))
     for got in (rows_full, torch.cat(rows_miss), rows_hit_from_packed_prefix, rows_hit, rows_probs, one_at_a_time, one_at_a_time_hit, packed_hit_from_rows_prefix):
         assert (got - packed).abs().max() < 1e-4
@@ -273,14 +273,15 @@ def _prefix_checks(exact, kernels=None):
     (measured: at most 1.05x the worst batching in fp32, 1.32x in bf16) and along each signed direction."""
     failed = [k for k, ok in {"keys": exact["keys"], "logit": exact["logit"] <= 2e-4, "grad": exact["grad"] <= 1e-4, "gnorm": exact["gnorm"] <= 5e-5,
                              "mean": abs(exact["mean"]) <= 3e-5, "along": abs(exact["along"]) <= 1e-5, "galong": abs(exact["galong"]) <= 2e-5}.items() if not ok]
-    if kernels:
-        prefix, rows = kernels["prefix"], [kernels[b] for b in PREFIX_BATCHINGS]
-        worst = lambda k: max(abs(r[k]) for r in rows)
-        failed += [f"kernels {k}" for k in ("logit", "grad", "gnorm") if prefix[k] > 2 * worst(k)]
-        failed += [f"kernels {k}" for k in ("mean", "along") if abs(prefix[k]) > 2 * worst(k) + 3 * max(r[f"sd_{k}"] for r in rows)]
+    rows = [kernels[b] for b in PREFIX_BATCHINGS] if kernels else []
+    worst = lambda k: max(abs(r[k]) for r in rows)
+    for name in [k for k in (kernels or {}) if k.startswith("prefix")]:   # left-padded states ("prefix"), and each alone (no state mask: SDPA's causal flash kernel)
+        prefix = kernels[name]
+        failed += [f"kernels {name} {k}" for k in ("logit", "grad", "gnorm") if prefix[k] > 2 * worst(k)]
+        failed += [f"kernels {name} {k}" for k in ("mean", "along") if abs(prefix[k]) > 2 * worst(k) + 3 * max(r[f"sd_{k}"] for r in rows)]
         if abs(prefix["galong"]) > 2 * worst("galong") + 0.5 * worst("gnorm"):   # |galong| <= gnorm always; a scaling puts the error along the gradient, noise almost none of it
-            failed.append("kernels galong")
-        if not prefix["keys"]: failed.append("kernels keys")
+            failed.append(f"kernels {name} galong")
+        if not prefix["keys"]: failed.append(f"kernels {name} keys")
     return failed
 
 
@@ -291,8 +292,10 @@ def test_shared_prefix_matches_rows(device, dtype, monkeypatch):
     kind on the CPU), the logits and every parameter's gradient equal the row form's to fp32 rounding. Then, on CUDA (run
     it on Modal, modal_app.py::gpu_tests), with the kernels training uses in fp32 or bf16: fla's Triton kernels round
     their fp32 dots like TF32 and differentiate through the prefix's `initial_state`, so neither form is exact there; the
-    shared prefix must be no further from the exact answer than the row form is under three batchings. (Its distance to
-    one row batching is no yardstick: that batching's own error is in it, and the two forms round differently.)"""
+    shared prefix must be no further from the exact answer than the row form is under three batchings, both with its
+    states left-padded together and with each record alone (no padding, so no state mask: SDPA's causal flash kernel, the
+    path a 64k-token state takes). (Its distance to one row batching is no yardstick: that batching's own error is in it,
+    and the two forms round differently.)"""
     import importlib.util
     import torch
     if device == "cuda" and not torch.cuda.is_available(): pytest.skip("needs CUDA")
@@ -307,6 +310,7 @@ def test_shared_prefix_matches_rows(device, dtype, monkeypatch):
         m = ref if dtype == "float32" else _prefix_setup(device, dtype, head=ref.head)[0]
         kernels = {b: _prefix_errors(*_prefix_run(m, encs, False, batches), z_ref, g_ref) for b, batches in PREFIX_BATCHINGS.items()}
         kernels["prefix"] = _prefix_errors(*_prefix_run(m, encs, True, PREFIX_BATCHINGS["together"]), z_ref, g_ref)
+        kernels["prefix alone"] = _prefix_errors(*_prefix_run(m, encs, True, PREFIX_BATCHINGS["alone"]), z_ref, g_ref)
     fmt = lambda e: " ".join(f"{k} {v:+.2e}" for k, v in e.items() if k != "keys")
     print(f"\n{device} {dtype}: shared prefix vs row form, exact kernels: {fmt(exact)}")
     for name, e in (kernels or {}).items(): print(f"  {name} vs exact rows, training kernels: {fmt(e)}")

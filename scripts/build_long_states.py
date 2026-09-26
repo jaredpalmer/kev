@@ -23,8 +23,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kev.api import render  # noqa: E402
 from kev.data import materialize  # noqa: E402
-from kev.model import MAX_TRAIN_STATE, fits, load_tokenizer  # noqa: E402
-from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, SERVING_CONTEXT, digest, load_split, read_manifest, record_digest, write_json, write_jsonl  # noqa: E402
+from kev.model import MAX_TRAIN_STATE_8K as MAX_TRAIN_STATE, fits, load_tokenizer  # noqa: E402
+from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, SERVING_CONTEXT_8K as SERVING_CONTEXT, digest, load_split, read_manifest, record_digest, write_json, write_jsonl  # noqa: E402
 
 SUITE = "evals/v7/decision-v7"
 LENGTHS = (1024, 2048, 4096)

@@ -22,7 +22,7 @@ from kev.contrastive import paired_flip
 from kev.data import api_request, load_records
 from kev.device import default_device
 from kev.metrics import EPSILON, grouped_metrics, metrics, unknowable_report
-from kev.model import ContextOverflow
+from kev.model import ROW_PASS_TOKENS, ContextOverflow
 from kev.predictors import LocalPredictor, RemotePredictor, RotationAveraged
 from kev.suite import CONTEXT, ENCODING, digest, load_split, read_manifest, record_digest, write_json
 
@@ -65,6 +65,7 @@ def prediction_rows(record, prediction):
                 raise ValueError("logit keys or values do not match the requested options")
             row["logits"] = [float(raw_logits[k]) for k in keys]
             row["inference_temperature"] = prediction["inference_temperature"]
+        if "kernels" in prediction: row["kernels"] = prediction["kernels"]   # a long row off the fp32-exact kernels (LocalPredictor)
         rows.append(row)
     return rows
 
@@ -160,6 +161,9 @@ def evaluate_records(records, predictor, directory, temperature=1.0, heldout_sou
     report.update(coverage=coverage, latency_ms={"median": float(np.median(latencies)), "p95": float(np.quantile(latencies, .95))},
                   calibration={"inference_temperature": getattr(predictor, "temperature", None),
                                "additional_temperature": temperature, "logits_recorded": all("logits" in r for r in rows)})
+    long = [r for r in rows if "kernels" in r]
+    if long:   # absent when every row ran the exact kernels, so such reports are unchanged
+        report["long_rows"] = {"count": len(long), "records": len({r["id"] for r in long}), "kernels": sorted({r["kernels"] for r in long}), "threshold": ROW_PASS_TOKENS}
     write_json(directory / "report.json", report)
     return report, rows
 

@@ -23,7 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from kev.suite import PRIVATE_DATASET, SERVING_CONTEXT, digest, read_json, read_jsonl, read_manifest, write_json, write_jsonl  # noqa: E402
+from kev.suite import PRIVATE_DATASET, SERVING_CONTEXT_8K as SERVING_CONTEXT, digest, read_json, read_jsonl, read_manifest, write_json, write_jsonl  # noqa: E402
 
 WORK = Path("runs/documents-v1-work")
 TEACHERS = ("deepseek/deepseek-v3.2", "alibaba/qwen3-235b-a22b-thinking")
