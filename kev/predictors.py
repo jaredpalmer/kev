@@ -161,11 +161,22 @@ class RotationAveraged:
         return out
 
 
+class JevRefused(ContextOverflow):
+    """Jev declined a request with a client error that means "not this input" (REFUSAL_STATUSES; e.g. a state past its
+    context). With count_refusals, kev.benchmark counts such a record as rejected (rejected.json) instead of stopping."""
+
+
+REFUSAL_STATUSES = (400, 413, 422)
+
+
 class JevPredictor:
-    """Jev through the AI SDK worker (playground/scripts/jev-evaluate.mjs); every call is counted against a token budget."""
-    def __init__(self, key, budget=0.1, max_calls=700):
-        self.budget, self.max_calls = budget, max_calls
+    """Jev through the AI SDK worker (playground/scripts/jev-evaluate.mjs); every call is counted against a token budget.
+    count_refusals: a request answered with a REFUSAL_STATUSES error raises JevRefused (counted, not fatal); any other client
+    error (401, 403, 429, ...) still stops the read."""
+    def __init__(self, key, budget=0.1, max_calls=700, count_refusals=False):
+        self.budget, self.max_calls, self.count_refusals = budget, max_calls, count_refusals
         self.calls, self.input_tokens, self.output_tokens, self.retries = 0, 0, 0, 0
+        self.refusals = {}   # HTTP status -> count
         self.started_at = datetime.now(timezone.utc).isoformat()
         worker = Path(__file__).resolve().parents[1] / "playground/scripts/jev-evaluate.mjs"
         self.process = subprocess.Popen(["node", str(worker)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -196,6 +207,9 @@ class JevPredictor:
                 break
             status = result["error"]["status"]
             # bounded retry for hosted-side failures only; client errors (4xx) are real and must surface
+            if self.count_refusals and status in REFUSAL_STATUSES:
+                self.refusals[status] = self.refusals.get(status, 0) + 1
+                raise JevRefused(f"Jev refused the request: {result['error']['name']} (HTTP {status})")
             if attempt == 3 or (status is not None and status < 500):
                 raise RuntimeError(f"Jev request failed: {result['error']['name']} (HTTP {status})")
             self.retries += 1
@@ -218,5 +232,6 @@ class JevPredictor:
         return {"model": "typesafe-ai/jev", "model_revision": "Gateway alias; provider revision not exposed by SDK result",
                 "started_at": self.started_at, "calls": self.calls, "input_tokens": self.input_tokens,
                 "output_tokens": self.output_tokens, "retries_after_5xx": self.retries, "listed_input_usd_per_million": PRICE_PER_MILLION,
+                **({"refusals": {str(k): v for k, v in sorted(self.refusals.items())}} if self.count_refusals else {}),
                 "estimated_usd": self.input_tokens * PRICE_PER_MILLION / 1e6,
                 "budget_usd": self.budget, "sdk": "ai@7.0.105", "zero_data_retention_requested": True}

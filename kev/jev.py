@@ -30,6 +30,9 @@ def main():
     ap.add_argument("--provision-scope", help="Explicitly authorize a $1 non-renewing, seven-day key on this team")
     ap.add_argument("--budget", type=float, default=0.1)
     ap.add_argument("--max-calls", type=int, default=700)
+    ap.add_argument("--count-refusals", action="store_true",
+                    help="count requests Jev refuses (HTTP 400/413/422, e.g. past its context) as rejected records (rejected.json, "
+                         "report coverage) and continue; other errors still stop the read")
     a = ap.parse_args()
     # a provisioned key carries a $1 limit of its own; a caller's key may run a larger panel (breadth-v1 dev: ~2,000 records)
     if not 0 < a.budget <= 5 or not 1 <= a.max_calls <= 5000:
@@ -42,10 +45,10 @@ def main():
         key = provision_key(a.provision_scope)
     if not key:
         ap.error("Set AI_GATEWAY_API_KEY or explicitly select --provision-scope")
-    predictor = JevPredictor(key, a.budget, a.max_calls)
+    predictor = JevPredictor(key, a.budget, a.max_calls, count_refusals=a.count_refusals)
     try:
         heldout = read_manifest(a.suite)["holdout_sources"]
-        report, _ = evaluate_records(records, predictor, a.out, heldout_sources=tuple(heldout))
+        report, _ = evaluate_records(records, predictor, a.out, heldout_sources=tuple(heldout), skip_overlong=a.count_refusals)
         report.update(suite_sha256=digest(Path(a.suite) / "manifest.json"), split="development", provider=predictor.accounting())
         write_json(Path(a.out) / "report.json", report)
         print(json.dumps({"clean": report["clean"], "variants": report["variants"], "provider": report["provider"]}, indent=2))

@@ -191,7 +191,8 @@ def test_hybrid_rows_isolation_and_prefix(monkeypatch):
         saved, M.rows_per_pass = M.rows_per_pass, lambda rows, prefix_len=0, budget=0: 1   # one row per pass: same answers, bounded memory
         try: chunked = m.probs_with_prefix(enc, prefix)
         finally: M.rows_per_pass = saved
-    for a, *others in zip(rows, together, alone, cached, again, again2, chunked):
+        from_prefix = [torch.softmax(z, -1) for z in m.forward_from_prefix(enc)]   # the long-document scoring path (logits)
+    for a, *others in zip(rows, together, alone, cached, again, again2, chunked, from_prefix):
         assert all((a - b).abs().max() < 1e-4 for b in others)
 
 

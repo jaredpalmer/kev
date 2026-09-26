@@ -86,6 +86,10 @@ class Server:
     batches: int = 0
     batched_requests: int = 0
     release_date: str = field(default="")   # for the TypeSafe model card; resolved once (may ask the Hub)
+    # per-request encoder limits: state tokens, and row tokens (state + one question branch); a longer request is a 422.
+    # The defaults are the serving context; scripts/longdoc_serving.py raises them to measure long-document states.
+    max_state: int = SERVE_MAX_STATE
+    max_branch: int = SERVE_MAX_BRANCH
 
     def __post_init__(self):
         self.release_date = self.release_date or self.checkpoint.release_date()
@@ -113,7 +117,7 @@ class Server:
         first question) is cached across requests, so a repeated state only pays for its question rows. latency_ms is the
         model time of the batch the request ran in (not its wait in the queue)."""
         if self.stopping.is_set(): raise HTTPException(503, "the server is stopping")
-        try: enc = self.model.encode(self.tok, rec, max_state=SERVE_MAX_STATE, max_branch=SERVE_MAX_BRANCH)
+        try: enc = self.model.encode(self.tok, rec, max_state=self.max_state, max_branch=self.max_branch)
         except ValueError as e: raise HTTPException(422, str(e))
         done = Future()
         self.queue.put((enc, done))
