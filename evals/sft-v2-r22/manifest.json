@@ -1,0 +1,560 @@
+{
+  "version": "sft-v2-r22",
+  "description": "Round 22's training suite (private mirror; only this manifest is public): sft-v2's records with states of at most 32,768 tokens (Kev-27B tokenizer) in every partition, same order, and at most 500 train records of each of sft-v1's public sources; calibration and development keep only states of at most 8,192 tokens (in-trial screening only); train downsampled further (longify 3,200, tasksource-v1 24,000 records, 0.5 of each sft-v1 synthetic source). Round 22's registration explains these: one epoch and its in-trial scoring have to fit three 8-hour attempts on 8 H200s.",
+  "derived_from": {
+    "suite": "evals/sft-v2",
+    "manifest": "evals/sft-v2/manifest.json",
+    "rule": "keep every record whose state (the <state> token + the rendered state) has at most 32768 tokens; of each sft-v1 public source's train records keep the 500 with the smallest sha256('sft-v2-assemble-20260926:public-cap:' + record digest); calibration and development keep only states of at most 8192 tokens; then at most 3200 train records of longify (the smallest sha256('sft-v2-assemble-20260926:keep:longify:' + record digest)); then at most 24000 train records of tasksource-v1 (the smallest sha256('sft-v2-assemble-20260926:keep:tasksource-v1:' + record digest), stratified by family); then round(n x 0.5) train records of each sft-v1 synthetic source (the smallest sha256('sft-v2-assemble-20260926:keep:<source>:' + record digest))"
+  },
+  "screening_partitions": "calibration and development hold only states of at most 8,192 tokens: they are in-distribution screening partitions (held-out items of the training components; kev.experiment's in-trial temperature and development score), which no round-22 rule criterion reads (every candidate reads transfer-v4 through its own read, and the served temperature comes from the registered held-out-datasets pool), and their longer records took about half of a trial's in-trial scoring time on one GPU",
+  "downsampled_sources": {
+    "multiwoz": {
+      "records": 5580,
+      "kept": 500
+    },
+    "helpsteer2": {
+      "records": 4650,
+      "kept": 500
+    },
+    "arc": {
+      "records": 2991,
+      "kept": 500
+    },
+    "openbookqa": {
+      "records": 3720,
+      "kept": 500
+    },
+    "medmcqa": {
+      "records": 3720,
+      "kept": 500
+    },
+    "massive": {
+      "records": 5580,
+      "kept": 500
+    },
+    "snli": {
+      "records": 4650,
+      "kept": 500
+    },
+    "math_qa": {
+      "records": 3720,
+      "kept": 500
+    },
+    "helpsteer3": {
+      "records": 5580,
+      "kept": 500
+    },
+    "gsm8k": {
+      "records": 4650,
+      "kept": 500
+    },
+    "siqa": {
+      "records": 3720,
+      "kept": 500
+    },
+    "quartz": {
+      "records": 2340,
+      "kept": 500
+    },
+    "hotpotqa": {
+      "records": 4650,
+      "kept": 500
+    },
+    "cosmos_qa": {
+      "records": 3720,
+      "kept": 500
+    },
+    "nq": {
+      "records": 4650,
+      "kept": 500
+    },
+    "poem_sentiment": {
+      "records": 762,
+      "kept": 500
+    },
+    "esci": {
+      "records": 4650,
+      "kept": 500
+    },
+    "ledgar": {
+      "records": 4640,
+      "kept": 500
+    },
+    "winogrande": {
+      "records": 3720,
+      "kept": 500
+    },
+    "casehold": {
+      "records": 3720,
+      "kept": 500
+    },
+    "csqa": {
+      "records": 3720,
+      "kept": 500
+    },
+    "strategyqa": {
+      "records": 1215,
+      "kept": 500
+    },
+    "aqua_rat": {
+      "records": 3720,
+      "kept": 500
+    },
+    "qasc": {
+      "records": 3720,
+      "kept": 500
+    }
+  },
+  "downsampled_components": {
+    "sft-v1 synthetic": {
+      "synthetic-v1/abstention": {
+        "records": 7059,
+        "kept": 3530
+      },
+      "synthetic-v1/intent": {
+        "records": 9696,
+        "kept": 4848
+      },
+      "synthetic-v1/long_doc": {
+        "records": 12084,
+        "kept": 6042
+      },
+      "synthetic-v1/numeric": {
+        "records": 7367,
+        "kept": 3684
+      },
+      "synthetic-v1/retrieval": {
+        "records": 5543,
+        "kept": 2772
+      },
+      "synthetic-v1/rubric_judge": {
+        "records": 14575,
+        "kept": 7288
+      },
+      "synthetic-v1/tool_routing": {
+        "records": 11027,
+        "kept": 5514
+      }
+    },
+    "tasksource-v1": {
+      "records": 58190,
+      "kept": 24000,
+      "families": 119,
+      "families_kept": 119,
+      "rule": "stratified by family (the family list is private): each family keeps its share of the total, floors then largest remainders, the records with the smallest sha256(SEED:keep:tasksource-v1: + record digest)"
+    },
+    "longify": {
+      "records": 6400,
+      "kept": 3200,
+      "rule": "the records with the smallest sha256(SEED:keep:longify: + record digest)"
+    }
+  },
+  "seed": "sft-v2-assemble-20260926",
+  "partitions": [
+    "train",
+    "calibration",
+    "development"
+  ],
+  "eval_only": false,
+  "roles": {
+    "train": "training",
+    "calibration": "never trained on; held-out items of the training components (in distribution): kev.experiment's in-trial temperature only (screening), never a served or shipped temperature",
+    "development": "never trained on; held-out items of the training components (in distribution): scored per trial for screening only; served and shipped temperatures come from a pool of held-out datasets (docs/autoresearch.md section 3)"
+  },
+  "files": {
+    "train.jsonl": {
+      "sha256": "e73542a70413ba73d1b67d4365cf5210778805292de5d72268aefb3d9d6c4d0d",
+      "records": 145840,
+      "questions": 337130,
+      "bytes": 1796546295,
+      "soft_target_questions": 11563,
+      "by_component": {
+        "sft-v1": {
+          "records": 78786,
+          "questions": 145263,
+          "state_tokens": 52370509,
+          "row_tokens_with_prefix_sharing": 63457036
+        },
+        "tasksource-v1": {
+          "records": 24000,
+          "questions": 32835,
+          "state_tokens": 3491102,
+          "row_tokens_with_prefix_sharing": 4743201
+        },
+        "longify": {
+          "records": 3200,
+          "questions": 7079,
+          "state_tokens": 55885456,
+          "row_tokens_with_prefix_sharing": 56501480
+        },
+        "longdoc": {
+          "records": 7617,
+          "questions": 27528,
+          "state_tokens": 130050641,
+          "row_tokens_with_prefix_sharing": 132218069
+        },
+        "ood": {
+          "records": 7312,
+          "questions": 21968,
+          "state_tokens": 5927674,
+          "row_tokens_with_prefix_sharing": 7923593
+        },
+        "tone": {
+          "records": 7544,
+          "questions": 31849,
+          "state_tokens": 1226017,
+          "row_tokens_with_prefix_sharing": 2642794
+        },
+        "injection": {
+          "records": 2699,
+          "questions": 11487,
+          "state_tokens": 5607435,
+          "row_tokens_with_prefix_sharing": 6454448
+        },
+        "agents": {
+          "records": 4875,
+          "questions": 22332,
+          "state_tokens": 58597534,
+          "row_tokens_with_prefix_sharing": 59845344
+        },
+        "guardrails-pii": {
+          "records": 4152,
+          "questions": 10663,
+          "state_tokens": 3422591,
+          "row_tokens_with_prefix_sharing": 4110239
+        },
+        "guardrails-grounding": {
+          "records": 5655,
+          "questions": 26126,
+          "state_tokens": 15449868,
+          "row_tokens_with_prefix_sharing": 17207748
+        }
+      },
+      "state_tokens": {
+        "min": 2,
+        "median": 327,
+        "mean": 2276.7,
+        "p90": 7694,
+        "p99": 26882,
+        "max": 32765,
+        "total": 332028827
+      },
+      "row_tokens_with_prefix_sharing": 355103952,
+      "state_tokens_histogram": {
+        "1-256": 67187,
+        "257-512": 16368,
+        "513-1024": 20065,
+        "1025-2048": 18651,
+        "2049-4096": 5802,
+        "4097-8192": 3510,
+        "8193-16384": 7690,
+        "16385-32768": 6567,
+        "32769-65536": 0
+      },
+      "dropped_over_state_cap": 3412,
+      "dropped_by_public_cap": 81788
+    },
+    "calibration.jsonl": {
+      "sha256": "952e662ed8ed52a5e50597014024db3d6124e14f5fc125cccbb498d758b7500a",
+      "records": 13385,
+      "questions": 25362,
+      "bytes": 55413067,
+      "soft_target_questions": 297,
+      "by_component": {
+        "sft-v1": {
+          "records": 8468,
+          "questions": 14958,
+          "state_tokens": 5095734,
+          "row_tokens_with_prefix_sharing": 6143846
+        },
+        "tasksource-v1": {
+          "records": 3480,
+          "questions": 4770,
+          "state_tokens": 511945,
+          "row_tokens_with_prefix_sharing": 693846
+        },
+        "longdoc": {
+          "records": 13,
+          "questions": 42,
+          "state_tokens": 98879,
+          "row_tokens_with_prefix_sharing": 101538
+        },
+        "ood": {
+          "records": 388,
+          "questions": 1143,
+          "state_tokens": 315681,
+          "row_tokens_with_prefix_sharing": 424902
+        },
+        "tone": {
+          "records": 372,
+          "questions": 1647,
+          "state_tokens": 61039,
+          "row_tokens_with_prefix_sharing": 135610
+        },
+        "injection": {
+          "records": 122,
+          "questions": 519,
+          "state_tokens": 153107,
+          "row_tokens_with_prefix_sharing": 191349
+        },
+        "agents": {
+          "records": 86,
+          "questions": 492,
+          "state_tokens": 478914,
+          "row_tokens_with_prefix_sharing": 505591
+        },
+        "guardrails-pii": {
+          "records": 219,
+          "questions": 556,
+          "state_tokens": 174493,
+          "row_tokens_with_prefix_sharing": 210949
+        },
+        "guardrails-grounding": {
+          "records": 237,
+          "questions": 1235,
+          "state_tokens": 349325,
+          "row_tokens_with_prefix_sharing": 433157
+        }
+      },
+      "state_tokens": {
+        "min": 2,
+        "median": 137,
+        "mean": 540.8,
+        "p90": 1448,
+        "p99": 4670,
+        "max": 8181,
+        "total": 7239117
+      },
+      "row_tokens_with_prefix_sharing": 8840788,
+      "state_tokens_histogram": {
+        "1-256": 7889,
+        "257-512": 1321,
+        "513-1024": 1756,
+        "1025-2048": 1710,
+        "2049-4096": 529,
+        "4097-8192": 180,
+        "8193-16384": 0,
+        "16385-32768": 0,
+        "32769-65536": 0
+      },
+      "dropped_over_state_cap": 85,
+      "dropped_over_screening_cap": 554,
+      "dropped_by_public_cap": 0
+    },
+    "development.jsonl": {
+      "sha256": "92211e3207ca89c5d033ea2d7bb59a9fb46a4289722ed70103e06877a50ff5d6",
+      "records": 6201,
+      "questions": 11569,
+      "bytes": 24212402,
+      "soft_target_questions": 179,
+      "by_component": {
+        "sft-v1": {
+          "records": 3483,
+          "questions": 6146,
+          "state_tokens": 2036669,
+          "row_tokens_with_prefix_sharing": 2463332
+        },
+        "tasksource-v1": {
+          "records": 2087,
+          "questions": 2839,
+          "state_tokens": 340820,
+          "row_tokens_with_prefix_sharing": 447978
+        },
+        "longdoc": {
+          "records": 4,
+          "questions": 15,
+          "state_tokens": 32105,
+          "row_tokens_with_prefix_sharing": 33165
+        },
+        "ood": {
+          "records": 156,
+          "questions": 484,
+          "state_tokens": 128316,
+          "row_tokens_with_prefix_sharing": 170168
+        },
+        "tone": {
+          "records": 159,
+          "questions": 712,
+          "state_tokens": 26197,
+          "row_tokens_with_prefix_sharing": 58498
+        },
+        "injection": {
+          "records": 49,
+          "questions": 214,
+          "state_tokens": 59718,
+          "row_tokens_with_prefix_sharing": 75230
+        },
+        "agents": {
+          "records": 35,
+          "questions": 190,
+          "state_tokens": 188034,
+          "row_tokens_with_prefix_sharing": 198356
+        },
+        "guardrails-pii": {
+          "records": 77,
+          "questions": 194,
+          "state_tokens": 57164,
+          "row_tokens_with_prefix_sharing": 69270
+        },
+        "guardrails-grounding": {
+          "records": 151,
+          "questions": 775,
+          "state_tokens": 205505,
+          "row_tokens_with_prefix_sharing": 257692
+        }
+      },
+      "state_tokens": {
+        "min": 2,
+        "median": 109,
+        "mean": 495.8,
+        "p90": 1380,
+        "p99": 4355,
+        "max": 8185,
+        "total": 3074528
+      },
+      "row_tokens_with_prefix_sharing": 3773689,
+      "state_tokens_histogram": {
+        "1-256": 3850,
+        "257-512": 606,
+        "513-1024": 743,
+        "1025-2048": 711,
+        "2049-4096": 219,
+        "4097-8192": 72,
+        "8193-16384": 0,
+        "16385-32768": 0,
+        "32769-65536": 0
+      },
+      "dropped_over_state_cap": 38,
+      "dropped_over_screening_cap": 231,
+      "dropped_by_public_cap": 0
+    }
+  },
+  "trainable_sources": [
+    "aegis",
+    "agnews",
+    "amazon",
+    "aqua_rat",
+    "arc",
+    "banking77",
+    "boolq",
+    "casehold",
+    "cfpb",
+    "codereviewer",
+    "commitpackft",
+    "compositional",
+    "cosmos_qa",
+    "csqa",
+    "dbpedia14",
+    "esci",
+    "flakeflagger",
+    "gsm8k",
+    "hard_ambiguous",
+    "hard_judge",
+    "hard_long_policy",
+    "hard_multi_hop",
+    "hard_probability",
+    "hard_temporal_numeric",
+    "hard_tradeoff",
+    "helpsteer2",
+    "helpsteer3",
+    "hotpotqa",
+    "imdb",
+    "ledgar",
+    "legacy_policy",
+    "longify",
+    "longstate",
+    "massive",
+    "math_qa",
+    "medmcqa",
+    "mnli",
+    "multiwoz",
+    "night2_dates",
+    "night2_unknowable",
+    "night2_unknowable_control",
+    "nq",
+    "openbookqa",
+    "poem_sentiment",
+    "qasc",
+    "quartz",
+    "siqa",
+    "snli",
+    "sst5",
+    "strategyqa",
+    "synthetic-v1/abstention",
+    "synthetic-v1/intent",
+    "synthetic-v1/long_doc",
+    "synthetic-v1/numeric",
+    "synthetic-v1/retrieval",
+    "synthetic-v1/rubric_judge",
+    "synthetic-v1/tool_routing",
+    "synthetic-v2-guardrails/grounding",
+    "synthetic-v2-guardrails/injection",
+    "synthetic-v2-guardrails/pii",
+    "synthetic-v2/agent_sessions",
+    "synthetic-v2/longdoc",
+    "synthetic-v2/ood",
+    "synthetic-v2/tone",
+    "tasksource",
+    "trec",
+    "winogrande",
+    "yelp"
+  ],
+  "eval_only_sources": [],
+  "holdout_sources": [],
+  "base_revisions": {
+    "Qwen/Qwen3.8-27B": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "context": {
+    "max_state": 32768,
+    "max_branch": 33408,
+    "max_packed": 34432,
+    "truncate": false,
+    "admission_branch_headroom": 64,
+    "tokenizer": {
+      "model": "Qwen/Qwen3.8-27B",
+      "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+    },
+    "note": "train with --max_state 32768"
+  },
+  "inputs": {
+    "components": {
+      "sft-v2": {
+        "suite": "evals/sft-v2"
+      }
+    },
+    "note": "every record is an sft-v2 record, unchanged; kev.rounds follows sft-v2's manifest to its components"
+  },
+  "code": {
+    "repository": "jaredpalmer/kev-sft (private)",
+    "branch": "assemble-v2-r22",
+    "commit": "0ba98a32fb75801e672259bd93994860c7de2e8d",
+    "dirty": false,
+    "files_sha256": {
+      "assemble/__init__.py": "07b2d8f66fdb3f9bcde6dab77f7a6b83ca3bf5f8f9f5b82f8401c0aada2c1ed7",
+      "assemble/build.py": "3b800bf5f80c9d77f47edb8b1b1c4208c8b3f85ef402235b3f856fa9a2dd15f3",
+      "assemble/build_v2.py": "49d0f49818e713f46dc48fd1624d9c0e288584429677d1d1b5a5f94ed4e90ab0",
+      "assemble/epoch_estimate.py": "89baa2e630dbcb0cef93c110cf00f722dc11e3d5b04f36ce49dbfa3908535103",
+      "assemble/screen_breadth.py": "0c71380692f80cecf134e13838a52a2ea44d40af63c9b310d670bdc8ccdb1a9c",
+      "assemble/screen_components.py": "e05f251e730049b8e60e69f1f77b74adcb2230f941902c49a1d8271ca430fc69",
+      "assemble/screen_v2.py": "09826dcdf00af9f4a3aae764189214f67fc3c0d666e25666b1a3cb9516e195f3",
+      "common/__init__.py": "30f75923540794caec9fd6335fdb903eaf8bd1bd7e15d5ee318ae06add5501d7",
+      "common/admission.py": "ffbf0781b9145859d37dda320686c09fca760c6e02e85c9b0cf74ba2f47ffee9",
+      "common/hub.py": "de285c05340d2833c20ffd90599a7e30a8f735086e31381e00939ce1c62e0d54",
+      "common/records.py": "e1bad5c362edf2e11e63c1a2132e75a5f53f0bb4a7dc04bddc3c55745cbaae40",
+      "common/screen.py": "6965e4c3b604267ecf4fbcaf0f538b7b51caedd0218fcfb484338a7294413270"
+    },
+    "code_sha256": "6bbc5d45bf0f241f956ce9dbee2aae66d13dc64150742858a7b7f8d55b60f25a"
+  },
+  "kev_package": {
+    "repository": "jaredpalmer/kev",
+    "commit": "f1535963cea021439370c23127bc970b6788e730",
+    "kev/api.py": "a6f53af5354f8ea17915abc78360fdf291a5108ce39a53a2d9135d48c603ae58",
+    "kev/data.py": "e77a2fffeb8ee7e05b118893be8e38b8358aef97c3ca2e143cdce208201b92f9",
+    "kev/model.py": "d78fab645f29513a62816e594d10296b02bf166ba77835c55db5eda80c7f1978",
+    "kev/suite.py": "ae2847cc46808dbbaafeb6a7a6ea179e9cb9ec59a4ec9da291f65e90090b80e4"
+  },
+  "mirror": {
+    "dataset": "jaredpalmer/kev-private-train",
+    "revision": "f8d59fbb6b1019c2e666658447f571ad64d7de30"
+  }
+}

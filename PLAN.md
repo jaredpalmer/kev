@@ -64,7 +64,10 @@ cards. Previous weights are Hub tags (`kev-4b@r8-documents-release`, `kev-4b@nig
   that on this suite Kev-27B is the best of six LoRA checkpoints trained from the base on Kev's data. None of the other
   five, its own recipe's second seed included, would pass the guard against it (`runs/r20-scienthoon/analysis.md`).
   **Round 21** (full-weight SFT from the base on `sft-v2-r21`, 32k states, none pairs gated at 8k, two learning rates,
-  snapshots read as candidates) is registered, not launched; it depends on PR #153 (see "Round 21 (registered)").
+  snapshots read as candidates) **failed at startup**: both arms ran out of GPU memory at their 62nd step, before any
+  snapshot, so nothing was read ("Round 21 result"). **Round 22** repeats its science and rule with a per-pass memory
+  ceiling in the trainer and a training set sized to round 21's measured rate (`sft-v2-r22`, 145,840 records); it is
+  registered, not launched, and depends on PR #156 ("Round 22 (registered)").
 - **Round 17** (27B skills delta from Kev-27B with replay 10,000, study `r17-27b`, spec `experiments/rounds/r17.json`).
   Arm (a), lr 2e-5, is read out (`runs/r17-readout/round17.json` in the research checkout, not yet committed anywhere) and
   is **not a candidate**: primary +12.1 [+10.4, +13.9] (hard-v1 dev 0.733 → 0.895, +16.2 [+13.5, +19.0]; devtools-v1 dev
@@ -76,7 +79,8 @@ cards. Previous weights are Hub tags (`kev-4b@r8-documents-release`, `kev-4b@nig
   would be launched from that checkout.
 - Decisions waiting on Jared: upload the documents-v1 and hard-v1 train partitions to `jaredpalmer/kev-suites` and bump
   `SUITES_REVISION` (see Next); submit Kev-27B (and the new 4B / 0.8B) to the Decision Index.
-- Spend: Modal metered $2,522.65 at 2026-09-26T06:49Z (round 21's registration baseline; night ceiling $5,000 metered). Before that, $2,488.88 at 2026-09-26T00:02Z (round 20: +$54.87 over its registration baseline of $2,434.01,
+- Spend: Modal metered $2,668.52 at 2026-09-26T13:42Z (round 22's registration reading: round 21's failed trials and parent
+  reads ~$135, round 22's ceiling probe ~$12; night ceiling $5,000 metered). $2,522.65 at 2026-09-26T06:49Z (round 21's registration baseline). Before that, $2,488.88 at 2026-09-26T00:02Z (round 20: +$54.87 over its registration baseline of $2,434.01,
   workspace-wide); $2,434.01 at 2026-09-25T22:53Z was +$834.75 over round 19's registration baseline of $1,599.26 (its
   training, re-scoring and reads, plus other apps of the workspace); earlier, $1,377.01 at 2026-09-24T12:11Z plus round 17's admission bound ($100.24), and night 3 used $292 of a
   $1,000 authorization. AI Gateway $0.07 (Jev reference reads only). Modal sponsors the project ($5,000 credits, more on request).
@@ -673,12 +677,172 @@ committed: public-suite rows and reports, as in rounds 19-20. The trials' calibr
 ids) and every tasksource-heldout-v1 read's rows and report (its per-source breakdown names the private families) go to
 the private dataset with `scripts/private_rows.py`.the private dataset with `scripts/private_rows.py`.
 
+### Round 21 result
+
+**Failed at startup, in both arms; no candidate, no read.** Both trials (`r21-27b-lr2e6`, `r21-27b-lr1e6`, launched
+2026-09-26 ~11:05Z) ran out of GPU memory on rank 1 during the backward pass of their 62nd optimizer step (the logs' last
+line is step 60; the crash came 75-86 s later): "Tried to allocate 3.05 GiB ... 137.69 GiB in use of 139.80 GiB", in the
+checkpoint recompute of an MLP projection of the state pass (`kev/shared_prefix.py:129`, from `kev/train.py:567`). Same
+seed and data order, so the same micro-batch in both arms. `failed.json` was written and the trials were not retried. No
+snapshot was reached (the first was at step 456), so the rule was never read and stays uncontaminated. Spend: $2,522.65 at
+06:49Z → $2,657.58 at 12:41Z, ~$135 (the two trials' ~1.5 h each and Kev-27B's four parent reads, which are kept:
+`runs/r21-P27-{tsheld,ood,agentsood,guardood}`, agents-ood from the rerun `r21-P27-agentsood-b` copied into
+`runs/r21-P27-agentsood`).
+
+**Why it ran out of memory** (replayed offline: kev.train's epoch-0 shuffle, `none_pairs` and `microbatch_plan` for
+`sft-v2-r21` with the registered arguments, then every micro-batch encoded as `encode_batch` builds it). The 62nd step's
+first micro-batch on rank 1 held 8 records (a guardrails-PII record, two tool-routing, two synthetic long documents, a
+grounding record, a hard-v1 long policy and a tasksource record) and the none-pair siblings of 4 of them: 16 states.
+`--length_sort` cuts runs on *characters*, known before encoding, and the characters had costed this run like its
+slot's seven others (208k character-padded cost each). But the PII record's state is 11,559 characters and 5,877
+tokens (1.97 characters per token; over the corpus's states of more than 200 tokens the median is 4.1, p1 1.9, p99 5.5), so in tokens it set the padding of all 16
+states to 5,877: 16 × 5,877 = 94,032 padded state tokens plus 31 branches × 150, a **98,682-token pass** where the slot's
+other passes held 33-50k. The failed allocation is exactly one MLP intermediate of that state pass: 94,032 × 17,408 × 2
+bytes = 3.05 GiB. Three things combine: (1) characters stand in for tokens with a 2.8× spread; (2) a shared-prefix pass
+pads every state, siblings included, to its longest, so one dense state multiplies; (3) the balancer caps the *step*
+(the cheapest cut into 16 runs), not a pass, so a step with 8 long records leaves the other 120 to be packed into 8 runs.
+Over the whole epoch the characters plan holds 29,160 passes, 1,442 over 49,152 tokens, 209 over 64k, the largest 111k;
+two earlier passes of 72.4k (step 16, 20 short states) and 69.2k (step 58, three 22k states) had survived.
+
+**Why it was slow** (65 s per step against the registered 35 s; the rate measured from the logs: 10 → 60 steps in
+3,245 s for lr 1e-6, 10 → 50 in 2,623 s for lr 2e-6, i.e. **1.96 records/s**, 128 records a step; the order is shuffled,
+so the start is representative; one epoch at that rate ≈ 119,000 s ≈ 33 h). Two causes: the registered projection
+(`assemble/epoch_estimate.py`) dealt token shapes, the trainer dealt characters, whose worse balance in tokens takes the
+same pass-time model from 18.7 h to 22.6 h; and the measured steps run 1.47× that model (fitted on the five 10-step
+intervals, residual ~5 %), which reproduces the measured rate (32.4 h per epoch). The probe below points at padded
+multi-state passes with long states (an explicit state mask instead of the flash kernel's causal path): two unequal
+states of ~19k tokens take 38.7 s per step where one 32k state takes 18.7.
+
+Fixes for round 22: a per-pass memory ceiling in the trainer (PR #156, `--pass_tokens_max`), and a training set sized to
+the measured rate (`evals/sft-v2-r22`).
+
+## Round 22 (registered)
+
+### Round 22 - round 21's science on a trainable recipe: full-weight SFT of Qwen3.8-27B on sft-v2-r22 with a per-pass memory ceiling (registered with this spec's commit, written before any round-22 training or read)
+
+**Why.** Round 21 was registered and failed at startup with no read (above), so its question stands: does full-weight
+SFT from the base on the extended corpus (long states, tone pairs, tasksource, out-of-domain, guardrails and agent
+records) beat Kev-27B under round 21's re-based guards? Round 22 asks it again with the same rule, pool, reads, parents
+and arms; only the recipe's memory plan, the training set's size and the read timeout change, each because of what
+round 21 measured.
+
+**Trainer change: a per-pass memory ceiling** (PR #156, which this round depends on). `--pass_tokens_max 40960`: the
+plan cuts each step on exact token shapes (`kev.train.plan_shapes`: every variant the epoch trains, siblings included;
+branches encoded without their state, the state counted once by `state_token_counts`), and a step whose costliest pass
+is over 40,960 padded tokens (`pass_tokens`: states × the longest state + branches × the longest branch) gets one more
+micro-batch per rank until none is, every rank the same count. Without the flag the plan is byte for byte today's. The
+value comes from memory: the long-state probe's single records peak at 78 / 96 / 115 / 134 GiB at 16k / 32k / 48k / 64k
+(`runs/sft-probe/lc-27b-8xh200`), and the new probe replays, on 8 H200s, the worst passes the round-22 plan allows
+(`scripts/sft_probe.py --passes`, `runs/sft-probe/r22-ceiling-27b-8xh200`, one container, ~18 min, ~$12):
+
+| pass (from the round-22 plan) | padded tokens | states × longest | branches × longest | peak GiB per GPU | s per step |
+|---|---|---|---|---|---|
+| most padded tokens with ≥ 8 states | 40,944 | 18 × 1,512 | 39 × 352 | 103.2 | 18.1 |
+| most branches × state (one agents trace) | 30,951 | 1 × 29,631 | 10 × 132 | 103.7 | 18.5 |
+| most states | 38,130 | 74 × 337 | 97 × 136 | 101.6 | 15.7 |
+| most padded tokens with two long states | 40,958 | 2 × 18,859 | 9 × 360 | 108.2 | 38.7 |
+| round 21's failing pass (replay) | 98,682 | 16 × 5,877 | 31 × 150 | out of memory at 137.4 | - |
+
+Every pass the plan allows peaks at or below 108.2 GiB of 140 (the bar was ~125). The replay of round 21's pass fails as
+round 21 did, to the byte: "Tried to allocate 3.05 GiB", 135.34 GiB allocated by PyTorch, in `kev/shared_prefix.py:129`. A 49,152 ceiling would add ~10 GiB
+by the single-record slope and, by the pass-time model, save no time (fewer, longer passes: 20.0 h vs 19.5 h on one of the
+candidate sets), so the lower value is registered. On sft-v2-r22 the ceiling gives 2,945 micro-batches per rank for 1,140 steps
+(1.29 per accumulation slot instead of 1), the largest pass 40,954 tokens.
+
+**Data** (private; manifests only in this repo). `evals/sft-v2-r22` (kev-private-train @ `f8d59fbb`; built by kev-sft
+`assemble-v2-r22` @ `0ba98a3`, `assemble/build_v2.py --derived sft-v2-r22`, which rebuilt `sft-v2` byte for byte first,
+so the validation and the screen are round 21's, against the same 102 evaluation partitions and 76,549 reference items):
+sft-v2's records, same order, round 21's caps (states ≤ 32,768 tokens; calibration and development ≤ 8,192 tokens,
+byte-identical to sft-v2-r21's), then, in the priority set for this round, downsampled until one epoch fits the measured rate:
+
+| component | sft-v2-r21 train | sft-v2-r22 train | rule |
+|---|---|---|---|
+| tone, injection, guardrails-pii, guardrails-grounding, agents, ood, longdoc | 7,544 / 2,699 / 4,152 / 5,655 / 4,875 / 7,312 / 7,617 | all kept | - |
+| sft-v1 Kev components (b1v2, documents-v1, hard-v1, devtools-v1) | 33,108 | all kept | - |
+| longify | 6,400 | 3,200 | smallest sha256(seed:keep:longify: + digest) |
+| tasksource-v1 | 58,190 (119 families) | 24,000 (all 119 families) | stratified by family, floors then largest remainders (family list private) |
+| sft-v1 public sources | 28,362 (cap 1,200) | 12,000 (cap 500) | round 21's hash rule at 500 per source |
+| sft-v1 synthetic (7 sources) | 67,351 | 33,678 | half of each source, same hash rule |
+| **total** | **233,265** | **145,840** | |
+
+Train 145,840 records, 337,130 questions, 332.0M state tokens (355.1M row tokens with the state shared); state tokens
+≤256 67,187 · 257-512 16,368 · 513-1k 20,065 · 1k-2k 18,651 · 2k-4k 5,802 · 4k-8k 3,510 · 8k-16k 7,690 · 16k-32k 6,567.
+Calibration 13,385 and development 6,201 records, as in round 21 (in-trial screening only). No public file names a
+tasksource family.
+
+Why these cuts: the time is in the long records. Per record, by the pass-time model, longdoc carries 26 % of round 21's
+epoch, sft-v1 synthetic 22 % (its long documents alone 9.5 %), longify 22 %, agents 12 %; tasksource (2.6 %) and the public
+sources (1.9 %) carry little, so cutting them alone saves minutes. Halving longify, as suggested for this round, keeps half of
+the one component that repeats sft-v1 train records at length; tasksource keeps every family; the public cap halves
+again; and sft-v1 synthetic, last in the priority, is halved because nothing else reaches the time.
+
+**Epoch time, from the measured rate.** The pass-time model (per GPU: 1.55 s + 0.478 s per 1k padded tokens + 0.00282 s ×
+states × (longest state in k)², the slowest rank per micro-batch slot, summed) scaled by the 1.47 that reproduces round 21's
+measured steps, on the exact round-22 plan (the shuffle, pairs and ceiling of the registered arguments): **66,818 s =
+18.6 h** for 1,140 steps (58.6 s per step). This is conservative for the passes the ceiling allows: the probe's short
+multi-state passes ran at 0.6× the scaled model and single long states at the unscaled model, and only the two-long-state
+passes ran slower (1.16×); anchored to the probe's times, the same plan takes **14.8 h**. Per arm, at 18.6 h: training ×
+1.03 for hourly resume points = 19.1 h, three starts (load, the gate's and the ceiling's token counts) ~1.25 h, two
+timeouts losing ~0.5 h each back to the last resume point (worst 1 h each): training done at **21.4 h expected / 22.4 h
+worst**; in-trial scoring (calibration + development + transfer-v4, 20,350 records at 0.292 s each) 1.65 h: **23.0 h
+expected / 24.0 h worst** of the 3 × 8 h. The final checkpoint is committed before scoring, and every candidate's rule
+reads are its own reads, so a third attempt that times out in scoring costs the round nothing. Snapshots at 0.25 / 0.5 /
+0.75 of 1,140 steps: 285 / 570 / 855.
+
+**Arms** (spec `experiments/rounds/r22.json`, plans `experiments/round22/`): round 21's, fresh from `Qwen/Qwen3.8-27B` @
+`1d4bf0f2`, 8×H200 per trial, one epoch of `evals/sft-v2-r22`, batch 8 × accum 2 × 8 ranks = 128 records per step
+(`--length_sort 1`, `--pass_tokens_max 40960`), bf16 autocast, OneCycle (10 % warm-up), head lr 1e-4, `--max_state 32768`,
+`p_none_pair 0.25` with `none_pair_max_state 8192`, seed 0:
+- (a) `27b-lr2e6`: lr 2e-6;
+- (b) `27b-lr1e6`: lr 1e-6.
+
+Candidates: each arm's snapshots at steps 285 / 570 / 855 (`27b-<lr>-s25/s50/s75`,
+`/runs/r22-27b-<lr>/00-trial-0/snapshots/step-000NNNN/checkpoint`) and its final checkpoint, 8 in all, each read with its
+own `transfer4` read, exactly as round 21 registered.
+
+**Temperature, reads, parents, rule and confirmation: round 21's, unchanged** ("Round 21 (registered)" above; the spec
+differs from `r21.json` only in round number, studies, arm paths, confirmation read paths and `read_timeout`). The
+temperature pool (transfer-r3 calibration's eight held-out sources + transfer-v9 MMLU-Pro, minus transfer rows), the
+reads per candidate, the primaries (breadth-v1, tasksource-heldout-v1 dev accuracy lower bound > 0; Kev panel ≥ −1 pp),
+the guards (short state, WANLI-v2, scienthoon ≥ −4 pp, pooled externals ≥ −2.5 pp, longdoc CUAD all lengths and 16k+,
+unknowable ≤ 0.05), the four calibration criteria, the rank and the tests / locked stages are as written there. Kev-27B's
+reads are reused as they are: its committed reads plus round 21's four parent reads, `runs/r21-P27-tsheld`,
+`runs/r21-P27-ood`, `runs/r21-P27-agentsood` (the rerun `r21-P27-agentsood-b`, 373 of 373 records, copied there) and
+`runs/r21-P27-guardood`, which were made before any round-21 candidate existed.
+
+**Read timeout.** A 27B read of agents-ood-v1 took 68 min (the default timeout is 30), guardrails-ood-v1 26 min and
+longdoc-v1 2 h 46 min (its timeout is 3 h), so a report-only read could time out and leave a candidate incomplete. The
+spec registers `read_timeout: {"27b": 14400}` (4 h for every 27B read). It raises the admission bound of a candidate's 17
+reads to 17 × $25.06 = $426 (H200, 4 h each); the expected cost is unchanged (~$30 a candidate).
+
+**Budget.** Admission bound **$987.99 per study** (H200:8 at $41.17/h × 8 h × 3 attempts), $1,975.99 for both; expected
+per arm $947 (23.0 h) at the scaled model, ~$750 anchored to the probe (18.2 h). Reads: ~$250 expected for the 8 candidates. Spend
+against the **$5,000 metered** ceiling, reading **$2,668.52 at 2026-09-26T13:42Z** (lagging; it includes most of the probe): both study bounds + ~$250 of reads = **$4,894.51**;
+expected ≈ **$4,812.52** (2 × $947). That fits, so both arms are registered, but it leaves no 10 % reserve (docs/autoresearch.md
+section 2), and under the spend rule a candidate's read batch (bound $426) can be admitted only once metered spend shows
+room: after both studies end, at most one or two candidates' reads at a time. If the studies spend their bounds, reading
+all 8 candidates needs Jared to raise the ceiling or accept reads beyond the reserve (proposed order, not part of the rule: the finals
+and the s50 snapshots first).
+
+**Run steps** (after PR #156 and this PR are merged): (1) fetch `evals/sft-v2-r22` into the checkout (`load_split`; not
+`evals/sft-v2/*.jsonl`), copy round 21's four parent reads into `runs/`, then `KEV_GPU=H200 KEV_APP_NAME=kev-sft uv run modal
+deploy modal_app.py`; (2) read the metered cost, then `uv run python -m kev.rounds launch experiments/rounds/r22.json` and
+`watch`; in the first minutes check the log for `none pairs: N of 145840 records` and `plan: 2945 micro-batches per rank
+for 1140 steps (--accum 2); rank 0's largest pass ... of --pass_tokens_max 40960`, and count steps per minute against 58.6 s
+per step (projected; 45-47 s anchored to the probe); (3) as snapshots land, `launch-reads experiments/rounds/r22.json --arms
+<arms>` as the spend rule allows; (4) read-out, then confirmation as written. What may be committed: as round 21.
+
 ## Next
 
 Goals and open questions, not registered rounds; each becomes a spec and a PLAN section before it runs.
 
 0. **Round 21: retrain full weights, with long context and extended data.** Registered: "Round 21 (registered)" and
-   `experiments/rounds/r21.json`. The notes below are what it started from; the registration records where it departs
+   `experiments/rounds/r21.json`; it failed at startup (out of memory, no read) and is registered again as round 22 with
+   a per-pass memory ceiling and a smaller training set ("Round 22 (registered)"). Two trainer follow-ups the failure
+   points at, not in round 22: a padded multi-state pass with long states runs the state through an explicit mask (38.7 s
+   per step for two unequal ~19k states, against 18.7 s for one 32k state), so packing unequal states varlen, or
+   length-bucketed steps, would buy time; and each start spends ~10 min counting state tokens on every rank, which the
+   ranks could split. The notes below are what round 21 started from; its registration records where it departs
    (32k states; none pairs gated at 8k tokens, PR #153; sft-v1's public sources capped at 1,200 train records;
    calibration / development limited to states of at most 8k tokens). Retraining is allowed (rounds 19-20
    showed that post-hoc remedies do not move the accuracy guards). What was decided before registration:
@@ -760,6 +924,8 @@ outcomes.
 | AutoJev head-to-head | 09-24 | AutoJev-27B vs Kev-27B, report only | see "Against Jev" above | `A:runs/autojev-h2h/report.json` |
 | Round 19 | 09-25 | full-weight SFT of Qwen3.8-27B on `sft-v1` (lr 2e-6, 5e-6) + full weights on Kev-27B's own data (attribution) | no candidate: both SFT arms fail scienthoon, WANLI-v2, pooled externals, short-state Brier / confident errors and both ECE criteria ((b) also breadth); the data carries the gains, full weights the costs | `r19.json`; `runs/r19-readout`, `runs/r19-breadth-report`; "Round 19 result" |
 | Round 20 | 09-25/26 | post-hoc on round 19's finals, no training: held-out-datasets temperature + WiSE-FT interpolation (α 0.85 / 0.70 / 0.50) | no candidate (0 of 6): every arm fails scienthoon and the pooled externals; the registered temperature passes both ECE criteria down to α 0.70 (arm (a) breadth ECE 0.0085 vs 0.0118); toward the base scienthoon worsens for (a); the scienthoon analysis traces the cost to calm complaints read as "angry" on a guard whose reference is the best of six LoRA draws | `r20.json`; `runs/r20-readout`, `runs/r20-breadth-report`, `runs/r20-scienthoon`; "Round 20 result" |
+| Round 21 | 09-26 | full-weight SFT of Qwen3.8-27B on `sft-v2-r21` (32k states, extended data; lr 2e-6, 1e-6) | failed at startup: both arms out of GPU memory at step 62 (a 98.7k-token pass the characters plan costed like its slot's 33-50k-token passes), no snapshot, no read; ~$135 | `r21.json`; "Round 21 result" |
+| Round 22 | 09-26 | round 21's science and rule on `sft-v2-r22` (145,840 records) with `--pass_tokens_max 40960` | registered | `r22.json`; "Round 22 (registered)" |
 | breadth-v1 | 09-24 | frozen eval-only panel over the Decision Index's five areas (14 held-out datasets, 150 records each, locked test unread); development baselines | report: chance-corrected index Jev 53.3, AutoJev-27B 51.7, Kev-27B 50.2, Kev-4B 40.8 (Kev-27B vs Jev −3.1 [−6.2, +0.1]); Kev-27B trails most on retrieval (SGD, CLINC150) | `evals/breadth-v1/manifest.json`; `runs/breadth-v1-report/report.md` |
 
 Older milestones, all in `A:PLAN.md` (sections named in parentheses):
