@@ -263,7 +263,7 @@ runs / the endpoint / the volumes. Tests: `tests/test_skill_scripts.py`.
 - `kev/train.py`     LoRA (or `--full_ft`) fine-tune: `training_requests` (suite / built / --data+--replay, context filter, policy checks, mix ablations),
                      `encode_batch` + `batch_loss` (CE, anchor KL, permutation KL, RPS, smoothing/Brier/focal), `main` orchestration. Grad accumulation over small padded batches.
 - `kev/anchors.py`   frozen-base zero-shot distributions per training question, the target for `--anchor_w`
-- `kev/checkpoint.py` Checkpoint (resolve run dir or Hub id, `head.pt` schema = `Meta`, the LoRA-vs-full loader rule `full`/`shards`/`weights_sha256`, load with `LoadOptions` -> torch `DecisionModel` or, with `backend="mlx"`/`"auto"`, `MLXDecisionModel`; `warm_start` for deltas)
+- `kev/checkpoint.py` Checkpoint (resolve run dir or Hub id, `head.pt` schema = `Meta`, the LoRA-vs-full loader rule `full`/`shards`/`weights_sha256` (a full checkpoint loads in its head.pt `weights_dtype`, which must match config.json's `dtype`), load with `LoadOptions` -> torch `DecisionModel` or, with `backend="mlx"`/`"auto"`, `MLXDecisionModel`; `warm_start` for deltas)
 - `kev/mlx_model.py` Apple Silicon backend: mlx-lm Qwen3.5 backbone, LoRA merged in fp32 on the CPU stream (`merge_lora`), Kev's encoder/rows and the torch PointerHead unchanged; state prefix = mlx-lm prompt cache, branches on a replicated copy
 - `kev/device.py`    default_device / sync / empty_cache / allocated_bytes for cuda, mps, cpu
 - `kev/metrics.py`   pure-numpy scoring of benchmark rows: ECE, Brier, NLL, selective prediction (tie-aware coverage@error, AURC), temperature fit, out-of-fold CV calibration report (`cross_validated_temperature`), paired bootstrap

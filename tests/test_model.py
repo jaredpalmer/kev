@@ -30,6 +30,29 @@ def test_merged_load_matches_unmerged_exactly_in_fp32(smoke_run):
             pa, pb = torch.cat(a.probs(a.encode(tok, r))), torch.cat(b.probs(b.encode(tok, r)))
             assert (pa - pb).abs().max() < 1e-5
 
+def test_adapter_exported_as_full_weights_scores_like_the_adapter(smoke_run, tmp_path):
+    """The smoke adapter merged in fp32 and saved as a full-weight checkpoint (save_pretrained of the backbone, head.pt
+    marked weights="full", weights_dtype fp32) loads in fp32, as its head.pt and config.json say, and gives the adapter's
+    probabilities; labelled bf16 it is refused rather than rounded."""
+    import torch
+    from kev.checkpoint import Checkpoint, read_meta, write_meta
+    from kev.data import materialize
+    from kev.suite import load_split
+    recs = [materialize(r) for r in load_split("evals/smoke-v1", "development")[:3]]
+    tok, adapter = Checkpoint(smoke_run).load("cpu")
+    adapter.lm.save_pretrained(tmp_path)
+    meta = read_meta(smoke_run); meta.weights, meta.lora = "full", 0; write_meta(tmp_path, meta)
+    ck = Checkpoint(str(tmp_path))
+    _, full = ck.load("cpu")
+    assert ck.full and meta.weights_dtype == "fp32" and full.dtype == "float32"
+    with torch.no_grad():
+        for r in recs:
+            assert (torch.cat(adapter.probs(adapter.encode(tok, r))) - torch.cat(full.probs(full.encode(tok, r)))).abs().max() < 1e-6
+    meta.weights_dtype = "bf16"; write_meta(tmp_path, meta)
+    with pytest.raises(ValueError, match="config.json records the weights as float32"):
+        Checkpoint(str(tmp_path)).load("cpu")
+
+
 def test_bf16_merge_equals_fp32_merge_then_cast(smoke_run):
     """A bf16 load merges the fp32 adapter straight into the bf16 weights (one rounding in fp32 math), which must give the
     same bits as the old path: load in fp32, merge, cast. That path held an fp32 copy of the backbone (36 GB for Kev-9B)."""

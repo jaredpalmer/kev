@@ -436,6 +436,28 @@ def test_full_weight_checkpoint_round_trip(tiny_base, tmp_path, monkeypatch):
     assert max(float((a - b).abs().max()) for a, b in zip(model.probs(model.encode(tok, rec)), fp32.probs(fp32.encode(tok, rec)))) < 0.02
     with pytest.raises(ValueError, match="lora_scale"):
         ck.load("cpu", LoadOptions(lora_scale=0.5))
+    with pytest.raises(ValueError, match="backend=torch"):                     # before importing mlx: the refusal, not an ImportError
+        ck.load("cpu", LoadOptions(backend="mlx"))
+    assert ck.backend("mps", LoadOptions(backend="auto")) == "torch"
+
+
+def test_full_weight_dtype_must_match_config(tiny_base, tmp_path, monkeypatch):
+    """A full checkpoint loads in the dtype head.pt's weights_dtype names, which must be the dtype save_pretrained wrote to
+    config.json: a mislabelled export (fp32 weights marked bf16, or the reverse) fails instead of being silently cast."""
+    import json
+    from kev.checkpoint import Checkpoint, read_meta, write_meta
+    train_tiny(tiny_base, tmp_path / "full", *FULL, "--max_steps", "1", monkeypatch=monkeypatch)
+    config = tmp_path / "full/config.json"
+    assert json.loads(config.read_text(encoding="utf-8"))["dtype"] == "bfloat16"
+    meta = read_meta(tmp_path / "full"); meta.weights_dtype = "fp32"; write_meta(tmp_path / "full", meta)
+    with pytest.raises(ValueError, match="config.json records the weights as bfloat16 but head.pt says weights_dtype='fp32'"):
+        Checkpoint(tmp_path / "full").load("cpu")
+    meta.weights_dtype = "fp16"; write_meta(tmp_path / "full", meta)          # a name kev.train never writes
+    with pytest.raises(ValueError, match="weights_dtype='fp16'"):
+        Checkpoint(tmp_path / "full").load("cpu")
+    meta.weights_dtype = "bf16"; write_meta(tmp_path / "full", meta)
+    config.write_text(json.dumps({k: v for k, v in json.loads(config.read_text(encoding="utf-8")).items() if k != "dtype"}), encoding="utf-8")
+    assert Checkpoint(tmp_path / "full").load("cpu")[1].dtype == "bfloat16"  # no recorded dtype: head.pt decides
 
 
 def test_loader_rule_needs_head_pt_and_files_to_agree(tmp_path):
