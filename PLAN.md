@@ -66,8 +66,8 @@ cards. Previous weights are Hub tags (`kev-4b@r8-documents-release`, `kev-4b@nig
   **Round 21** (full-weight SFT from the base on `sft-v2-r21`, 32k states, none pairs gated at 8k, two learning rates,
   snapshots read as candidates) **failed at startup**: both arms ran out of GPU memory at their 62nd step, before any
   snapshot, so nothing was read ("Round 21 result"). **Round 22** repeats its science and rule with a per-pass memory
-  ceiling in the trainer and a training set sized to round 21's measured rate (`sft-v2-r22`, 145,840 records); it is
-  registered, not launched, and depends on PR #156 ("Round 22 (registered)").
+  ceiling in the trainer and a training set sized to round 21's measured rate (`sft-v2-r22`, 145,840 records), one arm
+  (lr 2e-6); it is registered, not launched, and depends on PR #156 ("Round 22 (registered)").
 - **Round 17** (27B skills delta from Kev-27B with replay 10,000, study `r17-27b`, spec `experiments/rounds/r17.json`).
   Arm (a), lr 2e-5, is read out (`runs/r17-readout/round17.json` in the research checkout, not yet committed anywhere) and
   is **not a candidate**: primary +12.1 [+10.4, +13.9] (hard-v1 dev 0.733 → 0.895, +16.2 [+13.5, +19.0]; devtools-v1 dev
@@ -718,13 +718,13 @@ the measured rate (`evals/sft-v2-r22`).
 
 ## Round 22 (registered)
 
-### Round 22 - round 21's science on a trainable recipe: full-weight SFT of Qwen3.8-27B on sft-v2-r22 with a per-pass memory ceiling (registered with this spec's commit, written before any round-22 training or read)
+### Round 22 - round 21's science on a trainable recipe: full-weight SFT of Qwen3.8-27B on sft-v2-r22 with a per-pass memory ceiling, one arm (registered with this spec's commit, written before any round-22 training or read)
 
 **Why.** Round 21 was registered and failed at startup with no read (above), so its question stands: does full-weight
 SFT from the base on the extended corpus (long states, tone pairs, tasksource, out-of-domain, guardrails and agent
-records) beat Kev-27B under round 21's re-based guards? Round 22 asks it again with the same rule, pool, reads, parents
-and arms; only the recipe's memory plan, the training set's size and the read timeout change, each because of what
-round 21 measured.
+records) beat Kev-27B under round 21's re-based guards? Round 22 asks it again with the same rule, pool, reads and
+parents, and with round 21's arm (a) (lr 2e-6) only; the recipe's memory plan, the training set's size and the read
+timeout change, each because of what round 21 measured, and arm (b) is dropped for the budget ("Budget" below).
 
 **Trainer change: a per-pass memory ceiling** (PR #156, which this round depends on). `--pass_tokens_max 40960`: the
 plan cuts each step on exact token shapes (`kev.train.plan_shapes`: every variant the epoch trains, siblings included;
@@ -792,16 +792,22 @@ reads are its own reads, so a third attempt that times out in scoring costs the 
 **Arms** (spec `experiments/rounds/r22.json`, plans `experiments/round22/`): round 21's, fresh from `Qwen/Qwen3.8-27B` @
 `1d4bf0f2`, 8×H200 per trial, one epoch of `evals/sft-v2-r22`, batch 8 × accum 2 × 8 ranks = 128 records per step
 (`--length_sort 1`, `--pass_tokens_max 40960`), bf16 autocast, OneCycle (10 % warm-up), head lr 1e-4, `--max_state 32768`,
-`p_none_pair 0.25` with `none_pair_max_state 8192`, seed 0:
-- (a) `27b-lr2e6`: lr 2e-6;
-- (b) `27b-lr1e6`: lr 1e-6.
+`p_none_pair 0.25` with `none_pair_max_state 8192`, seed 0, **one arm**:
+- `27b-lr2e6`: lr 2e-6 (round 19's arm (a) and round 21's arm (a); in round 19 lr 2e-6 was the better of the two SFT
+  learning rates: arm (b), 5e-6, also failed the breadth primary).
 
-Candidates: each arm's snapshots at steps 285 / 570 / 855 (`27b-<lr>-s25/s50/s75`,
-`/runs/r22-27b-<lr>/00-trial-0/snapshots/step-000NNNN/checkpoint`) and its final checkpoint, 8 in all, each read with its
-own `transfer4` read, exactly as round 21 registered.
+Round 21's arm (b), `27b-lr1e6` (lr 1e-6), is not registered (Jared's decision on the budget, below). Its point, a
+smaller step from the base, is partly covered by the snapshots: s25 / s50 / s75 are the lr 2e-6 run after a quarter,
+half and three quarters of the epoch, less-trained points of the same run (not the same thing as a smaller learning
+rate under the full schedule, which this round does not test).
+
+Candidates: the arm's snapshots at steps 285 / 570 / 855 (`27b-lr2e6-s25/s50/s75`,
+`/runs/r22-27b-lr2e6/00-trial-0/snapshots/step-000NNNN/checkpoint`) and its final checkpoint, **4 in all**, each read with
+its own `transfer4` read, exactly as round 21 registered.
 
 **Temperature, reads, parents, rule and confirmation: round 21's, unchanged** ("Round 21 (registered)" above; the spec
-differs from `r21.json` only in round number, studies, arm paths, confirmation read paths and `read_timeout`). The
+differs from `r21.json` only in round number, one study and its four arms instead of two and eight, arm paths,
+confirmation read paths and `read_timeout`). The
 temperature pool (transfer-r3 calibration's eight held-out sources + transfer-v9 MMLU-Pro, minus transfer rows), the
 reads per candidate, the primaries (breadth-v1, tasksource-heldout-v1 dev accuracy lower bound > 0; Kev panel ≥ −1 pp),
 the guards (short state, WANLI-v2, scienthoon ≥ −4 pp, pooled externals ≥ −2.5 pp, longdoc CUAD all lengths and 16k+,
@@ -815,14 +821,26 @@ longdoc-v1 2 h 46 min (its timeout is 3 h), so a report-only read could time out
 spec registers `read_timeout: {"27b": 14400}` (4 h for every 27B read). It raises the admission bound of a candidate's 17
 reads to 17 × $25.06 = $426 (H200, 4 h each); the expected cost is unchanged (~$30 a candidate).
 
-**Budget.** Admission bound **$987.99 per study** (H200:8 at $41.17/h × 8 h × 3 attempts), $1,975.99 for both; expected
-per arm $947 (23.0 h) at the scaled model, ~$750 anchored to the probe (18.2 h). Reads: ~$250 expected for the 8 candidates. Spend
-against the **$5,000 metered** ceiling, reading **$2,668.52 at 2026-09-26T13:42Z** (lagging; it includes most of the probe): both study bounds + ~$250 of reads = **$4,894.51**;
-expected ≈ **$4,812.52** (2 × $947). That fits, so both arms are registered, but it leaves no 10 % reserve (docs/autoresearch.md
-section 2), and under the spend rule a candidate's read batch (bound $426) can be admitted only once metered spend shows
-room: after both studies end, at most one or two candidates' reads at a time. If the studies spend their bounds, reading
-all 8 candidates needs Jared to raise the ceiling or accept reads beyond the reserve (proposed order, not part of the rule: the finals
-and the s50 snapshots first).
+**Budget: one arm** (Jared's decision at registration). Two arms fitted the $5,000 metered ceiling only on paper:
+both study bounds plus ~$250 of reads came to $4,894.51, which leaves none of the ~10 % reserve docs/autoresearch.md
+section 2 keeps out of every plan (billing readings lag and are revised), and with the 4 h read timeout a candidate's read
+batch has an admission bound of $426.03, so reading all 8 candidates would have waited on metered spend and, if the
+studies spent their bounds, on a raised ceiling. With one study every candidate's reads are admitted under the rule, one
+batch at a time, with the reserve intact:
+
+| item (metered reading $2,668.52 at 2026-09-26T13:42Z, lagging; it includes most of the probe) | admission bound | expected |
+|---|---|---|
+| metered spend so far | $2,668.52 | $2,668.52 |
+| study `r22-27b-lr2e6` (H200:8 at $41.17/h × 8 h × 3 attempts) | $987.99 | ~$947 (23.0 h at the scaled model; ~$750, 18.2 h, anchored to the probe) |
+| reads of the 4 candidates (17 reads × 4 h × $6.27/h = $426.03 a candidate) | $1,704.13 in all, launched one candidate at a time: $426.03 at any moment | ~$120 (~$30 a candidate) |
+| **projection at the rule stage** | **$4,082.54** at any moment (metered + study + one read batch) | **~$3,736** |
+| reserve left of $5,000 | **$917.46 (18 %)** | **~$1,264 (25 %)** |
+| confirmation, candidate only (tests stage 14 reads × $25.06, locked read at 4 h, serving check) | $350.85 + ~$25 + ~$6 | ~$60 |
+
+The rule-stage figure counts the study's bound in full even while its spend is already metered, so it is conservative;
+after the study ends, two candidates' read batches fit at once as well ($2,668.52 + ~$947 + 2 × $426.03 ≈ $4,468).
+Confirmation runs after the rule's read-out, when the study and the reads are metered: ~$3,736 + ~$382 of bounds stays
+inside the reserve.
 
 **Run steps** (after PR #156 and this PR are merged): (1) fetch `evals/sft-v2-r22` into the checkout (`load_split`; not
 `evals/sft-v2/*.jsonl`), copy round 21's four parent reads into `runs/`, then `KEV_GPU=H200 KEV_APP_NAME=kev-sft uv run modal
@@ -830,7 +848,7 @@ deploy modal_app.py`; (2) read the metered cost, then `uv run python -m kev.roun
 `watch`; in the first minutes check the log for `none pairs: N of 145840 records` and `plan: 2945 micro-batches per rank
 for 1140 steps (--accum 2); rank 0's largest pass ... of --pass_tokens_max 40960`, and count steps per minute against 58.6 s
 per step (projected; 45-47 s anchored to the probe); (3) as snapshots land, `launch-reads experiments/rounds/r22.json --arms
-<arms>` as the spend rule allows; (4) read-out, then confirmation as written. What may be committed: as round 21.
+<arm>` one candidate at a time (the budget table), reading the metered cost before each; (4) read-out, then confirmation as written. What may be committed: as round 21.
 
 ## Next
 
@@ -925,7 +943,7 @@ outcomes.
 | Round 19 | 09-25 | full-weight SFT of Qwen3.8-27B on `sft-v1` (lr 2e-6, 5e-6) + full weights on Kev-27B's own data (attribution) | no candidate: both SFT arms fail scienthoon, WANLI-v2, pooled externals, short-state Brier / confident errors and both ECE criteria ((b) also breadth); the data carries the gains, full weights the costs | `r19.json`; `runs/r19-readout`, `runs/r19-breadth-report`; "Round 19 result" |
 | Round 20 | 09-25/26 | post-hoc on round 19's finals, no training: held-out-datasets temperature + WiSE-FT interpolation (α 0.85 / 0.70 / 0.50) | no candidate (0 of 6): every arm fails scienthoon and the pooled externals; the registered temperature passes both ECE criteria down to α 0.70 (arm (a) breadth ECE 0.0085 vs 0.0118); toward the base scienthoon worsens for (a); the scienthoon analysis traces the cost to calm complaints read as "angry" on a guard whose reference is the best of six LoRA draws | `r20.json`; `runs/r20-readout`, `runs/r20-breadth-report`, `runs/r20-scienthoon`; "Round 20 result" |
 | Round 21 | 09-26 | full-weight SFT of Qwen3.8-27B on `sft-v2-r21` (32k states, extended data; lr 2e-6, 1e-6) | failed at startup: both arms out of GPU memory at step 62 (a 98.7k-token pass the characters plan costed like its slot's 33-50k-token passes), no snapshot, no read; ~$135 | `r21.json`; "Round 21 result" |
-| Round 22 | 09-26 | round 21's science and rule on `sft-v2-r22` (145,840 records) with `--pass_tokens_max 40960` | registered | `r22.json`; "Round 22 (registered)" |
+| Round 22 | 09-26 | round 21's science and rule on `sft-v2-r22` (145,840 records) with `--pass_tokens_max 40960`, one arm (lr 2e-6), 4 candidates | registered | `r22.json`; "Round 22 (registered)" |
 | breadth-v1 | 09-24 | frozen eval-only panel over the Decision Index's five areas (14 held-out datasets, 150 records each, locked test unread); development baselines | report: chance-corrected index Jev 53.3, AutoJev-27B 51.7, Kev-27B 50.2, Kev-4B 40.8 (Kev-27B vs Jev −3.1 [−6.2, +0.1]); Kev-27B trails most on retrieval (SGD, CLINC150) | `evals/breadth-v1/manifest.json`; `runs/breadth-v1-report/report.md` |
 
 Older milestones, all in `A:PLAN.md` (sections named in parentheses):

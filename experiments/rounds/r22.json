@@ -1,19 +1,11 @@
 {
   "round": 22,
-  "registered": "PLAN.md > Round 22 - round 21's science on a trainable recipe: full-weight SFT of Qwen3.8-27B on sft-v2-r22 with a per-pass memory ceiling, registered with this spec's commit, before any round-22 training or read",
+  "registered": "PLAN.md > Round 22 - round 21's science on a trainable recipe: full-weight SFT of Qwen3.8-27B on sft-v2-r22 with a per-pass memory ceiling, one arm (lr 2e-6), registered with this spec's commit, before any round-22 training or read",
   "gpu": "H200",
   "app": "kev-sft",
   "studies": {
     "r22-27b-lr2e6": {
       "plan": "experiments/round22/lr2e6.json",
-      "suite": "evals/sft-v2-r22",
-      "transfer": "evals/v4/transfer-v4",
-      "gpu": "H200:8",
-      "timeout": 28800,
-      "budget": 988
-    },
-    "r22-27b-lr1e6": {
-      "plan": "experiments/round22/lr1e6.json",
       "suite": "evals/sft-v2-r22",
       "transfer": "evals/v4/transfer-v4",
       "gpu": "H200:8",
@@ -196,31 +188,6 @@
     },
     "27b-lr2e6": {
       "trial": "runs/r22-27b-lr2e6/00-trial-0",
-      "parent": "27b"
-    },
-    "27b-lr1e6-s25": {
-      "checkpoint": "/runs/r22-27b-lr1e6/00-trial-0/snapshots/step-0000285/checkpoint",
-      "parent": "27b",
-      "trained_on": [
-        "evals/sft-v2-r22"
-      ]
-    },
-    "27b-lr1e6-s50": {
-      "checkpoint": "/runs/r22-27b-lr1e6/00-trial-0/snapshots/step-0000570/checkpoint",
-      "parent": "27b",
-      "trained_on": [
-        "evals/sft-v2-r22"
-      ]
-    },
-    "27b-lr1e6-s75": {
-      "checkpoint": "/runs/r22-27b-lr1e6/00-trial-0/snapshots/step-0000855/checkpoint",
-      "parent": "27b",
-      "trained_on": [
-        "evals/sft-v2-r22"
-      ]
-    },
-    "27b-lr1e6": {
-      "trial": "runs/r22-27b-lr1e6/00-trial-0",
       "parent": "27b"
     }
   },
