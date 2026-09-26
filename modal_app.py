@@ -346,6 +346,21 @@ def gpu_tests(tests: str, gpu: str = "H100"):
     if code: raise SystemExit(code)
 
 
+@app.function(image=image, gpu=GPU, cpu=4, memory=(65536, 131072), retries=0, timeout=14400,
+              volumes={RUNS_MOUNT: runs_volume, HF_MOUNT: hf_cache}, secrets=secrets)
+def run_rl(init_from, name, flags=""):
+    """kev.rl (agentic RL after SFT) from a checkpoint (Hub id or /runs path) -> /runs/rl/<name>."""
+    out = Path(RUNS_MOUNT) / "rl" / name
+    return run_tool([sys.executable, "-m", "kev.rl", "--init_from", init_from, "--out", out, "--device", "cuda", *flags.split()], out)
+
+
+@app.local_entrypoint()
+def rl(init_from: str, name: str, gpu: str = GPU, flags: str = ""):
+    """uv run modal run modal_app.py::rl --init-from jaredpalmer/kev-4b --name kev-4b-inv-v1 --flags "--iters 100 --replay /root/evals/devtools-v1/train.jsonl"
+    then `modal volume get kev-runs rl/<name> runs/rl/`; score the checkpoint (/runs/rl/<name>) with `benchmarks` against its parent."""
+    print(json.dumps(run_rl.with_options(gpu=gpu).remote(init_from, name, flags), indent=1))
+
+
 KEV_27B_BASE = ("Qwen/Qwen3.8-27B", "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0")   # Kev-27B's base (post-trained), what full-weight SFT targets
 
 

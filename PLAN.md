@@ -307,6 +307,68 @@ The finals already fail accuracy guards that no temperature can change (argmax i
 
 **Budget.** Admission bounds: reads 74 × $6.27 (H200 at `kev.budget`'s trial resources × 1 h) = $463.62, interpolation 2 × $4.21 (8 CPU, 128 GiB, 3 h) = $8.41: **$472.04**; expected ~$110 (a read ~15 min at ~$5.66/h, an interpolation ~1 h of CPU). Confirmation, candidate only: tests 10 reads (candidate + parent) $62.65, locked $25.06, serving check $6.27: **~$94**; Jev on breadth-v1 test through the AI Gateway (~$0.07 at the development read's rate, cap $3). Baseline: Modal metered **$2,434.01 at 2026-09-25T22:53Z**.
 
+## RL pilot 1 (registered)
+
+### RL pilot 1 - agentic RL after SFT on Kev-4B (registered 2026-09-25T23:40Z, before any training or read)
+
+**Why.** Kev has never been trained with RL, and the Laya review's argument stands for single decisions: REINFORCE against a proper score has the log loss's optimum. What SFT cannot supervise is a sequence of decisions scored only at its end. `kev.rl` trains Kev on `kev.envs.Investigation` episodes: a hidden staff directory, a task that follows 1-2 manager hops to a city or team, and one typed choice per step (open a record / answer a value / escalate). 25 % of episodes redact a record on the chain, so no answer is knowable and escalating is right. Rewards are programmatic (+1 correct, -1 wrong, 0 escalate, -0.5 over budget, -0.02 per record opened); the solver scores 0.73 on average. Kev-4B is the testbed; larger checkpoints only if this passes.
+
+**Calibration is the main risk.** Policy gradient sharpens toward whatever was rewarded. Guards: rollouts sample at the parent's served temperature (tau 2.41) and the loss uses the same tempered log-probabilities; an exact per-step KL(pi || pi_SFT); SFT replay (devtools-v1 train, the parent's own data, with kev.train's loss on raw logits). The RL checkpoint keeps the parent's temperature until it is refitted on its own development rows (`scripts/calibrate_checkpoint.py`), as every served comparison requires.
+
+**Arms** (from `jaredpalmer/kev-4b` @ `139fdd94`, LoRA r16 continued, 1×H100, 150 iterations × 16 worlds × 8 rollouts, lr 1e-5, eval on 400 held-out-seed episodes in the held-out template every 25 iterations):
+- (a) `rl-guarded`: kl_w 0.05, replay_w 0.5 (8 records per iteration) - the candidate;
+- (b) `rl-noguard` (attribution, never the candidate): kl_w 0, no replay - shows what the guards cost and what they prevent.
+
+**Rule** (candidate (a) vs parent Kev-4B, on held-out episodes and, for the panel, paired record-clustered bootstraps, 2,000 resamples):
+1. env: greedy return gain lower bound > 0 (episode bootstrap), unknowable-escalation rate not lower, answer-step ECE not above the parent's;
+2. guards, each checkpoint served at its own refitted temperature: pooled Kev development panel (transfer-v4 dev, hard-v1, devtools-v1, documents-v1) accuracy lower ≥ -1 pp, ECE ≤ parent + 0.01, Brier upper ≤ +0.01; WANLI-v2 and scienthoon lower ≥ -2 pp; fitted temperature reported next to the parent's 2.41;
+3. passing all three means RL works at 4B and earns a registered follow-up: a matched SFT-on-solver-demonstrations control, harder environments, and a larger checkpoint. Failing means the result is reported and nothing scales.
+
+**Budget.** ~2 × 1.5 h H100 ≈ $12 for training plus ~$10 for panel reads; cap $40.
+
+**Result (negative, 2026-09-26T00:25Z).** Both arms collapsed to "always escalate" within 25 iterations and stayed there (stopped at iteration ~90, ~$6): held-out greedy return -0.41 -> 0.00, knowable-correct 0.27 -> 0.00, opens 1.6 -> 0, entropy 1.68 -> 0.006; per-step KL to the parent reached ~2.3 nats in both arms, so kl_w 0.05 did not hold the policy. The reward made escalating a flat 0 while the parent's answers were right a quarter of the time, so the policy found the one action that never loses. No checkpoint was saved and no panel read was made. Lessons: an abstention action needs a cost when the answer was knowable (otherwise RL learns blanket abstention, the calibration failure we were guarding against, expressed as behaviour), and the KL anchor has to be an order of magnitude stronger at this lr.
+
+### RL pilot 1b - reward fixed, stronger anchor (registered 2026-09-26T00:30Z, before any training or read)
+
+Changes from pilot 1: escalating scores +0.5 when the question is unknowable and -0.5 when it was knowable (always-escalate now averages -0.25; the solver 0.82; the parent -0.4). Arms (otherwise pilot 1's settings, both with replay 0.5): (a) `rl-kl0.2` kl_w 0.2 - the candidate; (b) `rl-kl0.05` kl_w 0.05 (attribution: the anchor's strength). Same rule as pilot 1, plus: an arm whose held-out greedy policy escalates > 90 % of knowable episodes, or whose step entropy falls below 0.05, fails as collapsed. Budget: ~$12 training + ~$10 reads; cap $40 including pilot 1's spend.
+
+**Result (negative, 2026-09-26T00:50Z).** Both arms collapsed to always-escalate by iteration 25 again (greedy return -0.37 -> -0.26, knowable-correct 0.27 -> 0, entropy < 0.06, KL ~2.2 nats even at kl_w 0.2); stopped at iteration ~40 (~$3). The reward fix could not help: always-escalate (-0.25) still beats the parent (-0.37), so it stays the nearest improvement. The parent has to be able to win the task before RL can refine it.
+
+### RL pilot 2 - SFT on solver demonstrations, then RL (registered 2026-09-26T00:55Z, before any training or read)
+
+The standard recipe: `kev.rl --warmup_episodes 300 --warmup_epochs 2` behaviour-clones the solver on 300 train-namespace worlds (seeds from 10^6, apart from RL's), evaluated as phase `warmup`; RL then runs as in pilot 1b, and the KL now anchors to the policy as RL starts (post-warm-up), not the released parent. Arms: (a) `rl2-kl0.2` - candidate; (b) `rl2-kl0.05` - anchor attribution. **The RL question is read against the warm-up policy** (same run, same held-out 400 eval-seed episodes, paired by episode): the candidate needs a positive paired-bootstrap lower bound on greedy return vs warm-up, knowable-escalate not above warm-up + 0.05, answer-step ECE not above warm-up + 0.02, and must not trip pilot 1b's collapse rule. The panel gates (pilot 1's, at a temperature refit per checkpoint) are read for warm-up and final against the released parent only if the env gate passes. Spend cap $40 across pilots 1-2 (so far ~$10).
+
+**Result (uninformative, 2026-09-26T01:10Z).** The warm-up alone solved the environment: 996 solver steps (2 epochs) took held-out greedy return from -0.37 to 0.822 (the solver's own return is 0.82), knowable-correct 0.993, unknowable-escalated 1.00, answer ECE 0.005, in both arms. With imitation already at the ceiling RL has no headroom, so no RL gain can be read (first 5-9 RL iterations moved the sampled return within noise, KL < 0.002). Both arms were stopped (~$3; ~$13 across pilots 1-2) and no panel read was made. Lesson: an environment with a cheap exact solver is a behaviour-cloning problem. RL only adds something where the best action depends on the model's own uncertainty, so no demonstration can supply it: noisy or conflicting records, where opening more costs and the right moment to stop depends on the belief. That redesign comes before any further RL spend or scale-up.
+
+### RL pilot 3 - Sources: belief-dependent stopping (registered 2026-09-26T01:40Z, before any training or read)
+
+**Env** (`kev.envs.Sources`, `--env sources`): where is someone based this week? The candidates are 4 cities. There are 3 of 5 source kinds, each askable once at a cost of 0.05, and their reliabilities are never stated (badge log 0.9, travel booking 0.8, HR record 0.7, team calendar 0.6, colleague's guess 0.4; a wrong report is uniform over the other candidates). Answering scores +1 if correct and -1 if wrong; escalating scores 0. On 3,000 eval-namespace episodes:
+
+| Policy | Mean return |
+|---|---|
+| Warm-up demo (ask the first source, repeat its report) | 0.33 |
+| Ask all, answer the MAP | 0.61 |
+| Bayes-optimal oracle (exact recursion; the ceiling, never a target) | 0.675 |
+| Always escalate | 0 |
+
+So the demo leaves 0.35 of headroom, and closing it means learning which sources to trust, when the reports conflict enough to ask again, and when to stop. **Arms** (Kev-4B@139fdd94; warm-up 300 demo episodes, 1 epoch, label smoothing 0.1; then 150 iterations x 16 worlds x 8 rollouts; replay devtools-v1 train 0.5; eval 400 eval-seed episodes every 25): (a) `rl3-kl0.1` kl_w 0.1 - the candidate; (b) `rl3-kl0.02` - anchor attribution. **Rule**, read against the same run's warm-up policy on the same 400 held-out episodes, greedy and paired by episode:
+- The return gain must have a bootstrap lower bound > 0.
+- `belief_error` (|Kev's answer confidence - the Bayes posterior of that answer|) must not exceed warm-up + 0.02.
+- Answer-step ECE must not exceed warm-up + 0.02.
+- Collapse fails the arm: escalated > 0.9, or step entropy < 0.05.
+
+If the candidate passes, the panel gates of pilot 1 are read (a temperature refit per checkpoint; warm-up and final vs the released parent), and only a pass there opens a scale-up proposal. **Budget**: ~$12 training, ~$10 reads; cap $40 across pilots 1-3 (~$13 so far).
+
+**Result (fail, 2026-09-26T02:25Z).** Held-out greedy numbers:
+
+| Checkpoint | Return | Answer ECE | belief_error | Step entropy |
+|---|---|---|---|---|
+| Parent (escalates 86%) | 0.083 | 0.12 | 0.23 | 1.60 |
+| Warm-up (600 steps) | 0.38 | 0.108 | 0.155 | 1.77 |
+| RL, both arms, iterations 25 and 50 | 0.38 | 0.28 | 0.31 | 0.17-0.25 |
+
+In the RL rows the outcomes and asks (1.0) are identical to the warm-up's. The sampled training return oscillated between 0.07 and 0.62 with no trend. KL to the warm-up policy was 0.6-0.7 nats and step entropy fell to 0.02-0.12. RL sharpened the demonstrated behaviour (ask one source, repeat it) instead of discovering the Bayes policy (ceiling 0.658). Sharpening without a behaviour change is exactly the calibration failure the guards were for: answer ECE and belief error both roughly doubled, failing the rule. Stopped at iteration ~50 (~$7; ~$20 across pilots 1-3); no panel read. Reading: sampled deviations from a cloned deterministic heuristic rarely reach a better complete behaviour (ask again, then answer the posterior argmax) within a group of 8, so the most consistent gradient is towards the demo itself.
+
 ## Next
 
 Goals and open questions, not registered rounds; each becomes a spec and a PLAN section before it runs.
