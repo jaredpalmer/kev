@@ -846,7 +846,7 @@ inside the reserve.
 `evals/sft-v2/*.jsonl`), copy round 21's four parent reads into `runs/`, then `KEV_GPU=H200 KEV_APP_NAME=kev-sft uv run modal
 deploy modal_app.py`; (2) read the metered cost, then `uv run python -m kev.rounds launch experiments/rounds/r22.json` and
 `watch`; in the first minutes check the log for `none pairs: N of 145840 records` and `plan: 2945 micro-batches per rank
-for 1140 steps (--accum 2); rank 0's largest pass ... of --pass_tokens_max 40960`, and count steps per minute against 58.6 s
+for 1140 steps (--accum 2); the plan's largest pass ... of --pass_tokens_max 40960`, and count steps per minute against 58.6 s
 per step (projected; 45-47 s anchored to the probe); (3) as snapshots land, `launch-reads experiments/rounds/r22.json --arms
 <arm>` one candidate at a time (the budget table), reading the metered cost before each; (4) read-out, then confirmation as written. What may be committed: as round 21.
 
