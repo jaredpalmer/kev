@@ -1334,67 +1334,6 @@ def test_score_trial_uses_the_suites_admission_context(monkeypatch, tmp_path):
     assert seen["context"] == E.CONTEXT
 
 
-def test_long_eval_context_is_additive_and_flagged():
-    """kev.model.long_eval_context: the eval-only long-document context (evals/longdoc-v1). The row (max_branch) reaches the
-    state limit, the packed record twice it, and `long_document` routes the suite to the long-row scoring path; out of range
-    refuses; the training and serving contexts are untouched."""
-    from kev.model import LONG_EVAL_MAX_STATE, MAX_STATE, SERVE_MAX_STATE, long_eval_context, training_context
-    c = long_eval_context()
-    assert c == {"max_state": LONG_EVAL_MAX_STATE, "max_branch": LONG_EVAL_MAX_STATE, "max_packed": 2 * LONG_EVAL_MAX_STATE, "long_document": True}
-    for bad in (SERVE_MAX_STATE - 1, LONG_EVAL_MAX_STATE + 1):
-        with pytest.raises(ValueError): long_eval_context(bad)
-    assert training_context()["max_state"] == MAX_STATE and "long_document" not in training_context()
-
-
-def test_local_predictor_routes_only_long_document_suites(monkeypatch):
-    """LocalPredictor keeps the exact path (model.forward, the global kernel settings) for every suite, and only a context
-    flagged `long_document` (kev.model.long_eval_context) runs forward_from_prefix inside an sdpa_kernel block that allows
-    the fused kernels. No weights: a stub model records which path ran."""
-    import kev.predictors as P
-    from kev.model import long_eval_context
-    from kev.suite import CONTEXT
-    entered = []
-    monkeypatch.setattr(P, "sdpa_kernel", lambda backends: entered.append(tuple(backends)) or __import__("contextlib").nullcontext())
-
-    class Model:
-        def __init__(self): self.calls = []
-        def encode(self, tok, rec, **kw): return {"ids": [1, 2, 3], "kw": kw}
-        def forward(self, enc): self.calls.append("forward"); return [torch.tensor([0.0, 1.0])]
-        def forward_from_prefix(self, enc): self.calls.append("forward_from_prefix"); return [torch.tensor([0.0, 1.0])]
-
-    record = {"state": "x", "questions": {"q": {"type": "noul", "instructions": "?", "label": True, "src": "t"}}}
-    for context, path in ((CONTEXT, "forward"), (long_eval_context(), "forward_from_prefix")):
-        p = P.LocalPredictor.__new__(P.LocalPredictor)
-        p.model, p.tok, p.device, p.temperature, p.context = Model(), None, "cpu", 1.0, context
-        p.long_document = bool(context.get("long_document"))
-        out = p(record)
-        assert p.model.calls == [path] and set(out["probabilities"]["q"]) == {"false", "true"}
-    assert entered == [(P.SDPBackend.FLASH_ATTENTION, P.SDPBackend.EFFICIENT_ATTENTION, P.SDPBackend.MATH)]   # the long suite only
-
-
-def test_server_request_limits_default_to_the_serving_context():
-    """kev.serve.Server encodes every request under its max_state / max_branch fields: the serving context by default,
-    raised only by a caller that asks (scripts/longdoc_serving.py)."""
-    from kev.model import SERVE_MAX_BRANCH, SERVE_MAX_STATE, long_eval_context
-    from kev.serve import Server
-    raised = {k: v for k, v in long_eval_context().items() if k in ("max_state", "max_branch")}
-
-    class Model:
-        prefix_min_tokens = 0
-        def __init__(self): self.limits = []
-        def encode(self, tok, rec, **kw): self.limits.append(kw); raise ValueError("stop here")
-
-    for extra, want in (({}, {"max_state": SERVE_MAX_STATE, "max_branch": SERVE_MAX_BRANCH}),
-                        (raised, raised)):
-        model = Model()
-        s = Server(SimpleNamespace(release_date=lambda: "2026-01-01"), None, model, "cpu", **extra)
-        try:
-            with pytest.raises(Exception): s.submit({})   # the stub refuses every record (a 422 from the endpoint)
-        finally:
-            s.close()
-        assert model.limits == [want]
-
-
 def test_jev_refusals_are_counted_only_when_asked(monkeypatch):
     """JevPredictor with count_refusals: an HTTP 400/413/422 answer raises JevRefused (a ContextOverflow, so kev.benchmark
     lists the record in rejected.json and continues) and is counted in accounting(); without it, or for another client
@@ -1435,3 +1374,27 @@ def test_jev_attempts_bound_the_retries_on_gateway_errors(monkeypatch):
         j = P.JevPredictor("key") if attempts is None else P.JevPredictor("key", attempts=attempts)
         with pytest.raises(RuntimeError): j(record)
         assert w.lines == calls and j.retries == calls - 1
+
+
+def test_jev_counts_a_hosted_error_on_an_oversize_request_as_a_refusal(monkeypatch):
+    """Past Jev's context the gateway answers 400 or 503. With count_refusals, a 503 (or a request that times out, no
+    status) on a request estimated past OVERSIZE x JEV_CONTEXT_TOKENS is a refusal at once, not retried; the same 503 on a
+    normal-size request is retried and then stops the read, as without the flag."""
+    import json, kev.predictors as P
+    monkeypatch.setattr(P.time, "sleep", lambda s: None)
+
+    class Worker:
+        def __init__(self, status): self.status = status; self.stdin = self; self.stdout = self; self.lines = 0
+        def write(self, _): pass
+        def flush(self): pass
+        def readline(self): self.lines += 1; return json.dumps({"error": {"name": "GatewayInternalServerError", "status": self.status}}) + "\n"
+
+    small = {"state": "x", "questions": {"q": {"type": "noul", "instructions": "?", "label": True, "src": "t"}}}
+    big = {**small, "state": "word " * int(P.OVERSIZE * P.JEV_CONTEXT_TOKENS)}   # ~5 characters per word: past the margin
+    assert P.oversize(P.api_request(big)) and not P.oversize(P.api_request(small))
+    for record, status, raised, lines, refusals in ((big, 503, P.JevRefused, 1, {"503 (oversize)": 1}), (big, None, P.JevRefused, 1, {"None (oversize)": 1}),
+                                                    (small, 503, RuntimeError, 4, {})):
+        w = Worker(status); monkeypatch.setattr(P.subprocess, "Popen", lambda *a, w=w, **kw: w)
+        j = P.JevPredictor("key", count_refusals=True, budget=100)
+        with pytest.raises(raised): j(record)
+        assert w.lines == lines and j.accounting()["refusals"] == refusals

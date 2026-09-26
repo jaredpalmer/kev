@@ -14,7 +14,9 @@ the buckets hold different records, resampled independently), and `falls` when t
 whose 8k-64k buckets ask the same questions about the same target contracts, the paired difference from 8k as well. For
 the synthetic detail questions, accuracy by depth (10 / 50 / 90 %). For CUAD also `cuad.no_sft_ledgar`: the questions whose
 target contract contains no LEDGAR provision of the SFT corpus (overlap.json, cuad_targets.sft_v1_ledgar), the sensitivity
-read for that contamination. Writes report.json and report.md.
+read for that contamination. --parity NAME=OLD_DIR:NEW_DIR compares two reads of the same checkpoint question by question
+(max / mean |dp|, argmax flips, per bucket and part, and which rows carry `kernels: efficient`), e.g. one scored before and
+one after a change of scoring path. Writes report.json and report.md.
 """
 import argparse, json, sys
 from collections import defaultdict
@@ -84,11 +86,28 @@ def paired_ci(a_rows, b_rows, key):
     return {"questions": n, "delta": round(point, 4), "ci95": [round(float(lo), 4), round(float(hi), 4)], "falls": bool(hi < 0)}
 
 
+def parity(old_dir, new_dir):
+    """Per bucket and part: questions, max and mean |dp|, argmax flips between two reads' rows (matched by id and question),
+    and how many of the new rows took the long-row kernels."""
+    old = {(r["id"], r["question"]): r for r in read_json(Path(old_dir) / "rows.json")}
+    groups = defaultdict(list)
+    for r in read_json(Path(new_dir) / "rows.json"):
+        o = old[(r["id"], r["question"])]
+        dp = float(np.max(np.abs(np.array(r["p"]) - np.array(o["p"]))))
+        flip = int(np.argmax(r["p"]) != np.argmax(o["p"]))
+        for key in (bucket_of(r), f"{bucket_of(r)}/{r['task'].split('.')[0]}"):
+            groups[key].append((dp, flip, r.get("kernels") == "efficient"))
+    return {k: {"questions": len(v), "max_dp": round(max(x[0] for x in v), 4), "mean_dp": round(float(np.mean([x[0] for x in v])), 5),
+                "argmax_flips": sum(x[1] for x in v), "efficient_rows": sum(x[2] for x in v)}
+            for k, v in sorted(groups.items(), key=lambda kv: (BUCKETS.index(kv[0].split("/")[0]), kv[0]))}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--suite", default="evals/longdoc-v1")
     ap.add_argument("--result", action="append", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--parity", action="append", default=[], help="NAME=OLD_DIR:NEW_DIR, two reads of one checkpoint to compare row by row")
     a = ap.parse_args()
     from kev.suite import load_split
     meta = {r["_meta"]["id"]: r["_meta"] for r in load_split(a.suite, "development")}
@@ -127,6 +146,10 @@ def main():
         falls = [b for b in BUCKETS[1:] if (sys_out["buckets"][b].get("vs_4k") or {}).get("all") and sys_out["buckets"][b]["vs_4k"]["all"]["falls"]]
         sys_out["first_bucket_below_4k"] = falls[0] if falls else None
         out["systems"][name] = sys_out
+    for spec in a.parity:
+        name, _, dirs = spec.rpartition("=")
+        old_dir, _, new_dir = dirs.partition(":")
+        out.setdefault("parity", {})[name] = {"old": old_dir, "new": new_dir, "buckets": parity(old_dir, new_dir)}
     Path(a.out).mkdir(parents=True, exist_ok=True)
     write_json(Path(a.out) / "report.json", out)
     lines = ["| system | part | " + " | ".join(BUCKETS) + " |", "|---|---|" + "---|" * len(BUCKETS)]

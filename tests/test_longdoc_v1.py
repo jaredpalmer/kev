@@ -1,13 +1,13 @@
 """evals/longdoc-v1: the synthetic generator's labels come from its solver over the stored facts, bundles land in their
 length window and depth, CUAD questions carry CUAD's own labels, and the committed manifest is an eval-only private-mirror
-suite in the long-document context. No weights, no network, no tokenizer (token counts are faked at 4.1 characters each)."""
+suite in the serving context. No weights, no network, no tokenizer (token counts are faked at 4.1 characters each)."""
 import json
 import random
 from pathlib import Path
 
 import pytest
 
-from kev.model import long_eval_context
+from kev.suite import SERVING_CONTEXT
 from scripts import build_longdoc_v1 as B
 from scripts import longdoc_v1_synthetic as S
 
@@ -99,6 +99,6 @@ def test_manifest_is_an_eval_only_private_long_document_suite():
     m = json.loads(path.read_text(encoding="utf-8"))
     assert m["eval_only"] and m["trainable_sources"] == [] and m["locked"] == ["test"]
     assert m["mirror"]["dataset"] == "jaredpalmer/kev-private-evals" and m["mirror"]["revision"]
-    ctx = {k: v for k, v in m["context"].items() if k not in ("truncate", "note")}
-    assert ctx == long_eval_context() and m["tokenizer"]["model"] == "Qwen/Qwen3.8-27B"
+    ctx = {k: v for k, v in m["context"].items() if k != "note"}
+    assert ctx == SERVING_CONTEXT and m["tokenizer"]["model"] == "Qwen/Qwen3.8-27B"
     assert set(m["files"]) == {"development.jsonl", "test.jsonl"}

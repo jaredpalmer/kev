@@ -7,7 +7,9 @@ trained on (7,552 tokens).
 
 Five length buckets by state tokens under the Qwen3.8-27B tokenizer (Kev-27B's base, TOKENIZER): 4k (inside the trained
 range, the control), 8k, 16k, 32k and 64k. A bucket's states hold 84-93 % of its nominal size and every question row (state +
-one question) fits the nominal size, so a server with that context admits the whole bucket. Two parts, the same number of
+one question) fits the nominal size, so a server with that context admits the whole bucket. The manifest records the
+serving context (kev.suite.SERVING_CONTEXT); kev.benchmark scores the 4k-16k buckets on its exact path and the 32k / 64k
+buckets (rows past kev.model.ROW_PASS_TOKENS) with the state once and SDPA's fused kernels. Two parts, the same number of
 records in every bucket:
 
   cuad       real contracts with expert labels (CUAD v1, CC BY 4.0; CUAD below). Each record is one target contract padded
@@ -35,8 +37,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from kev.data import materialize  # noqa: E402
-from kev.model import encode, load_tokenizer, long_eval_context, rows_of, user_tokens  # noqa: E402
-from kev.suite import PRIVATE_DATASET, digest, read_jsonl, text_digest, write_json, write_jsonl  # noqa: E402
+from kev.model import encode, load_tokenizer, rows_of, user_tokens  # noqa: E402
+from kev.suite import PRIVATE_DATASET, SERVING_CONTEXT, digest, read_jsonl, text_digest, write_json, write_jsonl  # noqa: E402
 from scripts import longdoc_v1_synthetic as SYN  # noqa: E402
 
 VERSION = SEED = "longdoc-v1"
@@ -292,10 +294,10 @@ def build_synthetic(split, count, report, n=RECORDS):
 
 # ------------------------------------------------------------------------------------------------------------- checks
 def admit(record, tok):
-    """Encodes strictly in the long-document context, the state inside its bucket's window and every row (state + one
-    question) inside the bucket's nominal size. -> the longest row in tokens."""
+    """Encodes strictly in the serving context (kev.suite.SERVING_CONTEXT: 64k-token states), the state inside its bucket's
+    window and every row (state + one question) inside the bucket's nominal size. -> the longest row in tokens."""
     T = record["_meta"]["bucket"]
-    ctx = long_eval_context()
+    ctx = SERVING_CONTEXT
     enc = encode(tok, materialize(record), max_state=ctx["max_state"], max_branch=ctx["max_branch"], strict=True)
     state, _, rows = rows_of(enc)
     lo, hi = window(T)
@@ -393,8 +395,8 @@ def main():
                                 "labels": "programmatic: longdoc_v1_synthetic.solve over _meta.facts after a JSON round trip; no model or human judgement",
                                 "templates": "written for this suite; no text, pool or template shared with hard-v1", "report": report["synthetic"]}},
         "tokenizer": {"model": TOKENIZER[0], "revision": TOKENIZER[1]}, "base_revisions": {TOKENIZER[0]: TOKENIZER[1]},
-        "context": {**long_eval_context(), "truncate": False,
-                    "note": "kev.model.long_eval_context: scored past the serving context; `long_document` makes kev.predictors.LocalPredictor run the state once with question rows from its cache under the fused attention kernels (its precision policy)"},
+        "context": {**SERVING_CONTEXT,
+                    "note": "the serving context (64k-token states); kev.benchmark scores a row of up to kev.model.ROW_PASS_TOKENS on the exact path and a longer one (the 32k and 64k buckets) with the state once and SDPA's fused kernels, labelled `kernels: efficient` in its rows (kev.predictors.LocalPredictor)"},
         "selection": "normalised-text state dedupe across both partitions (test first); CUAD companies dealt to partitions by seeded hash; every record admitted by kev.model.encode (strict) in the context above and its bucket rule",
         "label_protocol": "no LLM labels: CUAD's expert annotations (cuad part) or code (synthetic part)",
         "overlap_screen": "overlap.json (scripts/screen_longdoc_v1.py): JevBench public items, every Kev development/test partition, LEDGAR (in the SFT corpus) and ContractNLI (breadth-v1); counts only",

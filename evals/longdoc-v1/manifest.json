@@ -1024,20 +1024,19 @@
   },
   "context": {
     "max_state": 65536,
-    "max_branch": 65536,
-    "max_packed": 131072,
-    "long_document": true,
+    "max_branch": 73728,
+    "max_packed": 139264,
     "truncate": false,
-    "note": "kev.model.long_eval_context: scored past the serving context; `long_document` makes kev.predictors.LocalPredictor run the state once with question rows from its cache under the fused attention kernels (its precision policy)"
+    "note": "the serving context (64k-token states); kev.benchmark scores a row of up to kev.model.ROW_PASS_TOKENS on the exact path and a longer one (the 32k and 64k buckets) with the state once and SDPA's fused kernels, labelled `kernels: efficient` in its rows (kev.predictors.LocalPredictor)"
   },
   "selection": "normalised-text state dedupe across both partitions (test first); CUAD companies dealt to partitions by seeded hash; every record admitted by kev.model.encode (strict) in the context above and its bucket rule",
   "label_protocol": "no LLM labels: CUAD's expert annotations (cuad part) or code (synthetic part)",
   "overlap_screen": "overlap.json (scripts/screen_longdoc_v1.py): JevBench public items, every Kev development/test partition, LEDGAR (in the SFT corpus) and ContractNLI (breadth-v1); counts only",
   "code_sha256": {
-    "scripts/build_longdoc_v1.py": "76a7411166badf3905e7419906747b718bd28d8432e3af7bbe90413a2483b291",
+    "scripts/build_longdoc_v1.py": "dc7d16f71537e237d1dd365a9b0897fb659b735da50825cd96a310c4462ba51a",
     "scripts/longdoc_v1_synthetic.py": "680965c4b5371c0df173126c04148517ed0fa5cfc0312be938503f6ef669785d",
     "kev/api.py": "a6f53af5354f8ea17915abc78360fdf291a5108ce39a53a2d9135d48c603ae58",
     "kev/data.py": "e77a2fffeb8ee7e05b118893be8e38b8358aef97c3ca2e143cdce208201b92f9",
-    "kev/model.py": "dd6a8961cb5b637c249a8922ef52fb24a58e9dfc0e0675a6bae1c79b3fd2b420"
+    "kev/model.py": "d78fab645f29513a62816e594d10296b02bf166ba77835c55db5eda80c7f1978"
   }
 }

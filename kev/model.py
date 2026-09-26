@@ -128,21 +128,6 @@ def fits(rec, *tokenizers, max_state=MAX_STATE, max_branch=MAX_BRANCH, max_packe
         return False
 
 
-# Eval-only long-document suites (evals/longdoc-v1) are scored past the serving context: states, and rows (state + one
-# question branch), of up to LONG_EVAL_MAX_STATE tokens. Report-only: nothing is trained or served at this length by it.
-LONG_EVAL_MAX_STATE = 65536
-
-
-def long_eval_context(max_state=LONG_EVAL_MAX_STATE):
-    """The encoder limits an eval-only long-document suite records in its manifest ("context"): the state and each row up to
-    max_state tokens, the packed record (the state and every branch) up to twice that. `long_document` routes the suite
-    through kev.predictors.LocalPredictor's long-row scoring (the state once, question rows from its cache, fused attention
-    kernels); every other suite keeps the exact path."""
-    if not SERVE_MAX_STATE <= max_state <= LONG_EVAL_MAX_STATE:
-        raise ValueError(f"max_state must be in [{SERVE_MAX_STATE}, {LONG_EVAL_MAX_STATE}]")
-    return {"max_state": max_state, "max_branch": max_state, "max_packed": 2 * max_state, "long_document": True}
-
-
 def branch_mask(seg, device, dtype=torch.float32):
     """attend(i,j) iff j<=i and (seg[j]==0 or seg[j]==seg[i]). Returns additive [1,1,L,L]."""
     return branch_mask_batch([seg], device, dtype)
@@ -392,16 +377,6 @@ class DecisionModel(nn.Module):
         per question; the two agree to fp32 rounding (#77)."""
         if self.rows_form([enc]): return self.probs_and_prefix(enc)[0]
         return [F.softmax(z, -1).cpu() for z in self.forward(enc)]
-
-    @torch.no_grad()
-    def forward_from_prefix(self, enc):
-        """forward() with the state run once and every question row continuing from its cache (the rows of the serving miss
-        path, _branch_rows_from_prefix), returning logits. Equal to forward() up to floating-point reassociation (#77) but
-        without recomputing the state per question; kev.predictors.LocalPredictor uses it for long-document suites only."""
-        Ls, cache, _ = self.prefix(enc)
-        _, _, rows = rows_of(enc)
-        hs = self._rows_hidden([(r["ids"], r["pos"]) for r in rows], cache=cache, prefix_len=Ls)
-        return [self.head(h[r["decide"]], h[torch.tensor(r["opts"], device=self.device)]) for h, r in zip(hs, rows)]
 
     # --- state-prefix reuse (serving): the state is encoded once, question branches attend to its cached keys/values.
     # Exact by construction: branch tokens never attend to each other across questions (block-causal mask) and the state

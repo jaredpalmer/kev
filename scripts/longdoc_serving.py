@@ -1,20 +1,17 @@
-"""Long-document serving cost and scoring parity on CUDA, for one checkpoint on evals/longdoc-v1 development records.
+"""Long-document serving cost on CUDA, for one checkpoint on evals/longdoc-v1 development records.
 
     uv run modal run --detach modal_app.py::script --script longdoc_serving.py --name longdoc-serving-27b-h200 --gpu H200 \
         --args "--run jaredpalmer/kev-27b"
 
-1. Parity (--parity N): N records of each part from the 4k and 8k buckets scored two ways with the benchmark's load
-   (kev.predictors.LocalPredictor): the exact path every other suite uses (model.forward: the row form, the math attention
-   kernel, no TF32) and the long-document path (DecisionModel.forward_from_prefix under the fused kernels, the path the
-   suite's `long_document` context selects). Probabilities at the checkpoint's temperature: max / mean |dp|, argmax flips.
-2. Serving (--per-bucket K): K records of each part per bucket through kev.serve.Server as `kev.serve` loads a checkpoint
-   on CUDA (bf16, fused kernels, CUDA graphs), its request limits raised to kev.model.LONG_EVAL_MAX_STATE. Each request is a
-   new state (the prefix cache is cleared before it, so its peak memory is its own); latency is the server's model time
-   (latency_ms) and the wall time of Server.probs; peak memory is kev.device.allocated_bytes (CUDA: the peak) during the request, and
-   resident memory the weights and graph buffers before it. One repeat of the last record per bucket measures a cached state.
-Writes <out>/report.json.
+K records of each part per bucket (--per-bucket) through kev.serve.Server as `kev.serve` loads a checkpoint on CUDA (bf16,
+fused kernels, CUDA graphs) and at its default request limits (kev.model.SERVE_MAX_STATE: 64k-token states). Each request is
+a new state (the prefix cache is cleared before it, so its peak memory is its own); latency is the server's model time
+(latency_ms) and the wall time of Server.probs; peak memory is kev.device.allocated_bytes (CUDA: the peak) during the
+request, and resident memory the weights and graph buffers before it. One repeat of the last record per bucket measures a
+cached state. Writes <out>/report.json. (Scoring parity, exact path vs the long-row path, is read from the benchmark rows:
+scripts/longdoc_report.py --parity.)
 """
-import argparse, gc, json, statistics, time
+import argparse, json, statistics, time
 from pathlib import Path
 
 import torch
@@ -22,8 +19,6 @@ import torch
 from kev.checkpoint import Checkpoint, LoadOptions
 from kev.data import materialize
 from kev.device import allocated_bytes, empty_cache
-from kev.model import LONG_EVAL_MAX_STATE, long_eval_context
-from kev.predictors import LocalPredictor
 from kev.serve import Server
 from kev.suite import load_split, write_json
 
@@ -34,37 +29,12 @@ def pick(records, bucket, part, k):
     return [r for r in records if r["_meta"]["bucket"] == bucket and r["_meta"]["part"] == part][:k]
 
 
-def parity(run, records, n):
-    p = LocalPredictor(run, "cuda", LoadOptions(), context=long_eval_context())
-    out, per = [], {}
-    for bucket in (4096, 8192):
-        pairs = []
-        for part in ("cuad", "synthetic"):
-            for r in pick(records, bucket, part, n):
-                enc = p.model.encode(p.tok, materialize(r), max_state=LONG_EVAL_MAX_STATE, max_branch=LONG_EVAL_MAX_STATE, strict=True)
-                with torch.no_grad():
-                    exact = [torch.softmax(z, -1).cpu() for z in p.model.forward(enc)]   # LocalPredictor's globals: math kernel, no TF32
-                long = p(r)["probabilities"]
-                for (qid, q), e in zip(r["questions"].items(), exact):
-                    l = torch.tensor(list(long[qid].values()))
-                    pairs.append((e, l))
-        dp = [float((e - l).abs().max()) for e, l in pairs]
-        per[f"{bucket // 1024}k"] = {"questions": len(pairs), "max_dp": max(dp), "mean_dp": statistics.mean(dp),
-                                     "argmax_flips": sum(int(e.argmax() != l.argmax()) for e, l in pairs)}
-        out += pairs
-    report = {"temperature": p.temperature, "dtype": p.model.dtype, "buckets": per}
-    del p; gc.collect(); empty_cache("cuda")
-    torch.backends.cuda.enable_flash_sdp(True); torch.backends.cuda.enable_mem_efficient_sdp(True)   # LocalPredictor turned them off
-    torch.backends.cudnn.allow_tf32 = True                                                             # process-wide; serving keeps
-    return report                                                                                      # torch's defaults
-
-
 def serving(run, records, k):
     ck = Checkpoint(run)
     t = time.time()
     tok, m = ck.load("cuda", LoadOptions(dtype=torch.bfloat16, cuda_graphs=True, fused=True))
     report = {"load_seconds": round(time.time() - t, 1), "dtype": m.dtype, "temperature": m.head.temperature}
-    server = Server(ck, tok, m, "cuda", release_date="-", max_state=LONG_EVAL_MAX_STATE, max_branch=LONG_EVAL_MAX_STATE)
+    server = Server(ck, tok, m, "cuda", release_date="-")
     try:
         warm = pick(records, 4096, "synthetic", 1)[0]
         for _ in range(3): server.probs(materialize(warm))   # first-call autotuning and graph captures happen here
@@ -103,18 +73,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", default="jaredpalmer/kev-27b")
     ap.add_argument("--suite", default="evals/longdoc-v1")
-    ap.add_argument("--parity", type=int, default=8, help="records per part from the 4k and 8k buckets (0 skips)")
     ap.add_argument("--per-bucket", type=int, default=3, help="served requests per part and bucket")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     records = load_split(a.suite, "development")
-    report = {"run": a.run, "suite": a.suite, "split": "development"}
-    if a.parity: report["parity_exact_vs_long_path"] = parity(a.run, records, a.parity)
+    report = {"run": a.run, "suite": a.suite, "split": "development", "serving": serving(a.run, records, a.per_bucket)}
     Path(a.out).mkdir(parents=True, exist_ok=True)
-    write_json(Path(a.out) / "report.json", report)   # parity survives a serving failure
-    report["serving"] = serving(a.run, records, a.per_bucket)
-    print(json.dumps({k: v for k, v in report.items() if k != "serving"}, indent=1))
     write_json(Path(a.out) / "report.json", report)
+    print(json.dumps({k: v for k, v in report["serving"].items() if k != "buckets"}, indent=1))
 
 
 if __name__ == "__main__":
