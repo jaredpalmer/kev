@@ -106,8 +106,8 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   and per-round scripts live on that git tag, not on main; `validate` lists what this checkout lacks instead of failing, and
   `launch`/`watch`/`launch-reads` refuse a recorded round (a new round is a new spec, without `archive`, and must have its plans
   and parents' reads). `tests/test_rounds.py` reproduces the committed read-outs of rounds 5-18 and verdicts of 8/10/11/12/15
-  exactly; offline (CI) it runs round 5's read-out and round 15's locked verdict, whose rows are on main; round 19's read-out
-  runs where the private dataset is readable (its trials' `sft-v1` development rows: `scripts/private_rows.py`); every other case
+  exactly; offline (CI) it runs round 5's read-out, round 15's locked verdict and round 20's six interpolated arms, whose rows are on main; round 19's read-out
+  (and round 20's whole read-out) runs where the private dataset is readable (its trials' `sft-v1` development rows: `scripts/private_rows.py`); every other case
   skips unless `KEV_ROUNDS_ROOT` points at a checkout with the archived rows and outputs (the research checkout, or a worktree
   of the tag plus its gitignored trial rows). `kev.autoresearch
   session <specs> --spend-start X --spend-cap Y` runs registered rounds to their read-outs under a spend cap and never confirms;
@@ -282,7 +282,7 @@ runs / the endpoint / the volumes. Tests: `tests/test_skill_scripts.py`.
 - `modal_app.py`     every GPU entrypoint: trials, locked tests, probes, benches, anchors, smoke
 - `scripts/`         one-off builders and read-outs: `calibrate_checkpoint.py`, `build_night2_data.py`, `build_binding_diagnostic.py`,
                      `freeze_{semif,scienthoon,calibration_audit}.py`, `{build,label,freeze}_documents_v*.py`, `calibration_audit.py`, `review_calibration_screen.py`,
-                     `compare_{q35,night2}.py`, `temperature_groups.py`, `base_mmlu_probe.py`, `plot_*.py` + `chartstyle.py`, `publish_space.sh`
+                     `compare_{q35,night2}.py`, `temperature_groups.py`, `base_mmlu_probe.py`, `scienthoon_drift.py` (round 20's scienthoon analysis), `plot_*.py` + `chartstyle.py`, `publish_space.sh`
 - `tests/test_api.py` conformance against the docs' example requests + official SDK
 
 ## Notes

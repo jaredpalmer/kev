@@ -1,0 +1,13 @@
+{
+  "alpha": 0.5,
+  "sft": {
+    "path": "/runs/r19-27b-lr5e6/00-trial-0/checkpoint",
+    "weights_sha256": "0e373c8e9fed0c1e251100f68bf6a33b44cca4c9b95917096dcf740d39fa7fd8"
+  },
+  "base": "Qwen/Qwen3.8-27B@1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "checkpoint": "/runs/r20-wise/27b-b-w50/checkpoint",
+  "tensors": 850,
+  "weights_sha256": "ed8225396be49dac186ce9999569510f1f7def9f6834bdb5efb409b511cd5dca",
+  "seconds": 190.5,
+  "formula": "fp32(alpha) * fp32(sft) + fp32(1 - alpha) * fp32(base), rounded once to the SFT dtype"
+}

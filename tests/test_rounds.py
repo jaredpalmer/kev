@@ -1,11 +1,12 @@
 """The round harness (kev.rounds): spec validation, the benchmark job codec, the watcher's resume and network handling, and
-reproduction of the committed read-outs and verdicts of rounds 5-19 from saved rows, and round 20's temperature pools,
+reproduction of the committed read-outs and verdicts of rounds 5-20 from saved rows, and round 20's temperature pools,
 transfer reads and checkpoint arms on a synthetic round.
 
 Offline vs archive. Rounds 5-18 ran on the research branch; their trial rows, reads and most committed outputs live on the
 git tag `research-archive-2026-09-24`, not on main. This checkout carries everything the round-5 read-out and the round-15
 locked verdict need (the released Kev-0.8B's confirmation), so those two run everywhere, CI included. Round 19's read-out
-runs wherever its trials' private development rows can be fetched (test_readout_reproduces_round_19). Every other
+runs wherever its trials' private development rows can be fetched (test_readout_reproduces_round_19); round 20's six
+interpolations reproduce everywhere, its whole read-out where those rows can be fetched. Every other
 reproduction skips unless KEV_ROUNDS_ROOT points at a checkout that has the rows and the outputs: a worktree of the tag
 (`git worktree add /tmp/kev-archive research-archive-2026-09-24`, whose gitignored trial rows are not in git either) or the
 checkout the rounds ran in:
@@ -368,6 +369,28 @@ def test_readout_reproduces_round_19():
         pytest.skip(str(error))
     spec = rounds.load(ROOT / "experiments/rounds/r19.json")
     assert same(rounds.readout(spec, ROOT), read_json(ROOT / "runs/r19-readout/round19.json"))
+
+
+def test_readout_reproduces_round_20():
+    """Round 20's arms are served at a pooled temperature fitted on public reads, so the six interpolations (checkpoints
+    without a trial) reproduce from committed rows everywhere. The two finals count as finished only once their trials'
+    development rows are present, and those are round 19's private rows: with access the whole read-out is compared, and
+    without it the interpolations, the ranking and the verdict are compared."""
+    from scripts.private_rows import restore
+    try:
+        restore("runs/r19-readout/private-rows.json", ROOT)
+        private = True
+    except PermissionError:
+        private = False
+    spec = rounds.load(ROOT / "experiments/rounds/r20.json")
+    report, committed = rounds.readout(spec, ROOT), read_json(ROOT / "runs/r20-readout/round20.json")
+    if private:
+        assert same(report, committed)
+        return
+    interpolated = [a for a, x in spec["arms"].items() if not x.get("trial")]
+    assert len(interpolated) == 6
+    assert same({a: report["arms"][a] for a in interpolated}, {a: committed["arms"][a] for a in interpolated})
+    assert report["ranking"] == committed["ranking"] and report["candidates"] == committed["candidates"] == {"27b": None}
 
 
 # --- temperature pools, transfer reads and checkpoints without a trial (round 20) -------------------------------------

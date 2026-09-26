@@ -1,0 +1,1318 @@
+{
+  "round": 20,
+  "registered": "PLAN.md > Round 20 - post-hoc remedies on round 19's checkpoints: a held-out-datasets temperature and WiSE-FT interpolation with the base, no training (registered with this spec's commit, before any round-20 interpolation or read)",
+  "drop_ids": [
+    "codereviewer/cls-test/13657",
+    "codereviewer/cls-test/19245"
+  ],
+  "arms": {
+    "27b-a": {
+      "trial": "runs/r19-27b-lr2e6/00-trial-0",
+      "parent": "runs/r6-27b-v2/01-trial-1",
+      "temperature": 1.4142135623730947,
+      "parent_temperature": 1.381912879967776,
+      "panels": {
+        "breadth": {
+          "n": 3075,
+          "acc": {
+            "candidate": 0.7596747967479675,
+            "parent": 0.745040650406504,
+            "delta": 0.014634146341463428,
+            "ci95": [
+              0.004469429607547146,
+              0.025113174875731205
+            ]
+          },
+          "ece": {
+            "candidate": 0.008459701388236573,
+            "parent": 0.011822307606708295,
+            "delta": -0.003362606218471873,
+            "ci95": [
+              -0.012506109562692871,
+              0.009479905003521187
+            ]
+          }
+        },
+        "kev": {
+          "n": 3731,
+          "acc": {
+            "candidate": 0.8627713749664969,
+            "parent": 0.7761994103457518,
+            "delta": 0.08657196462074512,
+            "ci95": [
+              0.07316890906680812,
+              0.10034490222051916
+            ]
+          },
+          "ece": {
+            "candidate": 0.019268341141776228,
+            "parent": 0.02160285900769844,
+            "delta": -0.0023345178659221998,
+            "ci95": [
+              -0.016156343544516432,
+              0.008731503692953413
+            ]
+          }
+        },
+        "short": {
+          "n": 1806,
+          "acc": {
+            "candidate": 0.8576965669988926,
+            "parent": 0.8676633444075305,
+            "delta": -0.009966777408637828,
+            "ci95": [
+              -0.021594684385382035,
+              0.0016611295681062705
+            ]
+          },
+          "brier": {
+            "candidate": 0.20368824939358798,
+            "parent": 0.19893520283760574,
+            "delta": 0.004753046555982243,
+            "ci95": [
+              -0.006162839240362106,
+              0.014129119063119961
+            ]
+          },
+          "confident_error_rate": {
+            "candidate": 0.020487264673311186,
+            "parent": 0.02768549280177187,
+            "delta": -0.007198228128460684,
+            "ci95": [
+              -0.014396456256921372,
+              -0.0011074197120708729
+            ]
+          }
+        },
+        "scienthoon": {
+          "n": 873,
+          "acc": {
+            "candidate": 0.7674684994272624,
+            "parent": 0.7961053837342497,
+            "delta": -0.028636884306987298,
+            "ci95": [
+              -0.04467353951890041,
+              -0.013745704467353903
+            ]
+          }
+        },
+        "wanli2": {
+          "n": 1002,
+          "acc": {
+            "candidate": 0.7445109780439122,
+            "parent": 0.7445109780439122,
+            "delta": 0.0,
+            "ci95": [
+              -0.020958083832335328,
+              0.019960079840319334
+            ]
+          }
+        },
+        "pooled_external": {
+          "n": 2108,
+          "acc": {
+            "candidate": 0.7746679316888045,
+            "parent": 0.786527514231499,
+            "delta": -0.01185958254269448,
+            "ci95": [
+              -0.023934115438761148,
+              0.0
+            ]
+          }
+        }
+      },
+      "missing": [],
+      "temperature_fit": {
+        "reads": [
+          "runs/r20-27b-a-r3cal",
+          "runs/r19-27b-lr2e6-v9"
+        ],
+        "sources": {
+          "runs/r19-27b-lr2e6-v9": [
+            "mmlu_pro"
+          ],
+          "runs/r20-27b-a-r3cal": [
+            "composition_holdout",
+            "emotion",
+            "legacy_holdout",
+            "mmlu",
+            "paws",
+            "qnli",
+            "sciq",
+            "tweet_offensive"
+          ]
+        },
+        "exclude_reads": [
+          "runs/r19-27b-lr2e6/00-trial-0/transfer"
+        ],
+        "questions": 648,
+        "excluded_questions": 0
+      },
+      "unknowable": {
+        "candidate": 0.0,
+        "parent": 0.0
+      },
+      "criteria": {
+        "1_breadth_lower_above_0": true,
+        "1_kev_lower_at_least_minus_1pp": true,
+        "2_short_acc_lower_at_least_minus_2pp": false,
+        "2_short_brier_upper_at_most_0.01": false,
+        "2_short_confident_errors_upper_at_most_1pp": true,
+        "2_wanli2_lower_at_least_minus_2pp": false,
+        "2_scienthoon_lower_at_least_minus_2pp": false,
+        "2_pooled_lower_at_least_minus_1.5pp": false,
+        "2_unknowable_at_most_0.05": true,
+        "3_breadth_ece_at_most_parent_plus_0.01": true,
+        "3_kev_ece_at_most_parent_plus_0.01": true
+      },
+      "complete": true,
+      "passed": false
+    },
+    "27b-b": {
+      "trial": "runs/r19-27b-lr5e6/00-trial-0",
+      "parent": "runs/r6-27b-v2/01-trial-1",
+      "temperature": 1.381912879967776,
+      "parent_temperature": 1.381912879967776,
+      "panels": {
+        "breadth": {
+          "n": 3075,
+          "acc": {
+            "candidate": 0.750569105691057,
+            "parent": 0.745040650406504,
+            "delta": 0.0055284552845529245,
+            "ci95": [
+              -0.006255908930223572,
+              0.0171991432667342
+            ]
+          },
+          "ece": {
+            "candidate": 0.017294873885174568,
+            "parent": 0.011822307606708295,
+            "delta": 0.0054725662784661875,
+            "ci95": [
+              -0.009596014394865918,
+              0.015098621054977834
+            ]
+          }
+        },
+        "kev": {
+          "n": 3731,
+          "acc": {
+            "candidate": 0.8595550790672742,
+            "parent": 0.7761994103457518,
+            "delta": 0.08335566872152245,
+            "ci95": [
+              0.0693089312067826,
+              0.09711178512790036
+            ]
+          },
+          "ece": {
+            "candidate": 0.015839423924853192,
+            "parent": 0.02160285900769844,
+            "delta": -0.005763435082845297,
+            "ci95": [
+              -0.018126165958661542,
+              0.0077752275476864014
+            ]
+          }
+        },
+        "short": {
+          "n": 1806,
+          "acc": {
+            "candidate": 0.8665559246954596,
+            "parent": 0.8676633444075305,
+            "delta": -0.001107419712070845,
+            "ci95": [
+              -0.013289036544850478,
+              0.011627906976744207
+            ]
+          },
+          "brier": {
+            "candidate": 0.1984055863710335,
+            "parent": 0.19893520283760574,
+            "delta": -0.0005296164665722358,
+            "ci95": [
+              -0.012034242795869232,
+              0.009469740949611049
+            ]
+          },
+          "confident_error_rate": {
+            "candidate": 0.02159468438538206,
+            "parent": 0.02768549280177187,
+            "delta": -0.006090808416389811,
+            "ci95": [
+              -0.013842746400885935,
+              0.0011074197120708729
+            ]
+          }
+        },
+        "scienthoon": {
+          "n": 873,
+          "acc": {
+            "candidate": 0.7605956471935853,
+            "parent": 0.7961053837342497,
+            "delta": -0.03550973654066436,
+            "ci95": [
+              -0.05269186712485685,
+              -0.01718213058419238
+            ]
+          }
+        },
+        "wanli2": {
+          "n": 1002,
+          "acc": {
+            "candidate": 0.7435129740518962,
+            "parent": 0.7445109780439122,
+            "delta": -0.0009980039920159944,
+            "ci95": [
+              -0.022954091816367206,
+              0.019960079840319334
+            ]
+          }
+        },
+        "pooled_external": {
+          "n": 2108,
+          "acc": {
+            "candidate": 0.7703984819734345,
+            "parent": 0.786527514231499,
+            "delta": -0.016129032258064502,
+            "ci95": [
+              -0.02937101178699803,
+              -0.0033103673218939944
+            ]
+          }
+        }
+      },
+      "missing": [],
+      "temperature_fit": {
+        "reads": [
+          "runs/r20-27b-b-r3cal",
+          "runs/r19-27b-lr5e6-v9"
+        ],
+        "sources": {
+          "runs/r19-27b-lr5e6-v9": [
+            "mmlu_pro"
+          ],
+          "runs/r20-27b-b-r3cal": [
+            "composition_holdout",
+            "emotion",
+            "legacy_holdout",
+            "mmlu",
+            "paws",
+            "qnli",
+            "sciq",
+            "tweet_offensive"
+          ]
+        },
+        "exclude_reads": [
+          "runs/r19-27b-lr5e6/00-trial-0/transfer"
+        ],
+        "questions": 648,
+        "excluded_questions": 0
+      },
+      "unknowable": {
+        "candidate": 0.0,
+        "parent": 0.0
+      },
+      "criteria": {
+        "1_breadth_lower_above_0": false,
+        "1_kev_lower_at_least_minus_1pp": true,
+        "2_short_acc_lower_at_least_minus_2pp": true,
+        "2_short_brier_upper_at_most_0.01": true,
+        "2_short_confident_errors_upper_at_most_1pp": true,
+        "2_wanli2_lower_at_least_minus_2pp": false,
+        "2_scienthoon_lower_at_least_minus_2pp": false,
+        "2_pooled_lower_at_least_minus_1.5pp": false,
+        "2_unknowable_at_most_0.05": true,
+        "3_breadth_ece_at_most_parent_plus_0.01": true,
+        "3_kev_ece_at_most_parent_plus_0.01": true
+      },
+      "complete": true,
+      "passed": false
+    },
+    "27b-a-w85": {
+      "trial": null,
+      "parent": "runs/r6-27b-v2/01-trial-1",
+      "checkpoint": "/runs/r20-wise/27b-a-w85/checkpoint",
+      "temperature": 1.4142135623730947,
+      "parent_temperature": 1.381912879967776,
+      "panels": {
+        "breadth": {
+          "n": 3075,
+          "acc": {
+            "candidate": 0.759349593495935,
+            "parent": 0.745040650406504,
+            "delta": 0.014308943089430981,
+            "ci95": [
+              0.004249512255922716,
+              0.024660715510464646
+            ]
+          },
+          "ece": {
+            "candidate": 0.008655751359610338,
+            "parent": 0.011822307606708295,
+            "delta": -0.003166556247098022,
+            "ci95": [
+              -0.011608361201389599,
+              0.009929665434841176
+            ]
+          }
+        },
+        "kev": {
+          "n": 3731,
+          "acc": {
+            "candidate": 0.8630393996247655,
+            "parent": 0.7761994103457518,
+            "delta": 0.08683998927901371,
+            "ci95": [
+              0.07337082300467285,
+              0.10051002919295603
+            ]
+          },
+          "ece": {
+            "candidate": 0.021269235260093333,
+            "parent": 0.02160285900769844,
+            "delta": -0.0003336237476051565,
+            "ci95": [
+              -0.01516582859247061,
+              0.010660559325734875
+            ]
+          }
+        },
+        "short": {
+          "n": 1806,
+          "acc": {
+            "candidate": 0.8604651162790697,
+            "parent": 0.8676633444075305,
+            "delta": -0.007198228128460715,
+            "ci95": [
+              -0.01828626799557038,
+              0.003875968992248069
+            ]
+          },
+          "brier": {
+            "candidate": 0.2024774646220799,
+            "parent": 0.19893520283760574,
+            "delta": 0.0035422617844741433,
+            "ci95": [
+              -0.007301307299732598,
+              0.012730789323713666
+            ]
+          },
+          "confident_error_rate": {
+            "candidate": 0.020487264673311186,
+            "parent": 0.02768549280177187,
+            "delta": -0.007198228128460684,
+            "ci95": [
+              -0.014396456256921375,
+              -0.0005537098560354364
+            ]
+          }
+        },
+        "scienthoon": {
+          "n": 873,
+          "acc": {
+            "candidate": 0.7640320733104238,
+            "parent": 0.7961053837342497,
+            "delta": -0.032073310423825885,
+            "ci95": [
+              -0.04810996563573888,
+              -0.01718213058419238
+            ]
+          }
+        },
+        "wanli2": {
+          "n": 1002,
+          "acc": {
+            "candidate": 0.7445109780439122,
+            "parent": 0.7445109780439122,
+            "delta": 0.0,
+            "ci95": [
+              -0.020958083832335328,
+              0.01898702594810371
+            ]
+          }
+        },
+        "pooled_external": {
+          "n": 2108,
+          "acc": {
+            "candidate": 0.7732447817836812,
+            "parent": 0.786527514231499,
+            "delta": -0.013282732447817858,
+            "ci95": [
+              -0.026006268696850562,
+              -0.0018865930501519895
+            ]
+          }
+        }
+      },
+      "missing": [],
+      "temperature_fit": {
+        "reads": [
+          "runs/r20-27b-a-w85-r3cal",
+          "runs/r20-27b-a-w85-v9"
+        ],
+        "sources": {
+          "runs/r20-27b-a-w85-v9": [
+            "mmlu_pro"
+          ],
+          "runs/r20-27b-a-w85-r3cal": [
+            "composition_holdout",
+            "emotion",
+            "legacy_holdout",
+            "mmlu",
+            "paws",
+            "qnli",
+            "sciq",
+            "tweet_offensive"
+          ]
+        },
+        "exclude_reads": [
+          "runs/r20-27b-a-w85-transfer4"
+        ],
+        "questions": 648,
+        "excluded_questions": 0
+      },
+      "unknowable": {
+        "candidate": 0.0,
+        "parent": 0.0
+      },
+      "criteria": {
+        "1_breadth_lower_above_0": true,
+        "1_kev_lower_at_least_minus_1pp": true,
+        "2_short_acc_lower_at_least_minus_2pp": true,
+        "2_short_brier_upper_at_most_0.01": false,
+        "2_short_confident_errors_upper_at_most_1pp": true,
+        "2_wanli2_lower_at_least_minus_2pp": false,
+        "2_scienthoon_lower_at_least_minus_2pp": false,
+        "2_pooled_lower_at_least_minus_1.5pp": false,
+        "2_unknowable_at_most_0.05": true,
+        "3_breadth_ece_at_most_parent_plus_0.01": true,
+        "3_kev_ece_at_most_parent_plus_0.01": true
+      },
+      "complete": true,
+      "passed": false
+    },
+    "27b-a-w70": {
+      "trial": null,
+      "parent": "runs/r6-27b-v2/01-trial-1",
+      "checkpoint": "/runs/r20-wise/27b-a-w70/checkpoint",
+      "temperature": 1.447269237440378,
+      "parent_temperature": 1.381912879967776,
+      "panels": {
+        "breadth": {
+          "n": 3075,
+          "acc": {
+            "candidate": 0.7616260162601626,
+            "parent": 0.745040650406504,
+            "delta": 0.01658536585365855,
+            "ci95": [
+              0.006831267969678356,
+              0.026419217808730047
+            ]
+          },
+          "ece": {
+            "candidate": 0.013119960570875375,
+            "parent": 0.011822307606708295,
+            "delta": 0.0012976529641670256,
+            "ci95": [
+              -0.010226401557778358,
+              0.013540012778472518
+            ]
+          }
+        },
+        "kev": {
+          "n": 3731,
+          "acc": {
+            "candidate": 0.8638434735995711,
+            "parent": 0.7761994103457518,
+            "delta": 0.08764406325381935,
+            "ci95": [
+              0.07458567055788953,
+              0.10056136936136821
+            ]
+          },
+          "ece": {
+            "candidate": 0.014640589904873876,
+            "parent": 0.02160285900769844,
+            "delta": -0.006962269102824577,
+            "ci95": [
+              -0.01966349119147619,
+              0.006317387783116472
+            ]
+          }
+        },
+        "short": {
+          "n": 1806,
+          "acc": {
+            "candidate": 0.8621262458471761,
+            "parent": 0.8676633444075305,
+            "delta": -0.0055370985603543366,
+            "ci95": [
+              -0.01661129568106312,
+              0.004983388704318917
+            ]
+          },
+          "brier": {
+            "candidate": 0.19917552321911977,
+            "parent": 0.19893520283760574,
+            "delta": 0.00024032038151405866,
+            "ci95": [
+              -0.010335489528976885,
+              0.009307389583480334
+            ]
+          },
+          "confident_error_rate": {
+            "candidate": 0.01937984496124031,
+            "parent": 0.02768549280177187,
+            "delta": -0.00830564784053156,
+            "ci95": [
+              -0.015503875968992244,
+              -0.002214839424141749
+            ]
+          }
+        },
+        "scienthoon": {
+          "n": 873,
+          "acc": {
+            "candidate": 0.7628865979381443,
+            "parent": 0.7961053837342497,
+            "delta": -0.03321878579610538,
+            "ci95": [
+              -0.050400916380297756,
+              -0.01718213058419249
+            ]
+          }
+        },
+        "wanli2": {
+          "n": 1002,
+          "acc": {
+            "candidate": 0.7504990019960079,
+            "parent": 0.7445109780439122,
+            "delta": 0.0059880239520957446,
+            "ci95": [
+              -0.012974051896207595,
+              0.02395209580838331
+            ]
+          }
+        },
+        "pooled_external": {
+          "n": 2108,
+          "acc": {
+            "candidate": 0.7741935483870968,
+            "parent": 0.786527514231499,
+            "delta": -0.012333965844402273,
+            "ci95": [
+              -0.02394883269115087,
+              -0.0014245014245014536
+            ]
+          }
+        }
+      },
+      "missing": [],
+      "temperature_fit": {
+        "reads": [
+          "runs/r20-27b-a-w70-r3cal",
+          "runs/r20-27b-a-w70-v9"
+        ],
+        "sources": {
+          "runs/r20-27b-a-w70-v9": [
+            "mmlu_pro"
+          ],
+          "runs/r20-27b-a-w70-r3cal": [
+            "composition_holdout",
+            "emotion",
+            "legacy_holdout",
+            "mmlu",
+            "paws",
+            "qnli",
+            "sciq",
+            "tweet_offensive"
+          ]
+        },
+        "exclude_reads": [
+          "runs/r20-27b-a-w70-transfer4"
+        ],
+        "questions": 648,
+        "excluded_questions": 0
+      },
+      "unknowable": {
+        "candidate": 0.0,
+        "parent": 0.0
+      },
+      "criteria": {
+        "1_breadth_lower_above_0": true,
+        "1_kev_lower_at_least_minus_1pp": true,
+        "2_short_acc_lower_at_least_minus_2pp": true,
+        "2_short_brier_upper_at_most_0.01": true,
+        "2_short_confident_errors_upper_at_most_1pp": true,
+        "2_wanli2_lower_at_least_minus_2pp": true,
+        "2_scienthoon_lower_at_least_minus_2pp": false,
+        "2_pooled_lower_at_least_minus_1.5pp": false,
+        "2_unknowable_at_most_0.05": true,
+        "3_breadth_ece_at_most_parent_plus_0.01": true,
+        "3_kev_ece_at_most_parent_plus_0.01": true
+      },
+      "complete": true,
+      "passed": false
+    },
+    "27b-a-w50": {
+      "trial": null,
+      "parent": "runs/r6-27b-v2/01-trial-1",
+      "checkpoint": "/runs/r20-wise/27b-a-w50/checkpoint",
+      "temperature": 1.447269237440378,
+      "parent_temperature": 1.381912879967776,
+      "panels": {
+        "breadth": {
+          "n": 3075,
+          "acc": {
+            "candidate": 0.76,
+            "parent": 0.745040650406504,
+            "delta": 0.014959349593495985,
+            "ci95": [
+              0.005259524891829542,
+              0.024871605393262938
+            ]
+          },
+          "ece": {
+            "candidate": 0.023654173853846033,
+            "parent": 0.011822307606708295,
+            "delta": 0.01183186624713769,
+            "ci95": [
+              -0.0017524438691534224,
+              0.02056749755155598
+            ]
+          }
+        },
+        "kev": {
+          "n": 3731,
+          "acc": {
+            "candidate": 0.8501742160278746,
+            "parent": 0.7761994103457518,
+            "delta": 0.07397480568212278,
+            "ci95": [
+              0.062315317549702876,
+              0.0854640515883956
+            ]
+          },
+          "ece": {
+            "candidate": 0.024866463168690296,
+            "parent": 0.02160285900769844,
+            "delta": 0.0032636041609918065,
+            "ci95": [
+              -0.011014959696091065,
+              0.0148331791238497
+            ]
+          }
+        },
+        "short": {
+          "n": 1806,
+          "acc": {
+            "candidate": 0.8621262458471761,
+            "parent": 0.8676633444075305,
+            "delta": -0.0055370985603543366,
+            "ci95": [
+              -0.01661129568106312,
+              0.004983388704319025
+            ]
+          },
+          "brier": {
+            "candidate": 0.19827320093170264,
+            "parent": 0.19893520283760574,
+            "delta": -0.0006620019059030979,
+            "ci95": [
+              -0.011471333525831035,
+              0.008821245541141555
+            ]
+          },
+          "confident_error_rate": {
+            "candidate": 0.020487264673311186,
+            "parent": 0.02768549280177187,
+            "delta": -0.007198228128460684,
+            "ci95": [
+              -0.014396456256921372,
+              -0.0011074197120708763
+            ]
+          }
+        },
+        "scienthoon": {
+          "n": 873,
+          "acc": {
+            "candidate": 0.7571592210767468,
+            "parent": 0.7961053837342497,
+            "delta": -0.038946162657502836,
+            "ci95": [
+              -0.05615693012600231,
+              -0.02290950744558984
+            ]
+          }
+        },
+        "wanli2": {
+          "n": 1002,
+          "acc": {
+            "candidate": 0.7445109780439122,
+            "parent": 0.7445109780439122,
+            "delta": 0.0,
+            "ci95": [
+              -0.01896207584830345,
+              0.019960079840319334
+            ]
+          }
+        },
+        "pooled_external": {
+          "n": 2108,
+          "acc": {
+            "candidate": 0.7680265654648957,
+            "parent": 0.786527514231499,
+            "delta": -0.018500948766603353,
+            "ci95": [
+              -0.03145890697728334,
+              -0.006685609374658264
+            ]
+          }
+        }
+      },
+      "missing": [],
+      "temperature_fit": {
+        "reads": [
+          "runs/r20-27b-a-w50-r3cal",
+          "runs/r20-27b-a-w50-v9"
+        ],
+        "sources": {
+          "runs/r20-27b-a-w50-v9": [
+            "mmlu_pro"
+          ],
+          "runs/r20-27b-a-w50-r3cal": [
+            "composition_holdout",
+            "emotion",
+            "legacy_holdout",
+            "mmlu",
+            "paws",
+            "qnli",
+            "sciq",
+            "tweet_offensive"
+          ]
+        },
+        "exclude_reads": [
+          "runs/r20-27b-a-w50-transfer4"
+        ],
+        "questions": 648,
+        "excluded_questions": 0
+      },
+      "unknowable": {
+        "candidate": 0.0,
+        "parent": 0.0
+      },
+      "criteria": {
+        "1_breadth_lower_above_0": true,
+        "1_kev_lower_at_least_minus_1pp": true,
+        "2_short_acc_lower_at_least_minus_2pp": true,
+        "2_short_brier_upper_at_most_0.01": true,
+        "2_short_confident_errors_upper_at_most_1pp": true,
+        "2_wanli2_lower_at_least_minus_2pp": true,
+        "2_scienthoon_lower_at_least_minus_2pp": false,
+        "2_pooled_lower_at_least_minus_1.5pp": false,
+        "2_unknowable_at_most_0.05": true,
+        "3_breadth_ece_at_most_parent_plus_0.01": false,
+        "3_kev_ece_at_most_parent_plus_0.01": true
+      },
+      "complete": true,
+      "passed": false
+    },
+    "27b-b-w85": {
+      "trial": null,
+      "parent": "runs/r6-27b-v2/01-trial-1",
+      "checkpoint": "/runs/r20-wise/27b-b-w85/checkpoint",
+      "temperature": 1.35034994616819,
+      "parent_temperature": 1.381912879967776,
+      "panels": {
+        "breadth": {
+          "n": 3075,
+          "acc": {
+            "candidate": 0.7560975609756098,
+            "parent": 0.745040650406504,
+            "delta": 0.011056910569105738,
+            "ci95": [
+              -0.0006432118498019862,
+              0.022915838545831808
+            ]
+          },
+          "ece": {
+            "candidate": 0.017125556741753294,
+            "parent": 0.011822307606708295,
+            "delta": 0.005303249135044931,
+            "ci95": [
+              -0.008518877421870531,
+              0.016135951031117163
+            ]
+          }
+        },
+        "kev": {
+          "n": 3731,
+          "acc": {
+            "candidate": 0.8622353256499597,
+            "parent": 0.7761994103457518,
+            "delta": 0.08603591530420795,
+            "ci95": [
+              0.07204515910914315,
+              0.09994879816735797
+            ]
+          },
+          "ece": {
+            "candidate": 0.014834027108229323,
+            "parent": 0.02160285900769844,
+            "delta": -0.0067688318994691046,
+            "ci95": [
+              -0.018770136748967242,
+              0.0062929257982562254
+            ]
+          }
+        },
+        "short": {
+          "n": 1806,
+          "acc": {
+            "candidate": 0.8660022148394242,
+            "parent": 0.8676633444075305,
+            "delta": -0.0016611295681062677,
+            "ci95": [
+              -0.013289036544850585,
+              0.009980620155038747
+            ]
+          },
+          "brier": {
+            "candidate": 0.19690491928387946,
+            "parent": 0.19893520283760574,
+            "delta": -0.002030283553726281,
+            "ci95": [
+              -0.013260358658065838,
+              0.007643151778781244
+            ]
+          },
+          "confident_error_rate": {
+            "candidate": 0.021040974529346623,
+            "parent": 0.02768549280177187,
+            "delta": -0.006644518272425248,
+            "ci95": [
+              -0.014396456256921372,
+              0.0
+            ]
+          }
+        },
+        "scienthoon": {
+          "n": 873,
+          "acc": {
+            "candidate": 0.7583046964490263,
+            "parent": 0.7961053837342497,
+            "delta": -0.037800687285223344,
+            "ci95": [
+              -0.05727376861397482,
+              -0.019473081328751363
+            ]
+          }
+        },
+        "wanli2": {
+          "n": 1002,
+          "acc": {
+            "candidate": 0.7455089820359282,
+            "parent": 0.7445109780439122,
+            "delta": 0.0009980039920159944,
+            "ci95": [
+              -0.020958083832335328,
+              0.021956087824351322
+            ]
+          }
+        },
+        "pooled_external": {
+          "n": 2108,
+          "acc": {
+            "candidate": 0.7699240986717267,
+            "parent": 0.786527514231499,
+            "delta": -0.016603415559772294,
+            "ci95": [
+              -0.030062321792720094,
+              -0.0033394563338442693
+            ]
+          }
+        }
+      },
+      "missing": [],
+      "temperature_fit": {
+        "reads": [
+          "runs/r20-27b-b-w85-r3cal",
+          "runs/r20-27b-b-w85-v9"
+        ],
+        "sources": {
+          "runs/r20-27b-b-w85-v9": [
+            "mmlu_pro"
+          ],
+          "runs/r20-27b-b-w85-r3cal": [
+            "composition_holdout",
+            "emotion",
+            "legacy_holdout",
+            "mmlu",
+            "paws",
+            "qnli",
+            "sciq",
+            "tweet_offensive"
+          ]
+        },
+        "exclude_reads": [
+          "runs/r20-27b-b-w85-transfer4"
+        ],
+        "questions": 648,
+        "excluded_questions": 0
+      },
+      "unknowable": {
+        "candidate": 0.0,
+        "parent": 0.0
+      },
+      "criteria": {
+        "1_breadth_lower_above_0": false,
+        "1_kev_lower_at_least_minus_1pp": true,
+        "2_short_acc_lower_at_least_minus_2pp": true,
+        "2_short_brier_upper_at_most_0.01": true,
+        "2_short_confident_errors_upper_at_most_1pp": true,
+        "2_wanli2_lower_at_least_minus_2pp": false,
+        "2_scienthoon_lower_at_least_minus_2pp": false,
+        "2_pooled_lower_at_least_minus_1.5pp": false,
+        "2_unknowable_at_most_0.05": true,
+        "3_breadth_ece_at_most_parent_plus_0.01": true,
+        "3_kev_ece_at_most_parent_plus_0.01": true
+      },
+      "complete": true,
+      "passed": false
+    },
+    "27b-b-w70": {
+      "trial": null,
+      "parent": "runs/r6-27b-v2/01-trial-1",
+      "checkpoint": "/runs/r20-wise/27b-b-w70/checkpoint",
+      "temperature": 1.35034994616819,
+      "parent_temperature": 1.381912879967776,
+      "panels": {
+        "breadth": {
+          "n": 3075,
+          "acc": {
+            "candidate": 0.7586991869918699,
+            "parent": 0.745040650406504,
+            "delta": 0.013658536585365866,
+            "ci95": [
+              0.002609177890959158,
+              0.025202830820584343
+            ]
+          },
+          "ece": {
+            "candidate": 0.019636802029684083,
+            "parent": 0.011822307606708295,
+            "delta": 0.007814494422975759,
+            "ci95": [
+              -0.006420939473746518,
+              0.01719632397457485
+            ]
+          }
+        },
+        "kev": {
+          "n": 3731,
+          "acc": {
+            "candidate": 0.8641114982578397,
+            "parent": 0.7761994103457518,
+            "delta": 0.08791208791208793,
+            "ci95": [
+              0.07435130522298969,
+              0.10126818628427493
+            ]
+          },
+          "ece": {
+            "candidate": 0.019845090796391004,
+            "parent": 0.02160285900769844,
+            "delta": -0.0017577682113074297,
+            "ci95": [
+              -0.014553076326405881,
+              0.011159300922380525
+            ]
+          }
+        },
+        "short": {
+          "n": 1806,
+          "acc": {
+            "candidate": 0.8648947951273532,
+            "parent": 0.8676633444075305,
+            "delta": -0.002768549280177224,
+            "ci95": [
+              -0.013842746400885897,
+              0.00830564784053156
+            ]
+          },
+          "brier": {
+            "candidate": 0.1946919348575561,
+            "parent": 0.19893520283760574,
+            "delta": -0.0042432679800496476,
+            "ci95": [
+              -0.015122547566849474,
+              0.00446076942238117
+            ]
+          },
+          "confident_error_rate": {
+            "candidate": 0.018826135105204873,
+            "parent": 0.02768549280177187,
+            "delta": -0.008859357696566997,
+            "ci95": [
+              -0.01661129568106312,
+              -0.002214839424141749
+            ]
+          }
+        },
+        "scienthoon": {
+          "n": 873,
+          "acc": {
+            "candidate": 0.7663230240549829,
+            "parent": 0.7961053837342497,
+            "delta": -0.02978235967926679,
+            "ci95": [
+              -0.04810996563573877,
+              -0.012600229095074519
+            ]
+          }
+        },
+        "wanli2": {
+          "n": 1002,
+          "acc": {
+            "candidate": 0.7514970059880239,
+            "parent": 0.7445109780439122,
+            "delta": 0.006986027944111739,
+            "ci95": [
+              -0.013972055888223589,
+              0.027944111776447067
+            ]
+          }
+        },
+        "pooled_external": {
+          "n": 2108,
+          "acc": {
+            "candidate": 0.7751423149905123,
+            "parent": 0.786527514231499,
+            "delta": -0.011385199240986688,
+            "ci95": [
+              -0.024147727272727293,
+              0.0009412097355435937
+            ]
+          }
+        }
+      },
+      "missing": [],
+      "temperature_fit": {
+        "reads": [
+          "runs/r20-27b-b-w70-r3cal",
+          "runs/r20-27b-b-w70-v9"
+        ],
+        "sources": {
+          "runs/r20-27b-b-w70-v9": [
+            "mmlu_pro"
+          ],
+          "runs/r20-27b-b-w70-r3cal": [
+            "composition_holdout",
+            "emotion",
+            "legacy_holdout",
+            "mmlu",
+            "paws",
+            "qnli",
+            "sciq",
+            "tweet_offensive"
+          ]
+        },
+        "exclude_reads": [
+          "runs/r20-27b-b-w70-transfer4"
+        ],
+        "questions": 648,
+        "excluded_questions": 0
+      },
+      "unknowable": {
+        "candidate": 0.0,
+        "parent": 0.0
+      },
+      "criteria": {
+        "1_breadth_lower_above_0": true,
+        "1_kev_lower_at_least_minus_1pp": true,
+        "2_short_acc_lower_at_least_minus_2pp": true,
+        "2_short_brier_upper_at_most_0.01": true,
+        "2_short_confident_errors_upper_at_most_1pp": true,
+        "2_wanli2_lower_at_least_minus_2pp": true,
+        "2_scienthoon_lower_at_least_minus_2pp": false,
+        "2_pooled_lower_at_least_minus_1.5pp": false,
+        "2_unknowable_at_most_0.05": true,
+        "3_breadth_ece_at_most_parent_plus_0.01": true,
+        "3_kev_ece_at_most_parent_plus_0.01": true
+      },
+      "complete": true,
+      "passed": false
+    },
+    "27b-b-w50": {
+      "trial": null,
+      "parent": "runs/r6-27b-v2/01-trial-1",
+      "checkpoint": "/runs/r20-wise/27b-b-w50/checkpoint",
+      "temperature": 1.35034994616819,
+      "parent_temperature": 1.381912879967776,
+      "panels": {
+        "breadth": {
+          "n": 3075,
+          "acc": {
+            "candidate": 0.7619512195121951,
+            "parent": 0.745040650406504,
+            "delta": 0.01691056910569111,
+            "ci95": [
+              0.006513918638597027,
+              0.02751736981511779
+            ]
+          },
+          "ece": {
+            "candidate": 0.024393835785057105,
+            "parent": 0.011822307606708295,
+            "delta": 0.012571528178348666,
+            "ci95": [
+              -0.003779985025281664,
+              0.023130572427971122
+            ]
+          }
+        },
+        "kev": {
+          "n": 3731,
+          "acc": {
+            "candidate": 0.8584829804341999,
+            "parent": 0.7761994103457518,
+            "delta": 0.08228357008844811,
+            "ci95": [
+              0.0697730841600011,
+              0.09490620749080032
+            ]
+          },
+          "ece": {
+            "candidate": 0.014770903024618804,
+            "parent": 0.02160285900769844,
+            "delta": -0.006831955983079726,
+            "ci95": [
+              -0.01789679767351489,
+              0.0077293929232628185
+            ]
+          }
+        },
+        "short": {
+          "n": 1806,
+          "acc": {
+            "candidate": 0.8660022148394242,
+            "parent": 0.8676633444075305,
+            "delta": -0.0016611295681062677,
+            "ci95": [
+              -0.01218161683277963,
+              0.009413067552602405
+            ]
+          },
+          "brier": {
+            "candidate": 0.19438808165478558,
+            "parent": 0.19893520283760574,
+            "delta": -0.004547121182820163,
+            "ci95": [
+              -0.015614191903042833,
+              0.004475502308068669
+            ]
+          },
+          "confident_error_rate": {
+            "candidate": 0.01937984496124031,
+            "parent": 0.02768549280177187,
+            "delta": -0.00830564784053156,
+            "ci95": [
+              -0.015503875968992251,
+              -0.002214839424141749
+            ]
+          }
+        },
+        "scienthoon": {
+          "n": 873,
+          "acc": {
+            "candidate": 0.7777777777777778,
+            "parent": 0.7961053837342497,
+            "delta": -0.01832760595647187,
+            "ci95": [
+              -0.03436426116838487,
+              -0.002290950744558984
+            ]
+          }
+        },
+        "wanli2": {
+          "n": 1002,
+          "acc": {
+            "candidate": 0.7554890219560878,
+            "parent": 0.7445109780439122,
+            "delta": 0.010978043912175606,
+            "ci95": [
+              -0.009980039920159722,
+              0.03093812375249494
+            ]
+          }
+        },
+        "pooled_external": {
+          "n": 2108,
+          "acc": {
+            "candidate": 0.7817836812144212,
+            "parent": 0.786527514231499,
+            "delta": -0.004743833017077814,
+            "ci95": [
+              -0.0167673192078008,
+              0.0071723874421475075
+            ]
+          }
+        }
+      },
+      "missing": [],
+      "temperature_fit": {
+        "reads": [
+          "runs/r20-27b-b-w50-r3cal",
+          "runs/r20-27b-b-w50-v9"
+        ],
+        "sources": {
+          "runs/r20-27b-b-w50-v9": [
+            "mmlu_pro"
+          ],
+          "runs/r20-27b-b-w50-r3cal": [
+            "composition_holdout",
+            "emotion",
+            "legacy_holdout",
+            "mmlu",
+            "paws",
+            "qnli",
+            "sciq",
+            "tweet_offensive"
+          ]
+        },
+        "exclude_reads": [
+          "runs/r20-27b-b-w50-transfer4"
+        ],
+        "questions": 648,
+        "excluded_questions": 0
+      },
+      "unknowable": {
+        "candidate": 0.0,
+        "parent": 0.0
+      },
+      "criteria": {
+        "1_breadth_lower_above_0": true,
+        "1_kev_lower_at_least_minus_1pp": true,
+        "2_short_acc_lower_at_least_minus_2pp": true,
+        "2_short_brier_upper_at_most_0.01": true,
+        "2_short_confident_errors_upper_at_most_1pp": true,
+        "2_wanli2_lower_at_least_minus_2pp": true,
+        "2_scienthoon_lower_at_least_minus_2pp": false,
+        "2_pooled_lower_at_least_minus_1.5pp": false,
+        "2_unknowable_at_most_0.05": true,
+        "3_breadth_ece_at_most_parent_plus_0.01": false,
+        "3_kev_ece_at_most_parent_plus_0.01": true
+      },
+      "complete": true,
+      "passed": false
+    }
+  },
+  "ranking": {
+    "27b": []
+  },
+  "candidates": {
+    "27b": null
+  }
+}

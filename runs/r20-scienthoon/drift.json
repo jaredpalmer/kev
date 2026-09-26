@@ -1,0 +1,2111 @@
+{
+  "suite": "evals/external/scienthoon-v1/development.jsonl",
+  "reference": "kev-27b",
+  "archive": "research-archive-2026-09-24",
+  "missing_reads": [],
+  "untrained_base": "no scienthoon read of Qwen/Qwen3.8-27B exists (runs/probes/qwen38-27b-* covers semif-v1, transfer-v4/v9 and wanli-v1 only)",
+  "tickets": {
+    "n": 291,
+    "angry_text": 95,
+    "angry_labels": 108,
+    "labels_contradicting_text": [
+      "scienthoon/0021",
+      "scienthoon/0031",
+      "scienthoon/0036",
+      "scienthoon/0037",
+      "scienthoon/0071",
+      "scienthoon/0085",
+      "scienthoon/0098",
+      "scienthoon/0121",
+      "scienthoon/0123",
+      "scienthoon/0200",
+      "scienthoon/0211",
+      "scienthoon/0222",
+      "scienthoon/0230",
+      "scienthoon/0276",
+      "scienthoon/0286"
+    ]
+  },
+  "sides": {
+    "kev-27b": {
+      "rows": "runs/r6-27bv2-s2-scienthoon",
+      "kind": "lora",
+      "note": "Kev-27B, B1 v2 seed 2 (released)",
+      "acc": 0.7961053837342497,
+      "tasks": {
+        "scienthoon_queue": 0.9484536082474226,
+        "scienthoon_angry": 0.9106529209621993,
+        "scienthoon_priority": 0.5292096219931272
+      },
+      "angry": {
+        "predicted_angry": 102,
+        "false_positive_on_neutral_text": 9,
+        "false_positive_problem": 9,
+        "false_positive_ko": 9,
+        "errors_on_contradicting_labels": 15,
+        "false_negative_on_angry_text": 2,
+        "mean_p_angry_on_neutral_text": 0.13703411332872792
+      },
+      "priority": {
+        "predicted": {
+          "0": 27,
+          "1": 72,
+          "2": 183,
+          "3": 9
+        },
+        "mean_predicted_minus_label": -0.11683848797250859
+      }
+    },
+    "b1v2-s1": {
+      "rows": "runs/r6-27bv2-s1-scienthoon",
+      "kind": "lora",
+      "note": "B1 v2 seed 1: Kev-27B's recipe, other seed",
+      "acc": 0.7686139747995419,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.8316151202749141,
+        "scienthoon_priority": 0.5223367697594502
+      },
+      "angry": {
+        "predicted_angry": 121,
+        "false_positive_on_neutral_text": 31,
+        "false_positive_problem": 31,
+        "false_positive_en": 12,
+        "false_positive_ko": 19,
+        "errors_on_contradicting_labels": 13,
+        "false_negative_on_angry_text": 5,
+        "mean_p_angry_on_neutral_text": 0.23319609850219597
+      },
+      "priority": {
+        "predicted": {
+          "0": 25,
+          "1": 81,
+          "2": 175,
+          "3": 10
+        },
+        "mean_predicted_minus_label": -0.13058419243986255
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -2.7491408934707806,
+          "ci95_pp": [
+            -4.238258877434131,
+            -1.3745704467353903
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -7.9037800687285165,
+          "ci95_pp": [
+            -11.340206185567014,
+            -4.810996563573877
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": -0.6872852233676952,
+          "ci95_pp": [
+            -3.436426116838487,
+            2.0618556701030855
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": -0.1718213058419238,
+          "ci95_pp": [
+            -1.5463917525773252,
+            1.2027491408934776
+          ]
+        }
+      }
+    },
+    "b1-A": {
+      "rows": "runs/r6-27b-A-scienthoon",
+      "kind": "lora",
+      "note": "B1 trial A: v7 recipe, 1 epoch",
+      "acc": 0.7731958762886598,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.872852233676976,
+        "scienthoon_priority": 0.4948453608247423
+      },
+      "angry": {
+        "predicted_angry": 101,
+        "false_positive_on_neutral_text": 15,
+        "false_positive_problem": 15,
+        "false_positive_ko": 10,
+        "errors_on_contradicting_labels": 14,
+        "false_positive_en": 5,
+        "false_negative_on_angry_text": 8,
+        "mean_p_angry_on_neutral_text": 0.1945872387688633
+      },
+      "priority": {
+        "predicted": {
+          "0": 17,
+          "1": 96,
+          "2": 171,
+          "3": 7
+        },
+        "mean_predicted_minus_label": -0.13745704467353953
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -2.290950744558984,
+          "ci95_pp": [
+            -3.8946162657502947,
+            -0.8018327605956443
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -3.7800687285223344,
+          "ci95_pp": [
+            -6.529209621993126,
+            -1.0309278350515538
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": -3.436426116838487,
+          "ci95_pp": [
+            -7.216494845360821,
+            0.3436426116838476
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": -1.5463917525773252,
+          "ci95_pp": [
+            -3.436426116838487,
+            0.3436426116838476
+          ]
+        }
+      }
+    },
+    "b1-B": {
+      "rows": "runs/r6-27b-B-scienthoon",
+      "kind": "lora",
+      "note": "B1 trial B",
+      "acc": 0.7422680412371134,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.8041237113402062,
+        "scienthoon_priority": 0.47079037800687284
+      },
+      "angry": {
+        "predicted_angry": 139,
+        "false_positive_on_neutral_text": 43,
+        "false_positive_problem": 43,
+        "false_positive_en": 22,
+        "false_positive_ko": 21,
+        "errors_on_contradicting_labels": 12,
+        "false_negative_on_angry_text": 2,
+        "mean_p_angry_on_neutral_text": 0.2646948612357355
+      },
+      "priority": {
+        "predicted": {
+          "0": 16,
+          "1": 117,
+          "2": 153,
+          "3": 5
+        },
+        "mean_predicted_minus_label": -0.20962199312714777
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -5.383734249713623,
+          "ci95_pp": [
+            -7.674684994272618,
+            -3.436426116838487
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -10.652920962199309,
+          "ci95_pp": [
+            -14.7766323024055,
+            -6.872852233676974
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": -5.841924398625431,
+          "ci95_pp": [
+            -10.652920962199314,
+            -1.3745704467353959
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": -2.7491408934707917,
+          "ci95_pp": [
+            -5.154639175257736,
+            -0.5154639175257714
+          ]
+        }
+      }
+    },
+    "2ep-s1": {
+      "rows": "runs/r6-27b2ep-s1-scienthoon",
+      "kind": "lora",
+      "note": "round-6 follow-up: v7 recipe, 2 epochs, seed 1",
+      "acc": 0.7720504009163803,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.8487972508591065,
+        "scienthoon_priority": 0.5154639175257731
+      },
+      "angry": {
+        "predicted_angry": 114,
+        "false_positive_on_neutral_text": 24,
+        "false_positive_problem": 22,
+        "false_positive_ko": 12,
+        "errors_on_contradicting_labels": 15,
+        "false_positive_en": 12,
+        "false_positive_inquiry": 2,
+        "false_negative_on_angry_text": 5,
+        "mean_p_angry_on_neutral_text": 0.1676609212984873
+      },
+      "priority": {
+        "predicted": {
+          "0": 16,
+          "1": 97,
+          "2": 169,
+          "3": 9
+        },
+        "mean_predicted_minus_label": -0.12714776632302405
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -2.405498281786933,
+          "ci95_pp": [
+            -4.009163802978232,
+            -0.8018327605956443
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -6.185567010309279,
+          "ci95_pp": [
+            -8.93470790378007,
+            -3.436426116838487
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": -1.3745704467354014,
+          "ci95_pp": [
+            -5.154639175257736,
+            2.405498281786944
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": -0.5154639175257825,
+          "ci95_pp": [
+            -2.577319587628868,
+            1.3745704467354014
+          ]
+        }
+      }
+    },
+    "2ep-s2": {
+      "rows": "runs/r6-27b2ep-s2-scienthoon",
+      "kind": "lora",
+      "note": "round-6 follow-up: 2 epochs, seed 2",
+      "acc": 0.7399770904925544,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.7457044673539519,
+        "scienthoon_priority": 0.5223367697594502
+      },
+      "angry": {
+        "predicted_angry": 152,
+        "false_positive_on_neutral_text": 59,
+        "false_positive_problem": 57,
+        "false_positive_en": 29,
+        "false_positive_ko": 30,
+        "errors_on_contradicting_labels": 8,
+        "false_positive_inquiry": 2,
+        "false_negative_on_angry_text": 7,
+        "mean_p_angry_on_neutral_text": 0.33319390890461503
+      },
+      "priority": {
+        "predicted": {
+          "0": 16,
+          "1": 87,
+          "2": 169,
+          "3": 19
+        },
+        "mean_predicted_minus_label": -0.058419243986254296
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -5.612829324169521,
+          "ci95_pp": [
+            -7.674684994272618,
+            -3.550973654066436
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -16.49484536082474,
+          "ci95_pp": [
+            -21.305841924398628,
+            -11.683848797250862
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": -0.6872852233676952,
+          "ci95_pp": [
+            -4.123711340206188,
+            2.7491408934707917
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": -0.1718213058419238,
+          "ci95_pp": [
+            -2.0618556701030855,
+            1.5463917525773252
+          ]
+        }
+      }
+    },
+    "r7-docs": {
+      "rows": "runs/r7-27b-s1-scienthoon",
+      "kind": "lora-delta",
+      "note": "round 7: documents delta from trial A",
+      "acc": 0.7571592210767468,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.8487972508591065,
+        "scienthoon_priority": 0.47079037800687284
+      },
+      "angry": {
+        "predicted_angry": 108,
+        "false_positive_on_neutral_text": 22,
+        "false_positive_problem": 14,
+        "false_positive_en": 13,
+        "false_positive_ko": 9,
+        "errors_on_contradicting_labels": 14,
+        "false_positive_inquiry": 8,
+        "false_negative_on_angry_text": 8,
+        "mean_p_angry_on_neutral_text": 0.21903417864400568
+      },
+      "priority": {
+        "predicted": {
+          "0": 17,
+          "1": 105,
+          "2": 160,
+          "3": 9
+        },
+        "mean_predicted_minus_label": -0.16151202749140894
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -3.8946162657502836,
+          "ci95_pp": [
+            -5.727376861397482,
+            -2.0618556701030966
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -6.185567010309279,
+          "ci95_pp": [
+            -9.278350515463918,
+            -3.0927835051546393
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": -5.841924398625431,
+          "ci95_pp": [
+            -10.309278350515466,
+            -1.7182130584192434
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": -2.7491408934707917,
+          "ci95_pp": [
+            -4.9828178694158005,
+            -0.6829896907216707
+          ]
+        }
+      }
+    },
+    "r10-skills": {
+      "rows": "runs/r10-27b-skills-scienthoon",
+      "kind": "lora-delta",
+      "note": "round 10: skills delta from Kev-27B",
+      "acc": 0.7777777777777778,
+      "tasks": {
+        "scienthoon_queue": 0.9450171821305842,
+        "scienthoon_angry": 0.8969072164948454,
+        "scienthoon_priority": 0.49140893470790376
+      },
+      "angry": {
+        "predicted_angry": 110,
+        "false_positive_on_neutral_text": 15,
+        "false_positive_problem": 15,
+        "false_positive_ko": 12,
+        "errors_on_contradicting_labels": 15,
+        "false_positive_en": 3,
+        "mean_p_angry_on_neutral_text": 0.17145383850758683
+      },
+      "priority": {
+        "predicted": {
+          "0": 17,
+          "1": 71,
+          "2": 194,
+          "3": 9
+        },
+        "mean_predicted_minus_label": -0.044673539518900345
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -1.832760595647187,
+          "ci95_pp": [
+            -2.97823596792669,
+            -0.6872852233676952
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": -0.3436426116838476,
+          "ci95_pp": [
+            -1.0309278350515538,
+            0.0
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -1.3745704467353903,
+          "ci95_pp": [
+            -3.436426116838487,
+            0.3436426116838476
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": -3.78006872852234,
+          "ci95_pp": [
+            -6.872852233676974,
+            -0.6872852233677007
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": -2.0618556701030966,
+          "ci95_pp": [
+            -3.6082474226804218,
+            -0.5154639175257714
+          ]
+        }
+      }
+    },
+    "r17-a": {
+      "rows": "runs/r17-27b-r10k-lr2e5-scienthoon",
+      "kind": "lora-delta",
+      "note": "round 17 arm (a): skills delta from Kev-27B, replay 10,000",
+      "acc": 0.7812142038946163,
+      "tasks": {
+        "scienthoon_queue": 0.9312714776632303,
+        "scienthoon_angry": 0.9175257731958762,
+        "scienthoon_priority": 0.4948453608247423
+      },
+      "angry": {
+        "predicted_angry": 104,
+        "false_positive_on_neutral_text": 9,
+        "false_positive_problem": 9,
+        "false_positive_ko": 9,
+        "errors_on_contradicting_labels": 15,
+        "mean_p_angry_on_neutral_text": 0.13316098536215995
+      },
+      "priority": {
+        "predicted": {
+          "0": 15,
+          "1": 85,
+          "2": 182,
+          "3": 9
+        },
+        "mean_predicted_minus_label": -0.07903780068728522
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -1.4891179839633395,
+          "ci95_pp": [
+            -2.7491408934707917,
+            -0.22909507445589838
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": -1.7182130584192379,
+          "ci95_pp": [
+            -3.0927835051546393,
+            -0.3436426116838476
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": 0.6872852233676952,
+          "ci95_pp": [
+            0.0,
+            1.718213058419249
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": -3.436426116838487,
+          "ci95_pp": [
+            -6.872852233676974,
+            -0.3436426116838476
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": -2.577319587628868,
+          "ci95_pp": [
+            -4.467353951890041,
+            -0.8591065292096189
+          ]
+        }
+      }
+    },
+    "r19-a": {
+      "rows": "runs/r19-27b-lr2e6-scienthoon",
+      "kind": "full",
+      "note": "round 19 (a): full weights on sft-v1, lr 2e-6",
+      "acc": 0.7674684994272624,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.852233676975945,
+        "scienthoon_priority": 0.49828178694158076
+      },
+      "angry": {
+        "predicted_angry": 123,
+        "false_positive_on_neutral_text": 28,
+        "false_positive_problem": 28,
+        "false_positive_ko": 17,
+        "errors_on_contradicting_labels": 13,
+        "false_positive_en": 11,
+        "false_negative_on_angry_text": 2,
+        "mean_p_angry_on_neutral_text": 0.18682288026992266
+      },
+      "priority": {
+        "predicted": {
+          "0": 18,
+          "1": 72,
+          "2": 188,
+          "3": 13
+        },
+        "mean_predicted_minus_label": -0.041237113402061855
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -2.86368843069873,
+          "ci95_pp": [
+            -4.467353951890041,
+            -1.3745704467353903
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -5.841924398625431,
+          "ci95_pp": [
+            -8.93470790378007,
+            -3.0927835051546393
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": -3.0927835051546393,
+          "ci95_pp": [
+            -6.5292096219931315,
+            0.3436426116838476
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": -1.3745704467354014,
+          "ci95_pp": [
+            -3.264604810996563,
+            0.3436426116838476
+          ]
+        }
+      }
+    },
+    "r19-b": {
+      "rows": "runs/r19-27b-lr5e6-scienthoon",
+      "kind": "full",
+      "note": "round 19 (b): full weights on sft-v1, lr 5e-6",
+      "acc": 0.7605956471935853,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.7938144329896907,
+        "scienthoon_priority": 0.5360824742268041
+      },
+      "angry": {
+        "predicted_angry": 140,
+        "false_positive_on_neutral_text": 45,
+        "false_positive_problem": 45,
+        "false_positive_ko": 27,
+        "errors_on_contradicting_labels": 13,
+        "false_positive_en": 18,
+        "false_negative_on_angry_text": 2,
+        "mean_p_angry_on_neutral_text": 0.293133014011423
+      },
+      "priority": {
+        "predicted": {
+          "0": 19,
+          "1": 76,
+          "2": 179,
+          "3": 17
+        },
+        "mean_predicted_minus_label": -0.048109965635738834
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -3.550973654066436,
+          "ci95_pp": [
+            -5.269186712485685,
+            -1.7182130584192379
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -11.683848797250862,
+          "ci95_pp": [
+            -15.807560137457044,
+            -7.56013745704468
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": 0.6872852233676952,
+          "ci95_pp": [
+            -2.7491408934707917,
+            4.123711340206193
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": 0.5154639175257714,
+          "ci95_pp": [
+            -1.2027491408934776,
+            2.4054982817869335
+          ]
+        }
+      }
+    },
+    "r19-c": {
+      "rows": "runs/r19-27b-olddata-scienthoon",
+      "kind": "full",
+      "note": "round 19 (c): full weights on Kev-27B's own data, lr 5e-6, 2 epochs",
+      "acc": 0.7594501718213058,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.7800687285223368,
+        "scienthoon_priority": 0.5463917525773195
+      },
+      "angry": {
+        "predicted_angry": 154,
+        "false_positive_on_neutral_text": 54,
+        "false_positive_problem": 50,
+        "false_positive_en": 31,
+        "false_positive_ko": 23,
+        "errors_on_contradicting_labels": 10,
+        "false_positive_inquiry": 4,
+        "mean_p_angry_on_neutral_text": 0.32708092183244947
+      },
+      "priority": {
+        "predicted": {
+          "0": 15,
+          "1": 80,
+          "2": 160,
+          "3": 36
+        },
+        "mean_predicted_minus_label": 0.030927835051546393
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -3.6655211912943853,
+          "ci95_pp": [
+            -5.95647193585338,
+            -1.4891179839633506
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -13.058419243986252,
+          "ci95_pp": [
+            -17.86941580756013,
+            -8.59106529209621
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": 1.7182130584192379,
+          "ci95_pp": [
+            -2.7491408934707917,
+            5.841924398625431
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": 1.0309278350515427,
+          "ci95_pp": [
+            -1.2027491408934665,
+            3.264604810996563
+          ]
+        }
+      }
+    },
+    "a-w85": {
+      "rows": "runs/r20-27b-a-w85-scienthoon",
+      "kind": "wise",
+      "note": "round 20: 0.85 x round-19 (a) + 0.15 x base",
+      "acc": 0.7640320733104238,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.8419243986254296,
+        "scienthoon_priority": 0.49828178694158076
+      },
+      "angry": {
+        "predicted_angry": 126,
+        "false_positive_on_neutral_text": 31,
+        "false_positive_problem": 31,
+        "false_positive_ko": 20,
+        "errors_on_contradicting_labels": 13,
+        "false_positive_en": 11,
+        "false_negative_on_angry_text": 2,
+        "mean_p_angry_on_neutral_text": 0.19315747041814893
+      },
+      "priority": {
+        "predicted": {
+          "0": 18,
+          "1": 73,
+          "2": 189,
+          "3": 11
+        },
+        "mean_predicted_minus_label": -0.05154639175257732
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -3.2073310423825885,
+          "ci95_pp": [
+            -4.810996563573888,
+            -1.7182130584192379
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -6.872852233676974,
+          "ci95_pp": [
+            -9.965635738831624,
+            -3.7800687285223344
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": -3.0927835051546393,
+          "ci95_pp": [
+            -6.529209621993126,
+            0.0
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": -1.3745704467354014,
+          "ci95_pp": [
+            -3.0927835051546393,
+            0.1718213058419238
+          ]
+        }
+      }
+    },
+    "a-w70": {
+      "rows": "runs/r20-27b-a-w70-scienthoon",
+      "kind": "wise",
+      "note": "round 20: 0.70 x round-19 (a) + 0.30 x base",
+      "acc": 0.7628865979381443,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.8247422680412371,
+        "scienthoon_priority": 0.5120274914089347
+      },
+      "angry": {
+        "predicted_angry": 131,
+        "false_positive_on_neutral_text": 36,
+        "false_positive_problem": 36,
+        "false_positive_en": 15,
+        "false_positive_ko": 21,
+        "errors_on_contradicting_labels": 13,
+        "false_negative_on_angry_text": 2,
+        "mean_p_angry_on_neutral_text": 0.21387349086510424
+      },
+      "priority": {
+        "predicted": {
+          "0": 19,
+          "1": 72,
+          "2": 190,
+          "3": 10
+        },
+        "mean_predicted_minus_label": -0.058419243986254296
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -3.3218785796105377,
+          "ci95_pp": [
+            -5.040091638029775,
+            -1.718213058419249
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -8.591065292096223,
+          "ci95_pp": [
+            -12.02749140893471,
+            -5.154639175257736
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": -1.718213058419249,
+          "ci95_pp": [
+            -4.810996563573888,
+            1.374570446735396
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": -0.6872852233677063,
+          "ci95_pp": [
+            -2.405498281786944,
+            1.0309278350515427
+          ]
+        }
+      }
+    },
+    "a-w50": {
+      "rows": "runs/r20-27b-a-w50-scienthoon",
+      "kind": "wise",
+      "note": "round 20: 0.50 x round-19 (a) + 0.50 x base",
+      "acc": 0.7571592210767468,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.7972508591065293,
+        "scienthoon_priority": 0.5223367697594502
+      },
+      "angry": {
+        "predicted_angry": 143,
+        "false_positive_on_neutral_text": 46,
+        "false_positive_problem": 46,
+        "false_positive_en": 24,
+        "false_positive_ko": 22,
+        "errors_on_contradicting_labels": 13,
+        "mean_p_angry_on_neutral_text": 0.26538186852843215
+      },
+      "priority": {
+        "predicted": {
+          "0": 23,
+          "1": 65,
+          "2": 194,
+          "3": 9
+        },
+        "mean_predicted_minus_label": -0.06529209621993128
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -3.8946162657502836,
+          "ci95_pp": [
+            -5.6156930126002305,
+            -2.290950744558984
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -11.340206185567004,
+          "ci95_pp": [
+            -15.463917525773196,
+            -7.216494845360833
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": -0.6872852233676952,
+          "ci95_pp": [
+            -3.436426116838487,
+            2.0618556701030966
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": -0.1718213058419238,
+          "ci95_pp": [
+            -1.5463917525773252,
+            1.2027491408934776
+          ]
+        }
+      }
+    },
+    "b-w85": {
+      "rows": "runs/r20-27b-b-w85-scienthoon",
+      "kind": "wise",
+      "note": "round 20: 0.85 x round-19 (b) + 0.15 x base",
+      "acc": 0.7583046964490263,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.7938144329896907,
+        "scienthoon_priority": 0.5292096219931272
+      },
+      "angry": {
+        "predicted_angry": 142,
+        "false_positive_on_neutral_text": 46,
+        "false_positive_problem": 46,
+        "false_positive_en": 20,
+        "false_positive_ko": 26,
+        "errors_on_contradicting_labels": 13,
+        "false_negative_on_angry_text": 1,
+        "mean_p_angry_on_neutral_text": 0.2918102141435028
+      },
+      "priority": {
+        "predicted": {
+          "0": 18,
+          "1": 75,
+          "2": 182,
+          "3": 16
+        },
+        "mean_predicted_minus_label": -0.041237113402061855
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -3.7800687285223344,
+          "ci95_pp": [
+            -5.727376861397482,
+            -1.9473081328751363
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -11.683848797250862,
+          "ci95_pp": [
+            -15.807560137457044,
+            -7.56013745704468
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": 0.0,
+          "ci95_pp": [
+            -3.436426116838487,
+            3.4364261168384926
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": 0.1718213058419238,
+          "ci95_pp": [
+            -1.5463917525773252,
+            2.0618556701030966
+          ]
+        }
+      }
+    },
+    "b-w70": {
+      "rows": "runs/r20-27b-b-w70-scienthoon",
+      "kind": "wise",
+      "note": "round 20: 0.70 x round-19 (b) + 0.30 x base",
+      "acc": 0.7663230240549829,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.8178694158075601,
+        "scienthoon_priority": 0.5292096219931272
+      },
+      "angry": {
+        "predicted_angry": 137,
+        "false_positive_on_neutral_text": 40,
+        "false_positive_problem": 40,
+        "false_positive_en": 18,
+        "false_positive_ko": 22,
+        "errors_on_contradicting_labels": 13,
+        "mean_p_angry_on_neutral_text": 0.2803288453199725
+      },
+      "priority": {
+        "predicted": {
+          "0": 17,
+          "1": 74,
+          "2": 187,
+          "3": 13
+        },
+        "mean_predicted_minus_label": -0.041237113402061855
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -2.978235967926679,
+          "ci95_pp": [
+            -4.810996563573877,
+            -1.2600229095074518
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -9.278350515463918,
+          "ci95_pp": [
+            -13.058419243986252,
+            -5.498281786941583
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": 0.0,
+          "ci95_pp": [
+            -3.436426116838487,
+            3.436426116838487
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": 0.1718213058419238,
+          "ci95_pp": [
+            -1.5463917525773252,
+            2.0618556701030966
+          ]
+        }
+      }
+    },
+    "b-w50": {
+      "rows": "runs/r20-27b-b-w50-scienthoon",
+      "kind": "wise",
+      "note": "round 20: 0.50 x round-19 (b) + 0.50 x base",
+      "acc": 0.7777777777777778,
+      "tasks": {
+        "scienthoon_queue": 0.9518900343642611,
+        "scienthoon_angry": 0.845360824742268,
+        "scienthoon_priority": 0.5360824742268041
+      },
+      "angry": {
+        "predicted_angry": 127,
+        "false_positive_on_neutral_text": 31,
+        "false_positive_problem": 31,
+        "false_positive_en": 11,
+        "false_positive_ko": 20,
+        "errors_on_contradicting_labels": 14,
+        "mean_p_angry_on_neutral_text": 0.23985954814881047
+      },
+      "priority": {
+        "predicted": {
+          "0": 18,
+          "1": 75,
+          "2": 188,
+          "3": 10
+        },
+        "mean_predicted_minus_label": -0.061855670103092786
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -1.832760595647187,
+          "ci95_pp": [
+            -3.436426116838487,
+            -0.22909507445589838
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": -6.529209621993126,
+          "ci95_pp": [
+            -9.965635738831613,
+            -3.436426116838487
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": 0.6872852233676952,
+          "ci95_pp": [
+            -2.7491408934707917,
+            4.123711340206182
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": 0.5154639175257714,
+          "ci95_pp": [
+            -1.3745704467353903,
+            2.2336769759450203
+          ]
+        }
+      }
+    },
+    "autojev": {
+      "rows": "runs/autojev-scienthoon",
+      "kind": "external",
+      "note": "AutoJev-27B (full weights, 73k synthetic decisions, same base)",
+      "acc": 0.7686139747995419,
+      "tasks": {
+        "scienthoon_queue": 0.9312714776632303,
+        "scienthoon_angry": 0.9381443298969072,
+        "scienthoon_priority": 0.436426116838488
+      },
+      "angry": {
+        "predicted_angry": 92,
+        "errors_on_contradicting_labels": 15,
+        "false_negative_on_angry_text": 3,
+        "mean_p_angry_on_neutral_text": 0.10322219937820815
+      },
+      "priority": {
+        "predicted": {
+          "0": 16,
+          "1": 135,
+          "2": 132,
+          "3": 8
+        },
+        "mean_predicted_minus_label": -0.2611683848797251
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -2.7491408934707806,
+          "ci95_pp": [
+            -4.9255441008018375,
+            -0.572737686139746
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": -1.7182130584192379,
+          "ci95_pp": [
+            -3.436426116838498,
+            0.0
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": 2.7491408934707917,
+          "ci95_pp": [
+            0.6872852233676952,
+            4.810996563573888
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": -9.278350515463918,
+          "ci95_pp": [
+            -14.7766323024055,
+            -3.78006872852234
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": -5.498281786941583,
+          "ci95_pp": [
+            -8.4192439862543,
+            -2.7491408934707917
+          ]
+        }
+      }
+    },
+    "jev": {
+      "rows": "runs/jev-scienthoon-v1",
+      "kind": "external",
+      "note": "Jev, converted from scienthoon's results/jev_synth.jsonl",
+      "acc": 0.7525773195876289,
+      "tasks": {
+        "scienthoon_queue": 0.8969072164948454,
+        "scienthoon_angry": 0.9140893470790378,
+        "scienthoon_priority": 0.44673539518900346
+      },
+      "angry": {
+        "predicted_angry": 101,
+        "false_positive_on_neutral_text": 8,
+        "false_positive_problem": 8,
+        "false_positive_ko": 8,
+        "errors_on_contradicting_labels": 15,
+        "false_negative_on_angry_text": 2,
+        "mean_p_angry_on_neutral_text": 0.19653846153846152
+      },
+      "priority": {
+        "predicted": {
+          "0": 14,
+          "1": 57,
+          "2": 204,
+          "3": 16
+        },
+        "mean_predicted_minus_label": 0.048109965635738834
+      },
+      "vs_reference": {
+        "all": {
+          "n": 873,
+          "delta_pp": -4.35280641466208,
+          "ci95_pp": [
+            -6.300114547537228,
+            -2.405498281786944
+          ]
+        },
+        "queue": {
+          "n": 291,
+          "delta_pp": -5.154639175257724,
+          "ci95_pp": [
+            -7.903780068728528,
+            -2.405498281786944
+          ]
+        },
+        "angry": {
+          "n": 291,
+          "delta_pp": 0.3436426116838476,
+          "ci95_pp": [
+            0.0,
+            1.0309278350515538
+          ]
+        },
+        "priority": {
+          "n": 291,
+          "delta_pp": -8.24742268041237,
+          "ci95_pp": [
+            -13.402061855670105,
+            -3.0927835051546335
+          ]
+        },
+        "without_angry": {
+          "n": 582,
+          "delta_pp": -6.7010309278350615,
+          "ci95_pp": [
+            -9.621993127147766,
+            -3.7800687285223344
+          ]
+        }
+      }
+    }
+  },
+  "lora_from_base": {
+    "n": 6,
+    "mean": 0.7653684612447499,
+    "sd": 0.021163929784467954,
+    "min": 0.7399770904925544,
+    "max": 0.7961053837342497,
+    "reference_rank": 1,
+    "mean_false_positives": 30.166666666666668
+  },
+  "flips": {
+    "questions": 55,
+    "in_all_three_arms": 17,
+    "neutral_text_gold_false": 53,
+    "problem_tickets": 49,
+    "sample": [
+      {
+        "id": "scienthoon/0000",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "gold",
+        "subject": "Where is my order?",
+        "body": "Order #3527 was placed 21 days ago and tracking has not updated.",
+        "p_angry": {
+          "r19-a": 0.398,
+          "r19-b": 0.484,
+          "r19-c": 0.719,
+          "kev-27b": 0.335
+        },
+        "arms_wrong": 1
+      },
+      {
+        "id": "scienthoon/0007",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "enterprise",
+        "subject": "배송 완료라는데 못 받았습니다",
+        "body": "송장은 배송 완료인데 집에 아무것도 없어요. Let me know what you need from me.",
+        "p_angry": {
+          "r19-a": 0.692,
+          "r19-b": 0.643,
+          "r19-c": 0.783,
+          "kev-27b": 0.402
+        },
+        "arms_wrong": 3
+      },
+      {
+        "id": "scienthoon/0013",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "enterprise",
+        "subject": "환불이 아직 안 들어왔습니다",
+        "body": "7일 전에 반품했는데 환불이 안 됐어요. 확인 부탁드립니다.",
+        "p_angry": {
+          "r19-a": 0.251,
+          "r19-b": 0.471,
+          "r19-c": 0.56,
+          "kev-27b": 0.236
+        },
+        "arms_wrong": 1
+      },
+      {
+        "id": "scienthoon/0016",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "free",
+        "subject": "환불이 아직 안 들어왔습니다",
+        "body": "17일 전에 반품했는데 환불이 안 됐어요.",
+        "p_angry": {
+          "r19-a": 0.676,
+          "r19-b": 0.654,
+          "r19-c": 0.709,
+          "kev-27b": 0.394
+        },
+        "arms_wrong": 3
+      },
+      {
+        "id": "scienthoon/0019",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "enterprise",
+        "subject": "배송 완료라는데 못 받았습니다",
+        "body": "송장은 배송 완료인데 집에 아무것도 없어요. Let me know what you need from me.",
+        "p_angry": {
+          "r19-a": 0.703,
+          "r19-b": 0.637,
+          "r19-c": 0.776,
+          "kev-27b": 0.416
+        },
+        "arms_wrong": 3
+      },
+      {
+        "id": "scienthoon/0020",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "enterprise",
+        "subject": "구독 요금이 두 번 결제됐어요",
+        "body": "이번 달 카드 명세서에 19.99달러가 두 번 찍혀 있습니다. Let me know what you need from me.",
+        "p_angry": {
+          "r19-a": 0.149,
+          "r19-b": 0.537,
+          "r19-c": 0.32,
+          "kev-27b": 0.042
+        },
+        "arms_wrong": 1
+      },
+      {
+        "id": "scienthoon/0027",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "gold",
+        "subject": "Where is my order?",
+        "body": "Order #3716 was placed 21 days ago and tracking has not updated. Thanks in advance.",
+        "p_angry": {
+          "r19-a": 0.164,
+          "r19-b": 0.192,
+          "r19-c": 0.558,
+          "kev-27b": 0.261
+        },
+        "arms_wrong": 1
+      },
+      {
+        "id": "scienthoon/0042",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "gold",
+        "subject": "Damaged on arrival",
+        "body": "The box for order #4633 was crushed and the item inside is broken. Let me know what you need from me.",
+        "p_angry": {
+          "r19-a": 0.211,
+          "r19-b": 0.49,
+          "r19-c": 0.553,
+          "kev-27b": 0.133
+        },
+        "arms_wrong": 1
+      },
+      {
+        "id": "scienthoon/0049",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "gold",
+        "subject": "환불이 아직 안 들어왔습니다",
+        "body": "17일 전에 반품했는데 환불이 안 됐어요. 확인 부탁드립니다.",
+        "p_angry": {
+          "r19-a": 0.383,
+          "r19-b": 0.517,
+          "r19-c": 0.584,
+          "kev-27b": 0.31
+        },
+        "arms_wrong": 2
+      },
+      {
+        "id": "scienthoon/0050",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "free",
+        "subject": "구독 요금이 두 번 결제됐어요",
+        "body": "이번 달 카드 명세서에 49.0달러가 두 번 찍혀 있습니다. Let me know what you need from me.",
+        "p_angry": {
+          "r19-a": 0.193,
+          "r19-b": 0.525,
+          "r19-c": 0.336,
+          "kev-27b": 0.056
+        },
+        "arms_wrong": 1
+      },
+      {
+        "id": "scienthoon/0055",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "standard",
+        "subject": "Refund not received",
+        "body": "I returned the item 14 days ago and the refund for $49.0 is still missing. 확인 부탁드립니다.",
+        "p_angry": {
+          "r19-a": 0.342,
+          "r19-b": 0.41,
+          "r19-c": 0.507,
+          "kev-27b": 0.265
+        },
+        "arms_wrong": 1
+      },
+      {
+        "id": "scienthoon/0060",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "gold",
+        "subject": "Where is my order?",
+        "body": "Order #5299 was placed 18 days ago and tracking has not updated. 확인 부탁드립니다.",
+        "p_angry": {
+          "r19-a": 0.442,
+          "r19-b": 0.533,
+          "r19-c": 0.71,
+          "kev-27b": 0.413
+        },
+        "arms_wrong": 2
+      },
+      {
+        "id": "scienthoon/0076",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "inquiry",
+        "tier": "gold",
+        "subject": "Do you ship to Canada?",
+        "body": "Planning to order as a gift, want to confirm shipping options first. 답변 기다리겠습니다.",
+        "p_angry": {
+          "r19-a": 0.006,
+          "r19-b": 0.009,
+          "r19-c": 0.564,
+          "kev-27b": 0.049
+        },
+        "arms_wrong": 1
+      },
+      {
+        "id": "scienthoon/0080",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "standard",
+        "subject": "Package marked delivered but not here",
+        "body": "Tracking for order #8990 says delivered 11 days ago. Nothing arrived.",
+        "p_angry": {
+          "r19-a": 0.501,
+          "r19-b": 0.844,
+          "r19-c": 0.773,
+          "kev-27b": 0.362
+        },
+        "arms_wrong": 3
+      },
+      {
+        "id": "scienthoon/0081",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "free",
+        "subject": "Damaged on arrival",
+        "body": "The box for order #6944 was crushed and the item inside is broken. Let me know what you need from me.",
+        "p_angry": {
+          "r19-a": 0.179,
+          "r19-b": 0.468,
+          "r19-c": 0.502,
+          "kev-27b": 0.118
+        },
+        "arms_wrong": 1
+      },
+      {
+        "id": "scienthoon/0082",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "gold",
+        "subject": "Where is my order?",
+        "body": "Order #4589 was placed 5 days ago and tracking has not updated.",
+        "p_angry": {
+          "r19-a": 0.378,
+          "r19-b": 0.824,
+          "r19-c": 0.599,
+          "kev-27b": 0.212
+        },
+        "arms_wrong": 2
+      },
+      {
+        "id": "scienthoon/0087",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "free",
+        "subject": "구독 요금이 두 번 결제됐어요",
+        "body": "이번 달 카드 명세서에 300.0달러가 두 번 찍혀 있습니다. 답변 기다리겠습니다.",
+        "p_angry": {
+          "r19-a": 0.143,
+          "r19-b": 0.518,
+          "r19-c": 0.343,
+          "kev-27b": 0.099
+        },
+        "arms_wrong": 1
+      },
+      {
+        "id": "scienthoon/0091",
+        "angry_label": true,
+        "text": "angry",
+        "kind": "inquiry",
+        "tier": "enterprise",
+        "subject": "Do you ship to Canada?",
+        "body": "Planning to order as a gift, want to confirm shipping options first. I have contacted you three times already. Ridiculous.",
+        "p_angry": {
+          "r19-a": 0.976,
+          "r19-b": 0.428,
+          "r19-c": 0.915,
+          "kev-27b": 0.892
+        },
+        "arms_wrong": 1
+      },
+      {
+        "id": "scienthoon/0094",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "gold",
+        "subject": "Damaged on arrival",
+        "body": "The box for order #8223 was crushed and the item inside is broken.",
+        "p_angry": {
+          "r19-a": 0.562,
+          "r19-b": 0.785,
+          "r19-c": 0.772,
+          "kev-27b": 0.239
+        },
+        "arms_wrong": 3
+      },
+      {
+        "id": "scienthoon/0102",
+        "angry_label": false,
+        "text": "neutral",
+        "kind": "problem",
+        "tier": "enterprise",
+        "subject": "Charged twice for order #7977",
+        "body": "My card shows two charges of $300.0 for one order. 확인 부탁드립니다.",
+        "p_angry": {
+          "r19-a": 0.205,
+          "r19-b": 0.579,
+          "r19-c": 0.429,
+          "kev-27b": 0.116
+        },
+        "arms_wrong": 1
+      }
+    ]
+  },
+  "pooled_externals": {
+    "r19-a": {
+      "all": {
+        "n": 2108,
+        "delta_pp": -1.185958254269448,
+        "ci95_pp": [
+          -2.3934115438761148,
+          0.0
+        ]
+      },
+      "without_scienthoon_angry": {
+        "n": 1817,
+        "delta_pp": -0.44028618602091063,
+        "ci95_pp": [
+          -1.773959171700461,
+          0.8305762877205253
+        ]
+      },
+      "net_questions": {
+        "semif": -1,
+        "scienthoon": -25,
+        "wanli2": 0,
+        "typesafe": 1
+      },
+      "scienthoon_angry_net": -17
+    },
+    "r19-b": {
+      "all": {
+        "n": 2108,
+        "delta_pp": -1.6129032258064502,
+        "ci95_pp": [
+          -2.937101178699803,
+          -0.33103673218939944
+        ]
+      },
+      "without_scienthoon_angry": {
+        "n": 1817,
+        "delta_pp": 0.0,
+        "ci95_pp": [
+          -1.3282234522803062,
+          1.3215859030836996
+        ]
+      },
+      "net_questions": {
+        "semif": -2,
+        "scienthoon": -31,
+        "wanli2": -1,
+        "typesafe": 0
+      },
+      "scienthoon_angry_net": -34
+    },
+    "r19-c": {
+      "all": {
+        "n": 2108,
+        "delta_pp": -1.2333965844402273,
+        "ci95_pp": [
+          -2.609139117012149,
+          0.09514747859181716
+        ]
+      },
+      "without_scienthoon_angry": {
+        "n": 1817,
+        "delta_pp": 0.6604292790313715,
+        "ci95_pp": [
+          -0.711578245181923,
+          2.0329949736904145
+        ]
+      },
+      "net_questions": {
+        "semif": 0,
+        "scienthoon": -32,
+        "wanli2": 8,
+        "typesafe": -2
+      },
+      "scienthoon_angry_net": -38
+    },
+    "b-w50": {
+      "all": {
+        "n": 2108,
+        "delta_pp": -0.4743833017077814,
+        "ci95_pp": [
+          -1.67673192078008,
+          0.7172387442147508
+        ]
+      },
+      "without_scienthoon_angry": {
+        "n": 1817,
+        "delta_pp": 0.4953219592735314,
+        "ci95_pp": [
+          -0.8237232289950547,
+          1.810227800280964
+        ]
+      },
+      "net_questions": {
+        "semif": -6,
+        "scienthoon": -16,
+        "wanli2": 11,
+        "typesafe": 1
+      },
+      "scienthoon_angry_net": -19
+    }
+  },
+  "short": {
+    "r19-a": {
+      "all": {
+        "n": 1806,
+        "delta_pp": -0.9966777408637828,
+        "ci95_pp": [
+          -2.1594684385382035,
+          0.16611295681062704
+        ]
+      },
+      "largest_losses": {
+        "qnli": {
+          "net": -6,
+          "n": 220
+        },
+        "composition_held_or_not": {
+          "net": -6,
+          "n": 72
+        },
+        "emotion": {
+          "net": -3,
+          "n": 220
+        },
+        "tweet_offensive": {
+          "net": -3,
+          "n": 220
+        },
+        "mmlu": {
+          "net": -2,
+          "n": 220
+        },
+        "paws": {
+          "net": -1,
+          "n": 220
+        }
+      },
+      "net": -18
+    },
+    "r19-b": {
+      "all": {
+        "n": 1806,
+        "delta_pp": -0.11074197120708451,
+        "ci95_pp": [
+          -1.3289036544850479,
+          1.1627906976744207
+        ]
+      },
+      "largest_losses": {
+        "qnli": {
+          "net": -8,
+          "n": 220
+        },
+        "paws": {
+          "net": -4,
+          "n": 220
+        },
+        "mmlu": {
+          "net": -3,
+          "n": 220
+        },
+        "tweet_offensive": {
+          "net": -1,
+          "n": 220
+        },
+        "composition_held_or_not": {
+          "net": -1,
+          "n": 72
+        },
+        "unknowable_control_return_window": {
+          "net": -1,
+          "n": 10
+        }
+      },
+      "net": -2
+    },
+    "r19-c": {
+      "all": {
+        "n": 1806,
+        "delta_pp": -3.0454042081949018,
+        "ci95_pp": [
+          -4.263565891472865,
+          -1.8826135105204922
+        ]
+      },
+      "largest_losses": {
+        "paws": {
+          "net": -11,
+          "n": 220
+        },
+        "emotion": {
+          "net": -9,
+          "n": 220
+        },
+        "composition_held_and_or": {
+          "net": -9,
+          "n": 72
+        },
+        "qnli": {
+          "net": -5,
+          "n": 220
+        },
+        "composition_held_or_not": {
+          "net": -5,
+          "n": 72
+        },
+        "mmlu": {
+          "net": -4,
+          "n": 220
+        }
+      },
+      "net": -55
+    },
+    "b-w50": {
+      "all": {
+        "n": 1806,
+        "delta_pp": -0.16611295681062677,
+        "ci95_pp": [
+          -1.218161683277963,
+          0.9413067552602405
+        ]
+      },
+      "largest_losses": {
+        "tweet_offensive": {
+          "net": -4,
+          "n": 220
+        },
+        "paws": {
+          "net": -3,
+          "n": 220
+        },
+        "qnli": {
+          "net": -2,
+          "n": 220
+        },
+        "composition_held_conditional": {
+          "net": -2,
+          "n": 72
+        },
+        "composition_held_or_not": {
+          "net": -1,
+          "n": 72
+        },
+        "unknowable_control_warranty_claim": {
+          "net": -1,
+          "n": 10
+        }
+      },
+      "net": -3
+    }
+  },
+  "lora_siblings_under_the_guards": {
+    "b1v2-s1": {
+      "scienthoon": {
+        "n": 873,
+        "delta_pp": -2.7491408934707806,
+        "ci95_pp": [
+          -4.238258877434131,
+          -1.3745704467353903
+        ]
+      },
+      "scienthoon_guard_passes": false,
+      "pooled_externals": {
+        "n": 2108,
+        "delta_pp": -1.5180265654648917,
+        "ci95_pp": [
+          -2.56413301662708,
+          -0.5240093311774369
+        ]
+      },
+      "pooled_guard_passes": false
+    },
+    "b1-A": {
+      "scienthoon": {
+        "n": 873,
+        "delta_pp": -2.290950744558984,
+        "ci95_pp": [
+          -3.8946162657502947,
+          -0.8018327605956443
+        ]
+      },
+      "scienthoon_guard_passes": false,
+      "pooled_externals": {
+        "n": 2108,
+        "delta_pp": -0.8538899430740043,
+        "ci95_pp": [
+          -1.8586579206850296,
+          0.14054509109372681
+        ]
+      },
+      "pooled_guard_passes": false
+    },
+    "b1-B": {
+      "scienthoon": {
+        "n": 873,
+        "delta_pp": -5.383734249713623,
+        "ci95_pp": [
+          -7.674684994272618,
+          -3.436426116838487
+        ]
+      },
+      "scienthoon_guard_passes": false,
+      "pooled_externals": {
+        "n": 2108,
+        "delta_pp": -2.371916508538896,
+        "ci95_pp": [
+          -3.652794763817002,
+          -1.1438786208997287
+        ]
+      },
+      "pooled_guard_passes": false
+    },
+    "2ep-s1": {
+      "scienthoon": {
+        "n": 873,
+        "delta_pp": -2.405498281786933,
+        "ci95_pp": [
+          -4.009163802978232,
+          -0.8018327605956443
+        ]
+      },
+      "scienthoon_guard_passes": false,
+      "pooled_externals": {
+        "n": 2108,
+        "delta_pp": -0.996204933586331,
+        "ci95_pp": [
+          -2.0019782449929533,
+          0.09416417727652808
+        ]
+      },
+      "pooled_guard_passes": false
+    },
+    "2ep-s2": {
+      "scienthoon": {
+        "n": 873,
+        "delta_pp": -5.612829324169521,
+        "ci95_pp": [
+          -7.674684994272618,
+          -3.550973654066436
+        ]
+      },
+      "scienthoon_guard_passes": false,
+      "pooled_externals": {
+        "n": 2108,
+        "delta_pp": -2.6565464895635604,
+        "ci95_pp": [
+          -3.831689574911835,
+          -1.5208224033519235
+        ]
+      },
+      "pooled_guard_passes": false
+    }
+  }
+}
