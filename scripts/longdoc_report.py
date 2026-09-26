@@ -12,7 +12,9 @@ Records a system did not answer (rejected.json: Jev refusals) are listed per buc
 kind, the difference in accuracy from the 4k control with a 95 % record-clustered bootstrap interval (2,000 resamples, seed 0;
 the buckets hold different records, resampled independently), and `falls` when that interval lies below zero. For CUAD,
 whose 8k-64k buckets ask the same questions about the same target contracts, the paired difference from 8k as well. For
-the synthetic detail questions, accuracy by depth (10 / 50 / 90 %). Writes report.json and report.md.
+the synthetic detail questions, accuracy by depth (10 / 50 / 90 %). For CUAD also `cuad.no_sft_ledgar`: the questions whose
+target contract contains no LEDGAR provision of the SFT corpus (overlap.json, cuad_targets.sft_v1_ledgar), the sensitivity
+read for that contamination. Writes report.json and report.md.
 """
 import argparse, json, sys
 from collections import defaultdict
@@ -90,6 +92,8 @@ def main():
     a = ap.parse_args()
     from kev.suite import load_split
     meta = {r["_meta"]["id"]: r["_meta"] for r in load_split(a.suite, "development")}
+    overlap = Path(a.suite) / "overlap.json"
+    seen_ledgar = set(read_json(overlap)["cuad_targets"]["sft_v1_ledgar"]["titles_with_contained_item"]) if overlap.exists() else set()
     out = {"suite": a.suite, "split": "development", "systems": {}}
     for spec in a.result:
         name, path, t = parse(spec)
@@ -110,6 +114,7 @@ def main():
                 entry[part] = summary(prs)
                 for kind in sorted({r["task"].split(".")[1] for r in prs}):
                     entry[f"{part}.{kind}"] = summary([r for r in prs if r["task"].split(".")[1] == kind])
+            entry["cuad.no_sft_ledgar"] = summary([r for r in rs if r["task"].startswith("cuad") and meta[r["id"]]["target"] not in seen_ledgar])
             if b != "4k":
                 entry["vs_4k"] = {"all": diff_ci(by.get("4k", []), rs),
                                   **{part: diff_ci([r for r in by.get("4k", []) if r["task"].startswith(part)], [r for r in rs if r["task"].startswith(part)]) for part in ("cuad", "synthetic")}}

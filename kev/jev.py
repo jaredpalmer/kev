@@ -33,10 +33,11 @@ def main():
     ap.add_argument("--count-refusals", action="store_true",
                     help="count requests Jev refuses (HTTP 400/413/422, e.g. past its context) as rejected records (rejected.json, "
                          "report coverage) and continue; other errors still stop the read")
+    ap.add_argument("--attempts", type=int, default=4, help="tries per request on gateway 5xx errors (backoff 1, 2, 4, ... s, at most 30 s)")
     a = ap.parse_args()
     # a provisioned key carries a $1 limit of its own; a caller's key may run a larger panel (breadth-v1 dev: ~2,000 records)
-    if not 0 < a.budget <= 5 or not 1 <= a.max_calls <= 5000:
-        ap.error("budget must be in (0, 5] and max-calls in [1, 5000]")
+    if not 0 < a.budget <= 5 or not 1 <= a.max_calls <= 5000 or not 1 <= a.attempts <= 12:
+        ap.error("budget must be in (0, 5], max-calls in [1, 5000] and attempts in [1, 12]")
     if Path(a.out).exists():
         ap.error("output directory already exists")
     records = load_split(a.suite, "development")
@@ -45,7 +46,7 @@ def main():
         key = provision_key(a.provision_scope)
     if not key:
         ap.error("Set AI_GATEWAY_API_KEY or explicitly select --provision-scope")
-    predictor = JevPredictor(key, a.budget, a.max_calls, count_refusals=a.count_refusals)
+    predictor = JevPredictor(key, a.budget, a.max_calls, count_refusals=a.count_refusals, attempts=a.attempts)
     try:
         heldout = read_manifest(a.suite)["holdout_sources"]
         report, _ = evaluate_records(records, predictor, a.out, heldout_sources=tuple(heldout), skip_overlong=a.count_refusals)

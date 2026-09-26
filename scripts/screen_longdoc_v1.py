@@ -7,6 +7,10 @@ References, each item = its state plus its question instructions:
   kev_eval      every Kev development and test partition under evals/ (private mirrors fetched with the caller's access)
   ledgar        LEDGAR provisions (coastalcph/lex_glue at the SFT corpus's pinned revision): the SFT corpus trains on LEDGAR,
                 and LEDGAR and CUAD are both clauses from contracts filed with the SEC
+  sft_v1_ledgar the LEDGAR records the SFT corpus actually holds (evals/sft-v1 train + calibration + development, source
+                ledgar; private mirror)
+For the CUAD part, also per target contract (its text cut from the state at its header): how many targets contain an item
+of ledgar / sft_v1_ledgar at >= CONTAINMENT, and their titles (public CUAD file names), so a read can be split by it.
 Per longdoc record (state + instructions) and reference item, on word 8-grams (casefold, \\w+, as scripts/screen_overlap.py):
 the item's containment in the record (shared grams / the item's grams; items with fewer than MIN_GRAMS ignored, grams shared
 by more than COMMON reference items of a collection ignored as boilerplate) and exact normalised state equality. A record
@@ -103,6 +107,29 @@ def ledgar():
     return c
 
 
+def sft_ledgar():
+    c = Collection("sft_v1_ledgar")
+    suite = ROOT / "evals/sft-v1"
+    for split in ("train", "calibration", "development"):
+        rows = [r for r in load_split(suite, split) if r["_meta"]["source"] == "ledgar"]
+        c.files[f"evals/sft-v1/{split}.jsonl"] = {"ledgar_records": len(rows), "sha256": read_manifest(suite)["files"][f"{split}.jsonl"]["sha256"]}
+        for r in rows: c.add(*item_text(r))
+    return c
+
+
+HEADER = re.compile(r"^===== Contract (\d+) of \d+: (.*?)( \(excerpt;.*\))? =====$", re.M)
+
+
+def target_text(record):
+    """The target contract's text, cut from a CUAD record's state between its header and its end marker."""
+    state, title = record["state"], record["_meta"]["target"]
+    for m in HEADER.finditer(state):
+        if m.group(2) == title and not m.group(3):
+            end = state.index(f"\n===== End of contract {m.group(1)} =====", m.end())
+            return state[m.end() + 1:end]
+    raise ValueError(f"{record['_meta']['id']}: target block not found")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--suite", required=True)
@@ -110,12 +137,13 @@ def main():
     a = ap.parse_args()
     suite = Path(a.suite)
     kev, cnli = kev_eval(suite)
-    collections = [jevbench(a.jevbench), kev, cnli, ledgar()]
+    collections = [jevbench(a.jevbench), kev, cnli, ledgar(), sft_ledgar()]
     for c in collections: c.index(); print(f"{c.name}: {len(c.sets)} items", flush=True)
     out = {"suite": str(suite), "n": N, "normalisation": "casefold, \\w+ tokens", "min_grams": MIN_GRAMS, "common_grams_over_items": COMMON,
            "containment_threshold": CONTAINMENT, "references": {c.name: {"items": len(c.sets), "files": c.files} for c in collections},
            "partitions": {}, "note": "counts only; no reference text is stored. A record overlaps a collection when one of its items has >= "
                                      f"{CONTAINMENT} of its word 8-grams inside the record (after dropping grams shared by > {COMMON} of that collection's items)."}
+    targets = {}
     for split in ("development", "test"):
         stats = defaultdict(lambda: defaultdict(lambda: {"records": 0, "exact_state": 0, "overlapping": 0, "max_containment": 0.0}))
         for r in read_jsonl(suite / f"{split}.jsonl"):
@@ -127,9 +155,17 @@ def main():
                 best = c.screen(mine)
                 s["records"] += 1; s["exact_state"] += key in c.states; s["overlapping"] += best >= CONTAINMENT
                 s["max_containment"] = round(max(s["max_containment"], best), 4)
+            if m["part"] == "cuad" and m["target"] not in targets:
+                t = grams(words(target_text(r)))
+                targets[m["target"]] = {"split": split, **{c.name: c.screen(t) for c in collections if c.name in ("ledgar", "sft_v1_ledgar")}}
             print(split, m["id"], flush=True) if m["id"].endswith("0000") else None
         out["partitions"][split] = {c: dict(v) for c, v in stats.items()}
+    out["cuad_targets"] = {name: {split: {"targets": sum(t["split"] == split for t in targets.values()),
+                                          "with_contained_item": sum(t["split"] == split and t[name] >= CONTAINMENT for t in targets.values())}
+                                  for split in ("development", "test")} | {"titles_with_contained_item": sorted(k for k, t in targets.items() if t[name] >= CONTAINMENT)}
+                           for name in ("ledgar", "sft_v1_ledgar")}
     write_json(suite / "overlap.json", out)
+    print({k: {s: v[s] for s in ("development", "test")} for k, v in out["cuad_targets"].items()})
     for split, cs in out["partitions"].items():
         for c, groups in cs.items():
             print(split, c, {g: (v["overlapping"], v["records"], v["max_containment"]) for g, v in groups.items()})

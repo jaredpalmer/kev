@@ -1415,3 +1415,23 @@ def test_jev_refusals_are_counted_only_when_asked(monkeypatch):
         with pytest.raises(raised): j(record)
         assert issubclass(P.JevRefused, ContextOverflow)
         assert j.accounting().get("refusals") == ({str(status): 1} if raised is P.JevRefused else ({} if count else None))
+
+
+def test_jev_attempts_bound_the_retries_on_gateway_errors(monkeypatch):
+    """JevPredictor tries a request `attempts` times on hosted-side failures (5xx) before stopping the read; the default,
+    4, is the old fixed count."""
+    import json, kev.predictors as P
+    monkeypatch.setattr(P.time, "sleep", lambda s: None)
+
+    class Worker:
+        def __init__(self): self.stdin = self; self.stdout = self; self.lines = 0
+        def write(self, _): pass
+        def flush(self): pass
+        def readline(self): self.lines += 1; return json.dumps({"error": {"name": "GatewayInternalServerError", "status": 503}}) + "\n"
+
+    record = {"state": "x", "questions": {"q": {"type": "noul", "instructions": "?", "label": True, "src": "t"}}}
+    for attempts, calls in ((None, 4), (7, 7)):
+        w = Worker(); monkeypatch.setattr(P.subprocess, "Popen", lambda *a, **kw: w)
+        j = P.JevPredictor("key") if attempts is None else P.JevPredictor("key", attempts=attempts)
+        with pytest.raises(RuntimeError): j(record)
+        assert w.lines == calls and j.retries == calls - 1

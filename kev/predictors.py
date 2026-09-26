@@ -172,9 +172,10 @@ REFUSAL_STATUSES = (400, 413, 422)
 class JevPredictor:
     """Jev through the AI SDK worker (playground/scripts/jev-evaluate.mjs); every call is counted against a token budget.
     count_refusals: a request answered with a REFUSAL_STATUSES error raises JevRefused (counted, not fatal); any other client
-    error (401, 403, 429, ...) still stops the read."""
-    def __init__(self, key, budget=0.1, max_calls=700, count_refusals=False):
-        self.budget, self.max_calls, self.count_refusals = budget, max_calls, count_refusals
+    error (401, 403, 429, ...) still stops the read. attempts: tries per request on hosted-side failures (5xx, no status),
+    backing off 1, 2, 4, ... seconds up to 30 between them."""
+    def __init__(self, key, budget=0.1, max_calls=700, count_refusals=False, attempts=4):
+        self.budget, self.max_calls, self.count_refusals, self.attempts = budget, max_calls, count_refusals, attempts
         self.calls, self.input_tokens, self.output_tokens, self.retries = 0, 0, 0, 0
         self.refusals = {}   # HTTP status -> count
         self.started_at = datetime.now(timezone.utc).isoformat()
@@ -195,7 +196,7 @@ class JevPredictor:
         if self.calls >= self.max_calls or (self.input_tokens + 65536) * PRICE_PER_MILLION / 1e6 > self.budget:
             raise RuntimeError("Jev evaluation reached the request/token cost cap")
         request = api_request(record)
-        for attempt in range(4):
+        for attempt in range(self.attempts):
             self.process.stdin.write(json.dumps(request) + "\n")
             self.process.stdin.flush()
             line = self.process.stdout.readline()
@@ -210,10 +211,10 @@ class JevPredictor:
             if self.count_refusals and status in REFUSAL_STATUSES:
                 self.refusals[status] = self.refusals.get(status, 0) + 1
                 raise JevRefused(f"Jev refused the request: {result['error']['name']} (HTTP {status})")
-            if attempt == 3 or (status is not None and status < 500):
+            if attempt == self.attempts - 1 or (status is not None and status < 500):
                 raise RuntimeError(f"Jev request failed: {result['error']['name']} (HTTP {status})")
             self.retries += 1
-            time.sleep(2 ** attempt)
+            time.sleep(min(2 ** attempt, 30))
         usage = result["usage"]
         if usage.get("inputTokens") is None:
             raise RuntimeError("Jev returned no input token usage; cannot account for cost")
