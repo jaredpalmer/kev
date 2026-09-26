@@ -32,7 +32,7 @@ SAMPLES, SEED = 2000, 0
 
 
 def parse(spec):
-    name, _, path = spec.partition("=")
+    name, _, path = spec.rpartition("=")   # the name may itself contain "=" ("T=1.38"); the path never does
     path, _, t = path.partition("@")
     return name, Path(path), float(t) if t else None
 

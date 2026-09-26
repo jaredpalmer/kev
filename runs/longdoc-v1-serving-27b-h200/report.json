@@ -1,0 +1,374 @@
+{
+  "run": "jaredpalmer/kev-27b",
+  "suite": "evals/longdoc-v1",
+  "split": "development",
+  "parity_exact_vs_long_path": {
+    "temperature": 1.381912879967776,
+    "dtype": "bfloat16",
+    "buckets": {
+      "4k": {
+        "questions": 63,
+        "max_dp": 0.006969943642616272,
+        "mean_dp": 0.0007766462529414437,
+        "argmax_flips": 0
+      },
+      "8k": {
+        "questions": 64,
+        "max_dp": 0.009025871753692627,
+        "mean_dp": 0.0008361705176866963,
+        "argmax_flips": 0
+      }
+    }
+  },
+  "serving": {
+    "load_seconds": 27.0,
+    "dtype": "bfloat16",
+    "temperature": 1.381912879967776,
+    "resident_gb": 65.97,
+    "buckets": {
+      "4k": {
+        "requests": 6,
+        "state_tokens_median": 3580.5,
+        "latency_ms_median": 384.6,
+        "latency_ms_max": 441.7,
+        "ms_per_1k_state_tokens": 106.86,
+        "peak_gb_max": 66.69,
+        "peak_over_resident_gb_max": 1.11,
+        "cached_state_latency_ms": 58.7,
+        "cached_state_hit": true,
+        "requests_detail": [
+          {
+            "id": "longdoc-v1/cuad/development/4k/0000",
+            "state_tokens": 3607,
+            "questions": 4,
+            "latency_ms": 378.4,
+            "wall_ms": 391.3,
+            "peak_gb": 66.67,
+            "peak_over_resident_gb": 1.08
+          },
+          {
+            "id": "longdoc-v1/cuad/development/4k/0001",
+            "state_tokens": 3515,
+            "questions": 4,
+            "latency_ms": 441.7,
+            "wall_ms": 454.1,
+            "peak_gb": 66.64,
+            "peak_over_resident_gb": 1.06
+          },
+          {
+            "id": "longdoc-v1/cuad/development/4k/0002",
+            "state_tokens": 3718,
+            "questions": 4,
+            "latency_ms": 410.8,
+            "wall_ms": 423.7,
+            "peak_gb": 66.69,
+            "peak_over_resident_gb": 1.11
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/4k/0000",
+            "state_tokens": 3502,
+            "questions": 4,
+            "latency_ms": 369.1,
+            "wall_ms": 379.3,
+            "peak_gb": 66.64,
+            "peak_over_resident_gb": 1.06
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/4k/0001",
+            "state_tokens": 3645,
+            "questions": 4,
+            "latency_ms": 387.1,
+            "wall_ms": 397.6,
+            "peak_gb": 66.67,
+            "peak_over_resident_gb": 1.09
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/4k/0002",
+            "state_tokens": 3554,
+            "questions": 4,
+            "latency_ms": 382.1,
+            "wall_ms": 392.6,
+            "peak_gb": 66.65,
+            "peak_over_resident_gb": 1.07
+          }
+        ]
+      },
+      "8k": {
+        "requests": 6,
+        "state_tokens_median": 7382.0,
+        "latency_ms_median": 930.15,
+        "latency_ms_max": 1325.2,
+        "ms_per_1k_state_tokens": 126.47,
+        "peak_gb_max": 67.97,
+        "peak_over_resident_gb_max": 2.39,
+        "cached_state_latency_ms": 261.2,
+        "cached_state_hit": true,
+        "requests_detail": [
+          {
+            "id": "longdoc-v1/cuad/development/8k/0000",
+            "state_tokens": 7510,
+            "questions": 4,
+            "latency_ms": 1325.2,
+            "wall_ms": 1347.2,
+            "peak_gb": 67.96,
+            "peak_over_resident_gb": 2.38
+          },
+          {
+            "id": "longdoc-v1/cuad/development/8k/0001",
+            "state_tokens": 7028,
+            "questions": 4,
+            "latency_ms": 896.3,
+            "wall_ms": 917.1,
+            "peak_gb": 67.82,
+            "peak_over_resident_gb": 2.24
+          },
+          {
+            "id": "longdoc-v1/cuad/development/8k/0002",
+            "state_tokens": 7587,
+            "questions": 4,
+            "latency_ms": 949.8,
+            "wall_ms": 973.3,
+            "peak_gb": 67.97,
+            "peak_over_resident_gb": 2.39
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/8k/0000",
+            "state_tokens": 7348,
+            "questions": 4,
+            "latency_ms": 913.3,
+            "wall_ms": 933.3,
+            "peak_gb": 67.91,
+            "peak_over_resident_gb": 2.33
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/8k/0001",
+            "state_tokens": 7176,
+            "questions": 4,
+            "latency_ms": 899.9,
+            "wall_ms": 918.9,
+            "peak_gb": 67.87,
+            "peak_over_resident_gb": 2.28
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/8k/0002",
+            "state_tokens": 7416,
+            "questions": 4,
+            "latency_ms": 947.0,
+            "wall_ms": 967.3,
+            "peak_gb": 67.93,
+            "peak_over_resident_gb": 2.34
+          }
+        ]
+      },
+      "16k": {
+        "requests": 6,
+        "state_tokens_median": 14403.0,
+        "latency_ms_median": 1968.1,
+        "latency_ms_max": 2594.3,
+        "ms_per_1k_state_tokens": 131.54,
+        "peak_gb_max": 69.59,
+        "peak_over_resident_gb_max": 4.0,
+        "cached_state_latency_ms": 508.1,
+        "cached_state_hit": true,
+        "requests_detail": [
+          {
+            "id": "longdoc-v1/cuad/development/16k/0000",
+            "state_tokens": 14408,
+            "questions": 4,
+            "latency_ms": 2594.3,
+            "wall_ms": 2632.5,
+            "peak_gb": 69.42,
+            "peak_over_resident_gb": 3.84
+          },
+          {
+            "id": "longdoc-v1/cuad/development/16k/0001",
+            "state_tokens": 13983,
+            "questions": 4,
+            "latency_ms": 1835.5,
+            "wall_ms": 2179.6,
+            "peak_gb": 69.31,
+            "peak_over_resident_gb": 3.73
+          },
+          {
+            "id": "longdoc-v1/cuad/development/16k/0002",
+            "state_tokens": 14119,
+            "questions": 4,
+            "latency_ms": 2124.5,
+            "wall_ms": 2161.4,
+            "peak_gb": 69.35,
+            "peak_over_resident_gb": 3.77
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/16k/0000",
+            "state_tokens": 14398,
+            "questions": 4,
+            "latency_ms": 1888.0,
+            "wall_ms": 1922.2,
+            "peak_gb": 69.41,
+            "peak_over_resident_gb": 3.83
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/16k/0001",
+            "state_tokens": 14982,
+            "questions": 4,
+            "latency_ms": 1969.7,
+            "wall_ms": 2005.3,
+            "peak_gb": 69.59,
+            "peak_over_resident_gb": 4.0
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/16k/0002",
+            "state_tokens": 14942,
+            "questions": 4,
+            "latency_ms": 1966.5,
+            "wall_ms": 2000.9,
+            "peak_gb": 69.58,
+            "peak_over_resident_gb": 4.0
+          }
+        ]
+      },
+      "32k": {
+        "requests": 6,
+        "state_tokens_median": 28318.0,
+        "latency_ms_median": 3588.5,
+        "latency_ms_max": 3724.1,
+        "ms_per_1k_state_tokens": 124.08,
+        "peak_gb_max": 73.49,
+        "peak_over_resident_gb_max": 7.91,
+        "cached_state_latency_ms": 528.6,
+        "cached_state_hit": true,
+        "requests_detail": [
+          {
+            "id": "longdoc-v1/cuad/development/32k/0000",
+            "state_tokens": 30376,
+            "questions": 4,
+            "latency_ms": 3724.1,
+            "wall_ms": 3799.6,
+            "peak_gb": 73.49,
+            "peak_over_resident_gb": 7.91
+          },
+          {
+            "id": "longdoc-v1/cuad/development/32k/0001",
+            "state_tokens": 28424,
+            "questions": 4,
+            "latency_ms": 3510.8,
+            "wall_ms": 3580.3,
+            "peak_gb": 73.01,
+            "peak_over_resident_gb": 7.42
+          },
+          {
+            "id": "longdoc-v1/cuad/development/32k/0002",
+            "state_tokens": 28212,
+            "questions": 4,
+            "latency_ms": 3486.6,
+            "wall_ms": 3558.4,
+            "peak_gb": 72.95,
+            "peak_over_resident_gb": 7.37
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/32k/0000",
+            "state_tokens": 28480,
+            "questions": 4,
+            "latency_ms": 3665.8,
+            "wall_ms": 3731.3,
+            "peak_gb": 73.01,
+            "peak_over_resident_gb": 7.43
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/32k/0001",
+            "state_tokens": 28192,
+            "questions": 4,
+            "latency_ms": 3704.5,
+            "wall_ms": 3780.2,
+            "peak_gb": 72.94,
+            "peak_over_resident_gb": 7.36
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/32k/0002",
+            "state_tokens": 28187,
+            "questions": 4,
+            "latency_ms": 3511.2,
+            "wall_ms": 3583.5,
+            "peak_gb": 72.94,
+            "peak_over_resident_gb": 7.36
+          }
+        ]
+      },
+      "64k": {
+        "requests": 6,
+        "state_tokens_median": 59642.0,
+        "latency_ms_median": 8256.75,
+        "latency_ms_max": 8443.0,
+        "ms_per_1k_state_tokens": 138.11,
+        "peak_gb_max": 81.24,
+        "peak_over_resident_gb_max": 15.66,
+        "cached_state_latency_ms": 548.1,
+        "cached_state_hit": true,
+        "requests_detail": [
+          {
+            "id": "longdoc-v1/cuad/development/64k/0000",
+            "state_tokens": 60072,
+            "questions": 4,
+            "latency_ms": 8296.5,
+            "wall_ms": 8466.0,
+            "peak_gb": 81.07,
+            "peak_over_resident_gb": 15.48
+          },
+          {
+            "id": "longdoc-v1/cuad/development/64k/0001",
+            "state_tokens": 60718,
+            "questions": 4,
+            "latency_ms": 8443.0,
+            "wall_ms": 8586.9,
+            "peak_gb": 81.24,
+            "peak_over_resident_gb": 15.66
+          },
+          {
+            "id": "longdoc-v1/cuad/development/64k/0002",
+            "state_tokens": 57902,
+            "questions": 4,
+            "latency_ms": 7896.2,
+            "wall_ms": 8031.3,
+            "peak_gb": 80.51,
+            "peak_over_resident_gb": 14.93
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/64k/0000",
+            "state_tokens": 59765,
+            "questions": 4,
+            "latency_ms": 8253.9,
+            "wall_ms": 8377.2,
+            "peak_gb": 80.99,
+            "peak_over_resident_gb": 15.41
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/64k/0001",
+            "state_tokens": 59338,
+            "questions": 4,
+            "latency_ms": 8193.0,
+            "wall_ms": 8315.0,
+            "peak_gb": 80.88,
+            "peak_over_resident_gb": 15.3
+          },
+          {
+            "id": "longdoc-v1/synthetic/development/64k/0002",
+            "state_tokens": 59519,
+            "questions": 4,
+            "latency_ms": 8259.6,
+            "wall_ms": 8381.3,
+            "peak_gb": 80.93,
+            "peak_over_resident_gb": 15.35
+          }
+        ]
+      }
+    },
+    "cuda_graphs": {
+      "captured": 2,
+      "kept": 2,
+      "pending": 0,
+      "failed": 0
+    },
+    "gpu": "NVIDIA H200",
+    "total_memory_gb": 150.1
+  }
+}
