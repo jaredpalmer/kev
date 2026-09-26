@@ -146,6 +146,12 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   SGD share-alike, Humicroedit / cfcolor unlicensed text must not be public). `scripts/build_breadth_v1.py` rebuilds the partitions byte for byte;
   `scripts/breadth_report.py --suite evals/breadth-v1 --result NAME=DIR ...` scores rows per area with the Index's chance correction; baselines in `runs/breadth-v1-*`.
   These datasets must never enter a training corpus.
+  `evals/longdoc-v1` is a report-only long-document probe (eval-only, private mirror, development + locked test): state-length buckets 4k / 8k / 16k / 32k / 64k
+  under the Qwen3.8-27B tokenizer, CUAD contracts (CC BY 4.0, expert clause labels, a target padded with other contracts) and generated agreement bundles
+  (`scripts/build_longdoc_v1.py` + `longdoc_v1_synthetic.py`, byte for byte). Its manifest's `context` is `kev.model.long_eval_context()`, whose `long_document`
+  flag makes `LocalPredictor` run the state once with question rows from its cache under the fused attention kernels (parity with the exact path at 4k-8k:
+  max |dp| 0.009, 0 flips). Read-out `scripts/longdoc_report.py`, overlap `scripts/screen_longdoc_v1.py`, serving cost `scripts/longdoc_serving.py`
+  (`modal_app.py::script`); results in `runs/longdoc-v1-report/README.md`. Its synthetic part is at ceiling for every system read.
   Partitions over ~10 MB are not in git; they are mirrored at the Hub dataset `jaredpalmer/kev-suites` (revision pinned
   in `kev/suite.py: SUITES_REVISION`) and `load_split` fetches + verifies them on first use. After freezing a new suite:
   `hf upload jaredpalmer/kev-suites evals . --type dataset --include "*.jsonl" --include "*.json"`, bump
