@@ -49,7 +49,7 @@ CHOICES = {"dtype": ("fp32", "bf16"), "checkpointing": (0, 1), "option_isolation
 CHOICE_DEFAULTS = {"dtype": "fp32", "checkpointing": 0, "option_isolation": 0, "special_embeddings": 0, "head_dim": 256, "lora_targets": "all", "weights_dtype": "fp32", "full_ft": 0, "length_sort": 0, "shared_prefix": None}   # kev.train's defaults for the categorical knobs (shared_prefix: on with full_ft)
 # optional integer knobs, passed to kev.train only when a trial sets them (so existing plans keep their config hashes)
 OPTIONAL_INTS = {"max_state": (MAX_STATE, MAX_TRAIN_STATE), "row_budget": (0, 65536), "max_steps": (0, 100000), "save_every_steps": (0, 100000),
-                 "snapshot_every_steps": (0, 100000)}
+                 "snapshot_every_steps": (0, 100000), "none_pair_max_state": (1, MAX_TRAIN_STATE)}
 # full-weight trials write snapshots (kev.full_ft.SnapshotWriter: loadable bf16 checkpoints, kept on the runs volume) into
 # <trial>/snapshots/step-<N>/checkpoint after these fractions of their optimizer steps, unless the trial sets
 # snapshot_fractions ("none" for none). Applied by train_checkpoint like RESUME_MINUTES, so plans keep their config hashes.
@@ -80,6 +80,8 @@ def validated_trial(value, manifest):
     for key, (lo, hi) in OPTIONAL_INTS.items():
         if key in result and (isinstance(result[key], bool) or not isinstance(result[key], int) or not lo <= result[key] <= hi):
             raise ValueError(f"{key} is an int in [{lo}, {hi}] (optional; kev.train's default when absent)")
+    if "none_pair_max_state" in result and not result["p_none_pair"] > 0:
+        raise ValueError("none_pair_max_state gates none pairs: it needs p_none_pair > 0")
     if result.get("full_ft"):   # kev.budget.MAX_SNAPSHOTS, over max_steps (an every-N plan needs it); kev.train checks the real count again
         fractions = snapshot_fractions(result.get("snapshot_fractions", SNAPSHOT_FRACTIONS))   # raises ValueError on a bad list
         if problem := too_many_snapshots(fractions, result.get("snapshot_every_steps", 0), result.get("max_steps") or None):

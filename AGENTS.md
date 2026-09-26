@@ -24,7 +24,12 @@ Title Case sections, API tables, Authors + License); model cards are formal.
     `--anchor/--anchor_w/--anchor_sources` (KL toward the frozen base's zero-shot answers, from `kev.anchors`),
     `--label_smoothing/--brier_w/--focal_gamma` (the round-3 calibration screen; all default 0 and none is in a release).
   - augmentation / mix: `--p_none`, `--p_none_distract`, `--p_distract`, `--p_none_pair`, `--synthetic_repeat`,
-    `--public_frac`, `--train_sources`, `--holdout`.
+    `--public_frac`, `--train_sources`, `--holdout`. `--none_pair_max_state N` (plan key `none_pair_max_state`, needs
+    `--p_none_pair > 0`; absent = every record may pair, today's recipes byte for byte): only records whose state has at
+    most N tokens (encode's count, `<state>` included) emit none pairs, drawn from each record's own stream
+    (`kev.train.none_pairs`), and `--length_sort` counts their two siblings (the state twice more) in the record's cost, so a
+    pass cannot outgrow the cost its run was cut to. A pair repeats the whole state, so on long states it tripled a pass
+    past the GPU (round 21's projection).
   - architecture / precision: `--lora`, `--lora_targets all|dense|attn|qv` (`dense` freezes the DeltaNet projections on
     hybrid bases), `--head_dim`, `--option_isolation`, `--special_embeddings`, `--dtype` (autocast) vs `--weights_dtype`
     (frozen backbone; bf16 is required by the fused MoE experts of 35B-A3B).
