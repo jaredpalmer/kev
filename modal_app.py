@@ -20,6 +20,7 @@ checkpoints, kev.mirror) always mounts that Secret, `huggingface-secret` unless 
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -316,15 +317,23 @@ def run_sft_probe(name, base, revision, gpu, train, records, check_load, flags="
     if out.exists():
         raise FileExistsError(f"{out} exists on the volume")
     (out / "resume").mkdir(parents=True)
+
+    def copy_out():
+        for f in ("report.json", "train.log", "checkpoint/training_metrics.json", *(p.name for p in scratch.glob("train-*.log"))):   # train-<length>-<attempt>.log: --state_tokens
+            if (scratch / f).exists(): shutil.copy(scratch / f, out / Path(f).name)
+        runs_volume.commit()
+
+    def mirror(stop):   # a --state_tokens probe writes its report after every length; a timeout would lose what is only on scratch
+        while not stop.wait(120): copy_out()
+    stop = threading.Event(); threading.Thread(target=mirror, args=(stop,), daemon=True).start()
     try:
         subprocess.run([sys.executable, "/root/scripts/sft_probe.py", "--base", base, "--revision", revision, "--gpu", gpu, "--out", str(scratch),
-                        "--records", str(records), "--train", train, "--check_load", str(check_load), "--resume_dir", str(out / "resume"), *flags.split()],
+                        "--records", str(records), "--train", train, "--check_load", str(check_load), "--resume_dir", str(out / "resume"), *shlex.split(flags)],
                        check=True, cwd="/root", env={**os.environ, "PYTHONPATH": "/root"})
     finally:
+        stop.set()
         shutil.rmtree(out / "resume", ignore_errors=True)
-        for f in ("report.json", "train.log", "checkpoint/training_metrics.json"):
-            if (scratch / f).exists(): shutil.copy(scratch / f, out / Path(f).name)
-        runs_volume.commit(); hf_cache.commit()
+        copy_out(); hf_cache.commit()
     from kev.suite import read_json
     return read_json(out / "report.json")
 

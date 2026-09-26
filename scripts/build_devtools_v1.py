@@ -61,7 +61,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kev.data import materialize  # noqa: E402
-from kev.model import MAX_STATE, MAX_TRAIN_STATE, fits, load_tokenizer, training_context, user_tokens  # noqa: E402
+from kev.model import MAX_STATE, MAX_TRAIN_STATE_8K as MAX_TRAIN_STATE, fits, load_tokenizer, training_context, user_tokens  # noqa: E402
 from kev.suite import (ADMISSION_TOKENIZER as TOKENIZER, CONTEXT, GIT_LIMIT, digest, normalise_text, read_json, read_jsonl, text_digest,  # noqa: E402
                        write_json, write_jsonl)
 

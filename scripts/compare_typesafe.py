@@ -13,10 +13,10 @@ import argparse
 from pathlib import Path
 
 from kev.data import materialize
-from kev.model import MAX_STATE, SERVE_MAX_STATE, load_tokenizer, user_tokens
-from kev.suite import load_split, read_json, write_json
+from kev.model import MAX_STATE, load_tokenizer, user_tokens
+from kev.suite import SERVING_CONTEXT_8K, load_split, read_json, write_json
 
-LENGTH_BUCKETS = ((0, MAX_STATE), (MAX_STATE, 2048), (2048, SERVE_MAX_STATE))   # inside the training context / longer / much longer
+LENGTH_BUCKETS = ((0, MAX_STATE), (MAX_STATE, 2048), (2048, SERVING_CONTEXT_8K["max_state"]))   # inside the training context / longer / much longer (typesafe-v1's admission)
 
 
 def case_means(scores, records):

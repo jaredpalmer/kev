@@ -629,15 +629,62 @@ def test_shared_prefix_equals_rows(tiny_base, checkpointing, lora):
     padding) and 1-4 questions; with gradient checkpointing each layer's two passes are recomputed together. With a LoRA
     (kev.train --shared_prefix 1 without --full_ft) the same holds for the adapter's gradients (dropout off: eval mode,
     so the two passes draw no different masks)."""
+    assert_shared_prefix_equals_rows(tiny_base, checkpointing, lora, ((5, 3), (17, 4), (1, 2), (40, 1)))
+
+
+@pytest.mark.parametrize("checkpointing", [False, True])
+def test_shared_prefix_unpadded_states_run_without_a_state_mask(tiny_base, checkpointing, monkeypatch):
+    """Under SDPA, states of one length (a long record alone in its micro-batch) run causal with no explicit state mask
+    (a 64k-token state's would be 4 GB, and the flash kernel takes none): same logits and gradients as the row form. Mixed
+    lengths still build the mask."""
+    import kev.shared_prefix as SP
+    shapes = []
+    real = SP._masks
+    monkeypatch.setattr(SP, "_masks", lambda allow, dtype, attn: (shapes.append(tuple(allow.shape)), real(allow, dtype, attn))[1])
+    assert_shared_prefix_equals_rows(tiny_base, checkpointing, 0, ((23, 3), (23, 1)), attn="sdpa")
+    assert shapes and all(s[1] != s[2] for s in shapes)   # branch masks only: [branches, Lb, Ls + Lb]
+    shapes.clear()
+    assert_shared_prefix_equals_rows(tiny_base, checkpointing, 0, ((23, 3), (9, 1)), attn="sdpa")
+    assert any(s[1] == s[2] == 23 + 1 for s in shapes)   # the padded pair's state mask
+
+
+def test_local_predictor_scores_long_rows_through_the_shared_prefix(tiny_base, tmp_path, monkeypatch):
+    """kev.benchmark's predictor runs a row longer than kev.model.ROW_PASS_TOKENS (a state past 16k tokens) through the
+    shared prefix under SDPA's memory-bounded kernels: the state once instead of once per question and no L x L score
+    matrix. Same logits as the row form it takes below that length."""
+    from kev import predictors as P
+    from kev.checkpoint import LoadOptions
+    from kev.data import load_records
+    train_tiny(tiny_base, tmp_path / "full", *FULL, "--max_steps", "1", monkeypatch=monkeypatch)
+    predictor = P.LocalPredictor(str(tmp_path / "full"), "cpu", LoadOptions(dtype=torch.float32, temperature=1.0))
+    record = load_records(tiny_base / "data.jsonl")[7]
+    rows = predictor(record)
+    real, shared = predictor.model.forward_batch, []
+    monkeypatch.setattr(predictor.model, "forward_batch", lambda encs, shared_prefix=False: (shared.append(shared_prefix), real(encs, shared_prefix))[1])
+    monkeypatch.setattr(P, "ROW_PASS_TOKENS", 8)   # this record's rows (~20 tokens) are now "long"
+    long = predictor(record)
+    assert shared == [True] and long["input_tokens"] == rows["input_tokens"]
+    for qid, z in rows["logits"].items():
+        assert long["logits"][qid] == pytest.approx(z, abs=1e-5)
+    from kev.benchmark import evaluate_records   # kev.benchmark's scoring loop over such a record
+    suite_record = {**record, "_meta": {**record["_meta"], "group_id": "g", "variant": "clean"},
+                    "questions": {qid: {**q, "src": "tiny"} for qid, q in record["questions"].items()}}
+    report, scored = evaluate_records([suite_record], predictor, tmp_path / "bench")
+    assert report["coverage"]["evaluated_questions"] == 2 and shared == [True, True]
+    assert [x for r in scored for x in r["logits"]] == pytest.approx([x for z in rows["logits"].values() for x in z.values()], abs=1e-5)
+
+
+def assert_shared_prefix_equals_rows(tiny_base, checkpointing, lora, shapes, attn=None):
+    """(state words, questions) per record -> the shared prefix's logits and gradients equal the row form's in fp32."""
     import random
     from kev.model import load_tokenizer
     tok, rng = load_tokenizer(str(tiny_base / "base")), random.Random(0)
     words = "it is charged twice which team billing shipping refund angry the customer".split()
     text = lambda n: " ".join(rng.choice(words) for _ in range(n))
     recs = [{"state": text(n), "questions": [{"instr": text(rng.randint(1, 5)), "options": [text(rng.randint(1, 3)) for _ in range(rng.randint(2, 4))], "label": 0}
-                                              for _ in range(q)]} for n, q in ((5, 3), (17, 4), (1, 2), (40, 1))]
+                                              for _ in range(q)]} for n, q in shapes]
     torch.manual_seed(0)
-    model = DecisionModel(str(tiny_base / "base"), tok, "cpu", lora=lora or None)
+    model = DecisionModel(str(tiny_base / "base"), tok, "cpu", lora=lora or None, attn=attn)
     model.train(not lora)
     if checkpointing: model.lm.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     encs, results = [model.encode(tok, r) for r in recs], []
@@ -648,7 +695,7 @@ def test_shared_prefix_equals_rows(tiny_base, checkpointing, lora):
         results.append((torch.cat(logits).detach(), {n: p.grad.clone() for n, p in model.named_parameters() if p.grad is not None}))
     (rows, g_rows), (prefix, g_prefix) = results
     scale = max(g.abs().max() for g in g_rows.values())
-    assert len(logits) == 10 and torch.allclose(rows, prefix, atol=1e-5) and g_rows.keys() == g_prefix.keys()
+    assert len(logits) == sum(q for _, q in shapes) and torch.allclose(rows, prefix, atol=1e-5) and g_rows.keys() == g_prefix.keys()
     assert all(torch.allclose(g_rows[k], g_prefix[k], atol=1e-5 * scale) for k in g_rows)
     assert not lora or any("lora_" in k for k in g_rows)
 

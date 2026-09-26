@@ -13,12 +13,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import torch
+from torch.nn.attention import SDPBackend, sdpa_kernel
 
 from kev.api import question_keys
 from kev.checkpoint import Checkpoint, LoadOptions
 from kev.data import api_request, materialize
 from kev.device import sync
-from kev.model import ContextOverflow
+from kev.model import ROW_PASS_TOKENS, ContextOverflow, rows_of
 from kev.suite import CONTEXT
 
 
@@ -47,7 +48,15 @@ class LocalPredictor:
             raise ContextOverflow(f"packed request exceeds the {self.context['max_packed']}-token limit")
         sync(self.device)
         start = time.perf_counter()
-        logits = self.model.forward(enc)
+        state, _, rows = rows_of(enc)
+        if len(state) + max(len(r["ids"]) for r in rows) <= ROW_PASS_TOKENS:
+            logits = self.model.forward(enc)
+        else:
+            # a long row (a state past 16k tokens, up to kev.model.SERVE_MAX_STATE): the exact math attention kernel would hold
+            # an L x L score matrix per head (~200 GB at 64k), so these rows take SDPA's flash / memory-efficient kernels, and a
+            # hybrid backbone runs the state once with its questions continuing from it (kev.shared_prefix) instead of once per question
+            with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]):
+                logits = self.model.forward_batch([enc], shared_prefix=True)[0]
         ps = [torch.softmax(z, -1).cpu() for z in logits]
         zs = [z.float().cpu() for z in logits]
         sync(self.device)

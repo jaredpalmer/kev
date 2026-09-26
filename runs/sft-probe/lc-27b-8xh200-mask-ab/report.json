@@ -1,0 +1,81 @@
+{
+  "gpu": "H200:8",
+  "base": "Qwen/Qwen3.8-27B",
+  "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "train_args": "--batch 1 --accum 1 --length_sort 1 --max_steps 3 --lr 1e-5",
+  "fallbacks": "",
+  "questions": 3,
+  "warmup": 1,
+  "usd_per_hour": 41.17,
+  "lengths": [
+    {
+      "state_tokens": 65536,
+      "records": 24,
+      "record_tokens_mean": 65646.95833333333,
+      "row_tokens_mean": 196718.95833333334,
+      "questions_mean": 3,
+      "status": "ok",
+      "attempts": [
+        {
+          "extra": "",
+          "return_code": 0,
+          "seconds": 589,
+          "peak_nvidia_smi_gb": 139.8,
+          "peak_nvidia_smi_gb_per_gpu": [
+            139.7,
+            139.8,
+            139.8,
+            139.8,
+            139.8,
+            139.8,
+            139.7,
+            139.7
+          ],
+          "peak_host_gb": 80.1,
+          "out_of_memory": false,
+          "training_metrics": {
+            "wall_seconds": 454.9551372528076,
+            "records_seen": 24,
+            "requested_records": 24,
+            "truncated_records": 0,
+            "rejected_records": 0,
+            "optimizer_steps": 3,
+            "forward_tokens": 1575577,
+            "step_seconds": [
+              154.669,
+              145.931,
+              154.353
+            ],
+            "optimizer_seconds": 3.381253957748413,
+            "resume_seconds": [],
+            "resume_write_seconds": [],
+            "world_size": 8,
+            "grad_norm": [
+              {
+                "epoch": 0,
+                "steps": 3,
+                "mean": 125.335627,
+                "max": 190.447281,
+                "clipped_steps": 3
+              }
+            ],
+            "weights": "full",
+            "peak_device_bytes": 139811026432,
+            "device": "cuda",
+            "dtype": "bf16",
+            "batch": 1,
+            "peak_rss_bytes": 61381902336
+          },
+          "fixed_overhead_seconds": 134,
+          "seconds_per_step": 150.142,
+          "records_per_step": 8.0,
+          "seconds_per_record": 18.76775,
+          "record_tokens_per_second": 3497.8598038301516,
+          "row_tokens_per_second": 10481.755049664096,
+          "peak_allocated_gb_rank0": 139.8,
+          "peak_host_rss_gb_rank0": 61.4
+        }
+      ]
+    }
+  ]
+}

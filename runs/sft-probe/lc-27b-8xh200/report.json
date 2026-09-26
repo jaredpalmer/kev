@@ -1,0 +1,296 @@
+{
+  "gpu": "H200:8",
+  "base": "Qwen/Qwen3.8-27B",
+  "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "train_args": "--batch 1 --accum 1 --length_sort 1 --max_steps 5 --lr 1e-5",
+  "fallbacks": "",
+  "questions": 3,
+  "warmup": 2,
+  "usd_per_hour": 41.17,
+  "lengths": [
+    {
+      "state_tokens": 16384,
+      "records": 40,
+      "record_tokens_mean": 16507.6,
+      "row_tokens_mean": 49275.6,
+      "questions_mean": 3,
+      "status": "ok",
+      "attempts": [
+        {
+          "extra": "",
+          "return_code": 0,
+          "seconds": 173,
+          "peak_nvidia_smi_gb": 77.7,
+          "peak_nvidia_smi_gb_per_gpu": [
+            77.7,
+            77.5,
+            77.4,
+            77.6,
+            77.5,
+            77.6,
+            77.6,
+            77.5
+          ],
+          "peak_host_gb": 79.7,
+          "out_of_memory": false,
+          "training_metrics": {
+            "wall_seconds": 49.87022352218628,
+            "records_seen": 40,
+            "requested_records": 40,
+            "truncated_records": 0,
+            "rejected_records": 0,
+            "optimizer_steps": 5,
+            "forward_tokens": 660425,
+            "step_seconds": [
+              14.163,
+              8.886,
+              8.9,
+              8.912,
+              9.006
+            ],
+            "optimizer_seconds": 1.5708298683166504,
+            "resume_seconds": [],
+            "resume_write_seconds": [],
+            "world_size": 8,
+            "grad_norm": [
+              {
+                "epoch": 0,
+                "steps": 5,
+                "mean": 80.7094998,
+                "max": 182.953781,
+                "clipped_steps": 5
+              }
+            ],
+            "weights": "full",
+            "peak_device_bytes": 70485381120,
+            "device": "cuda",
+            "dtype": "bf16",
+            "batch": 1,
+            "peak_rss_bytes": 61376524288
+          },
+          "fixed_overhead_seconds": 123,
+          "seconds_per_step": 8.939333333333334,
+          "records_per_step": 8.0,
+          "seconds_per_record": 1.1174166666666667,
+          "record_tokens_per_second": 14773.0032068014,
+          "row_tokens_per_second": 44097.78506972928,
+          "peak_allocated_gb_rank0": 70.5,
+          "peak_host_rss_gb_rank0": 61.4
+        }
+      ]
+    },
+    {
+      "state_tokens": 32768,
+      "records": 40,
+      "record_tokens_mean": 32891.4,
+      "row_tokens_mean": 98427.4,
+      "questions_mean": 3,
+      "status": "ok",
+      "attempts": [
+        {
+          "extra": "",
+          "return_code": 0,
+          "seconds": 209,
+          "peak_nvidia_smi_gb": 96.4,
+          "peak_nvidia_smi_gb_per_gpu": [
+            96.2,
+            96.4,
+            96.0,
+            96.1,
+            96.2,
+            96.1,
+            96.3,
+            96.1
+          ],
+          "peak_host_gb": 79.9,
+          "out_of_memory": false,
+          "training_metrics": {
+            "wall_seconds": 97.80583906173706,
+            "records_seen": 40,
+            "requested_records": 40,
+            "truncated_records": 0,
+            "rejected_records": 0,
+            "optimizer_steps": 5,
+            "forward_tokens": 1315748,
+            "step_seconds": [
+              23.214,
+              18.639,
+              18.657,
+              18.658,
+              18.635
+            ],
+            "optimizer_seconds": 2.360313892364502,
+            "resume_seconds": [],
+            "resume_write_seconds": [],
+            "world_size": 8,
+            "grad_norm": [
+              {
+                "epoch": 0,
+                "steps": 5,
+                "mean": 126.92631080000001,
+                "max": 174.312607,
+                "clipped_steps": 5
+              }
+            ],
+            "weights": "full",
+            "peak_device_bytes": 89098549760,
+            "device": "cuda",
+            "dtype": "bf16",
+            "batch": 1,
+            "peak_rss_bytes": 61381984256
+          },
+          "fixed_overhead_seconds": 111,
+          "seconds_per_step": 18.650000000000002,
+          "records_per_step": 8.0,
+          "seconds_per_record": 2.3312500000000003,
+          "record_tokens_per_second": 14108.911528150133,
+          "row_tokens_per_second": 42220.86863270777,
+          "peak_allocated_gb_rank0": 89.1,
+          "peak_host_rss_gb_rank0": 61.4
+        }
+      ]
+    },
+    {
+      "state_tokens": 49152,
+      "records": 40,
+      "record_tokens_mean": 49274.375,
+      "row_tokens_mean": 147578.375,
+      "questions_mean": 3,
+      "status": "ok",
+      "attempts": [
+        {
+          "extra": "",
+          "return_code": 0,
+          "seconds": 269,
+          "peak_nvidia_smi_gb": 115.1,
+          "peak_nvidia_smi_gb_per_gpu": [
+            115.1,
+            114.9,
+            114.7,
+            115.1,
+            115.1,
+            114.6,
+            115.1,
+            115.1
+          ],
+          "peak_host_gb": 80.3,
+          "out_of_memory": false,
+          "training_metrics": {
+            "wall_seconds": 156.45467329025269,
+            "records_seen": 40,
+            "requested_records": 40,
+            "truncated_records": 0,
+            "rejected_records": 0,
+            "optimizer_steps": 5,
+            "forward_tokens": 1971100,
+            "step_seconds": [
+              35.203,
+              30.245,
+              30.285,
+              30.345,
+              30.375
+            ],
+            "optimizer_seconds": 3.316472291946411,
+            "resume_seconds": [],
+            "resume_write_seconds": [],
+            "world_size": 8,
+            "grad_norm": [
+              {
+                "epoch": 0,
+                "steps": 5,
+                "mean": 81.7596122,
+                "max": 131.374313,
+                "clipped_steps": 5
+              }
+            ],
+            "weights": "full",
+            "peak_device_bytes": 107745272832,
+            "device": "cuda",
+            "dtype": "bf16",
+            "batch": 1,
+            "peak_rss_bytes": 61383548928
+          },
+          "fixed_overhead_seconds": 112,
+          "seconds_per_step": 30.335,
+          "records_per_step": 8.0,
+          "seconds_per_record": 3.791875,
+          "record_tokens_per_second": 12994.72556452942,
+          "row_tokens_per_second": 38919.63078951706,
+          "peak_allocated_gb_rank0": 107.7,
+          "peak_host_rss_gb_rank0": 61.4
+        }
+      ]
+    },
+    {
+      "state_tokens": 65536,
+      "records": 40,
+      "record_tokens_mean": 65649.45,
+      "row_tokens_mean": 196721.45,
+      "questions_mean": 3,
+      "status": "ok",
+      "attempts": [
+        {
+          "extra": "",
+          "return_code": 0,
+          "seconds": 348,
+          "peak_nvidia_smi_gb": 134.3,
+          "peak_nvidia_smi_gb_per_gpu": [
+            134.3,
+            133.6,
+            133.5,
+            133.9,
+            133.6,
+            133.6,
+            133.9,
+            133.6
+          ],
+          "peak_host_gb": 80.5,
+          "out_of_memory": false,
+          "training_metrics": {
+            "wall_seconds": 233.5054018497467,
+            "records_seen": 40,
+            "requested_records": 40,
+            "truncated_records": 0,
+            "rejected_records": 0,
+            "optimizer_steps": 5,
+            "forward_tokens": 2626059,
+            "step_seconds": [
+              59.086,
+              43.566,
+              43.656,
+              43.537,
+              43.66
+            ],
+            "optimizer_seconds": 3.986154556274414,
+            "resume_seconds": [],
+            "resume_write_seconds": [],
+            "world_size": 8,
+            "grad_norm": [
+              {
+                "epoch": 0,
+                "steps": 5,
+                "mean": 198.2633576,
+                "max": 271.349854,
+                "clipped_steps": 5
+              }
+            ],
+            "weights": "full",
+            "peak_device_bytes": 126482355200,
+            "device": "cuda",
+            "dtype": "bf16",
+            "batch": 1,
+            "peak_rss_bytes": 61382983680
+          },
+          "fixed_overhead_seconds": 114,
+          "seconds_per_step": 43.617666666666665,
+          "records_per_step": 8.0,
+          "seconds_per_record": 5.452208333333333,
+          "record_tokens_per_second": 12040.89168761893,
+          "row_tokens_per_second": 36081.05889815289,
+          "peak_allocated_gb_rank0": 126.5,
+          "peak_host_rss_gb_rank0": 61.4
+        }
+      ]
+    }
+  ]
+}

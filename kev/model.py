@@ -12,12 +12,20 @@ SPECIAL = ["<|fim_prefix|>", "<|fim_middle|>", "<|box_start|>", "<|box_end|>", "
 # training context: state tokens, tokens per question branch, and the whole packed record. Frozen suites are admitted with
 # this rule (kev.suite) and training applies it to records built on the fly, so train and eval see the same population.
 MAX_STATE, MAX_BRANCH, MAX_PACKED = 384, 1024, 2048
-# serving context (kev.serve): per-branch cap mirrors Jev's ~32k, bounded by the base model window; longer than training, so untested there
-SERVE_MAX_STATE, SERVE_MAX_BRANCH = 8192, 8192
-SERVE_MAX_PACKED = SERVE_MAX_STATE + SERVE_MAX_BRANCH   # one row at most: a packed request longer than this runs in the row form (the block-causal mask is L x L)
-# the longest state a checkpoint may be trained on (kev.train --max_state) and still leave every question its training
-# branch budget when served: serving's row limit is SERVE_MAX_BRANCH = state + branch
-MAX_TRAIN_STATE = SERVE_MAX_BRANCH - (MAX_BRANCH - MAX_STATE)
+# serving context (kev.serve): a state of up to 64k tokens (twice Jev's 32k; the Qwen3.5 / Qwen3.8 bases' window is 262k)
+# and a question row (state + its branch, the encoder's max_branch) of up to 8k tokens more. Until 64k states these were
+# 8,192 / 8,192 (SERVE_MAX_*_8K below).
+SERVE_MAX_STATE = 65536
+SERVE_MAX_BRANCH = SERVE_MAX_STATE + 8192
+SERVE_MAX_PACKED = SERVE_MAX_STATE + SERVE_MAX_BRANCH
+# tokens one inference pass holds (rows_per_pass), and the longest request an attention-only backbone runs packed
+# (rows_form: its block-causal mask is L x L); longer ones run as rows
+ROW_PASS_TOKENS = 16384
+# the longest state a checkpoint may be trained on (kev.train --max_state): the longest one served, which still leaves
+# every question its training branch budget (training_context(MAX_TRAIN_STATE)["max_branch"] <= SERVE_MAX_BRANCH)
+MAX_TRAIN_STATE = SERVE_MAX_STATE
+# the limits before 64k states: the suites frozen until then were admitted under these and record them (kev.suite.SERVING_CONTEXT_8K)
+SERVE_MAX_STATE_8K, SERVE_MAX_BRANCH_8K, MAX_TRAIN_STATE_8K = 8192, 8192, 7552
 
 
 def training_context(max_state=MAX_STATE):
@@ -30,7 +38,7 @@ def training_context(max_state=MAX_STATE):
     return {"max_state": max_state, "max_branch": MAX_BRANCH + extra, "max_packed": MAX_PACKED + extra}
 
 
-def rows_per_pass(rows, prefix_len=0, budget=SERVE_MAX_PACKED):
+def rows_per_pass(rows, prefix_len=0, budget=ROW_PASS_TOKENS):
     """How many causal rows one inference forward pass takes: as many as fit `budget` tokens counting the cached state
     each row carries (prefix_len) plus its own tokens, at least one. Memory per pass is bounded by one maximal row however
     many questions a request has, and the rows are independent, so the answers do not depend on the split. Kev-4B on MLX,
@@ -297,9 +305,9 @@ class DecisionModel(nn.Module):
 
     def rows_form(self, encs):
         """Whether these records run as causal rows: hybrid backbones always (the recurrent layers cannot honour the packed
-        mask), attention-only ones when the packed sequence would exceed one serving row (its L x L mask grows without
+        mask), attention-only ones when the packed sequence would exceed ROW_PASS_TOKENS (its L x L mask grows without
         bound with the number of questions). The two forms agree (tests/test_model.py::test_rows_match_packed)."""
-        return self.hybrid or any(len(e["ids"]) > SERVE_MAX_PACKED for e in encs)
+        return self.hybrid or any(len(e["ids"]) > ROW_PASS_TOKENS for e in encs)
 
     def _rows_hidden(self, rows, cache=None, prefix_len=0):
         """Hidden states of causal token rows, one [L_i, d] tensor per row. In eval mode the rows go through the backbone

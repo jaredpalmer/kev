@@ -55,6 +55,10 @@ Title Case sections, API tables, Authors + License); model cards are formal.
     27B, 8 H200, `--batch 8 --accum 2 --length_sort 1`, records shaped like the SFT corpus (`scripts/sft_probe.py --mix all`):
     7.6 records/s, one epoch of the corpus (192k records) ≈ 7.1 h / $293, 71 GB peak per GPU (`runs/sft-probe/sft2-*`,
     PR #125); one H200 (row form, PR #122) 0.84 records/s on ~1,000-token records.
+    Long states (`scripts/sft_probe.py --state_tokens 16384,32768,49152,65536 --questions 3`, `--batch 1 --accum 1 --length_sort 1`, 8 H200,
+    `runs/sft-probe/lc-27b-8xh200`): 1.12 / 2.33 / 3.79 / 5.45 s per record (14.8k-12.0k record tokens/s), 78 / 96 / 115 / 134 GiB peak per GPU
+    of 140. A micro-batch whose states are unpadded runs the state through SDPA's causal flash kernel with no mask (`kev.shared_prefix`);
+    with the explicit 64k x 64k mask a 64k step took 150 s instead of 44 and filled the GPU (`runs/sft-probe/lc-27b-8xh200-mask-ab`).
   - Only one training process at a time: two on MPS slow each other ~10x.
 - Smoke: `uv run python -m kev.train --n_per_source 40 --accum 4 --out runs/smoke` (~1 min).
 - Benchmark (the eval path for everything current): `uv run python -m kev.benchmark --run <run dir | Hub id[@rev]>
@@ -302,7 +306,7 @@ runs / the endpoint / the volumes. Tests: `tests/test_skill_scripts.py`.
   `--weights_dtype bf16` always load bf16 with the adapter unmerged. Any change here must keep the parity
   tests in tests/test_model.py (merged vs unmerged, prefix vs full pass, bucket padding) and tests/test_mlx.py (MLX vs fp32 torch, prefix form vs row form, isolation; Apple Silicon only) passing; report numbers with the fp32 unmerged path.
   `scripts/mlx_parity.py --run <ckpt>` is the fuller read (60 records, latency of every path); MLX's fp32 GPU matmul is a reduced-precision fast path (~1e-3 relative on an M5), which is why the LoRA merge runs on `mx.cpu`.
-- Serving context is 8,192 tokens for the state and 8,192 for a question branch (`kev.model.SERVE_MAX_*`); training used 384 / 1,024, so longer inputs are untested. No limit on questions per request: the row form runs `rows_per_pass` rows per forward pass (a 16,384-token budget counting the cached state per row), and an attention-only model switches from the packed mask to rows above `SERVE_MAX_PACKED` (`DecisionModel.rows_form`). Kev-4B on MLX, 64 questions on a 4.8k-token state: 4.3 s / 9.4 GB peak instead of 18.5 s / 24.7 GB in one pass. `n_perm` on `/permute` is 1..64.
+- Serving context is 65,536 tokens for the state and 73,728 for the state plus one question branch, so a question gets at least 8,192 (`kev.model.SERVE_MAX_*`; 8,192 / 8,192 until the long-context PR, `kev.suite.SERVING_CONTEXT_8K`, which the suites frozen before it record and their builders keep); `kev.train --max_state` goes up to the same 65,536 (`MAX_TRAIN_STATE`). The released checkpoints trained on 384 / 1,024, so longer inputs are untested for accuracy. No limit on questions per request: the row form runs `rows_per_pass` rows per forward pass (`ROW_PASS_TOKENS`, a 16,384-token budget counting the cached state per row), and an attention-only model switches from the packed mask to rows above it (`DecisionModel.rows_form`). `kev.benchmark` scores a row past `ROW_PASS_TOKENS` through the shared prefix under SDPA's flash / memory-efficient kernels (the exact math kernel's L x L scores do not fit; `LocalPredictor`). Kev-4B on MLX, 64 questions on a 4.8k-token state: 4.3 s / 9.4 GB peak instead of 18.5 s / 24.7 GB in one pass. `n_perm` on `/permute` is 1..64.
 
 ## Calibration Research
 

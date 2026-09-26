@@ -30,8 +30,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from kev.api import render  # noqa: E402
 from kev.data import materialize  # noqa: E402
-from kev.model import MAX_TRAIN_STATE, fits, load_tokenizer, training_context  # noqa: E402
-from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, GIT_LIMIT, SERVING_CONTEXT, digest, text_digest, write_json, write_jsonl  # noqa: E402
+from kev.model import MAX_TRAIN_STATE_8K as MAX_TRAIN_STATE, fits, load_tokenizer, training_context  # noqa: E402
+from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, GIT_LIMIT, SERVING_CONTEXT_8K as SERVING_CONTEXT, digest, text_digest, write_json, write_jsonl  # noqa: E402
 from scripts.hard_v1_common import Ctx  # noqa: E402
 from scripts.hard_v1_families import ABSTAIN_KEYS, FAMILIES, labels  # noqa: E402
 
