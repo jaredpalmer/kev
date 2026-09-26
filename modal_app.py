@@ -273,6 +273,22 @@ def serving(run: str, name: str, gpu: str = GPU, flags: str = ""):
     pull_volume(f"/serving/{name}", ROOT / "runs")
 
 
+@app.function(image=image, gpu=GPU, cpu=2, memory=(32768, 131072), retries=0, timeout=3600,
+              volumes={RUNS_MOUNT: runs_volume, HF_MOUNT: hf_cache}, secrets=secrets)
+def run_script(script, name, args=""):
+    """scripts/<script> --out /runs/scripts/<name> <args>: a one-off GPU measurement that writes report.json and has no
+    entrypoint of its own (scripts/longdoc_serving.py)."""
+    out = Path(RUNS_MOUNT) / "scripts" / name
+    return run_tool([sys.executable, f"/root/scripts/{script}", "--out", out, *args.split()], out, block=None)
+
+
+@app.local_entrypoint()
+def script(script: str, name: str, gpu: str = GPU, args: str = "", timeout: int = 3600):
+    report = run_script.with_options(gpu=gpu, timeout=timeout).remote(script, name, args)
+    print(json.dumps(report, indent=1))
+    pull_volume(f"/scripts/{name}", ROOT / "runs")
+
+
 @app.function(image=image, gpu=GPU, cpu=2, memory=(32768, 131072), retries=0, timeout=2400,
               volumes={RUNS_MOUNT: runs_volume, HF_MOUNT: hf_cache}, secrets=secrets)
 def run_smoke_base(base, revision):
@@ -487,7 +503,7 @@ def base_probe(bases: str, suite: str = "evals/v4/transfer-v4", tasks: str = "al
 
 # Per-read timeouts by suite (fp32 evaluation; a 9B on H100/H200). Long-state panels take over an hour for ~900 records of
 # 6k-token rows; one timeout for a mixed batch made every job carry the slowest one's admission bound (round 6).
-READ_TIMEOUTS = (("longstate", 7200), ("documents", 5400), ("transfer-v9", 3600))
+READ_TIMEOUTS = (("longstate", 7200), ("documents", 5400), ("transfer-v9", 3600), ("longdoc", 10800))
 DEFAULT_READ_TIMEOUT = 1800
 
 

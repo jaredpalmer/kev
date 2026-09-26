@@ -1342,3 +1342,69 @@ def test_the_in_trial_temperature_says_it_is_not_shipped():
     assert fit == {"temperature": 0.95, "aggregation": "micro", "objective": "raw-logit NLL", "split": "calibration", "role": E.IN_TRIAL_TEMPERATURE,
                    "rows_sha256": "rows-sha", "suite_sha256": "suite-sha", "n": 2}
     assert E.IN_TRIAL_TEMPERATURE.startswith("in-trial screening") and "not a served or shipped temperature" in E.IN_TRIAL_TEMPERATURE
+
+
+def test_jev_refusals_are_counted_only_when_asked(monkeypatch):
+    """JevPredictor with count_refusals: an HTTP 400/413/422 answer raises JevRefused (a ContextOverflow, so kev.benchmark
+    lists the record in rejected.json and continues) and is counted in accounting(); without it, or for another client
+    error (401), the read stops as before. The worker process is faked."""
+    import json, kev.predictors as P
+    from kev.model import ContextOverflow
+
+    class Worker:
+        def __init__(self, status): self.status = status; self.stdin = self; self.stdout = self
+        def write(self, _): pass
+        def flush(self): pass
+        def readline(self): return json.dumps({"error": {"name": "APICallError", "status": self.status}}) + "\n"
+
+    record = {"state": "x", "questions": {"q": {"type": "noul", "instructions": "?", "label": True, "src": "t"}}}
+    for status, count, raised in ((413, True, P.JevRefused), (422, True, P.JevRefused), (413, False, RuntimeError), (401, True, RuntimeError)):
+        monkeypatch.setattr(P.subprocess, "Popen", lambda *a, status=status, **kw: Worker(status))
+        j = P.JevPredictor("key", count_refusals=count)
+        with pytest.raises(raised): j(record)
+        assert issubclass(P.JevRefused, ContextOverflow)
+        assert j.accounting().get("refusals") == ({str(status): 1} if raised is P.JevRefused else ({} if count else None))
+
+
+def test_jev_attempts_bound_the_retries_on_gateway_errors(monkeypatch):
+    """JevPredictor tries a request `attempts` times on hosted-side failures (5xx) before stopping the read; the default,
+    4, is the old fixed count."""
+    import json, kev.predictors as P
+    monkeypatch.setattr(P.time, "sleep", lambda s: None)
+
+    class Worker:
+        def __init__(self): self.stdin = self; self.stdout = self; self.lines = 0
+        def write(self, _): pass
+        def flush(self): pass
+        def readline(self): self.lines += 1; return json.dumps({"error": {"name": "GatewayInternalServerError", "status": 503}}) + "\n"
+
+    record = {"state": "x", "questions": {"q": {"type": "noul", "instructions": "?", "label": True, "src": "t"}}}
+    for attempts, calls in ((None, 4), (7, 7)):
+        w = Worker(); monkeypatch.setattr(P.subprocess, "Popen", lambda *a, **kw: w)
+        j = P.JevPredictor("key") if attempts is None else P.JevPredictor("key", attempts=attempts)
+        with pytest.raises(RuntimeError): j(record)
+        assert w.lines == calls and j.retries == calls - 1
+
+
+def test_jev_counts_a_hosted_error_on_an_oversize_request_as_a_refusal(monkeypatch):
+    """Past Jev's context the gateway answers 400 or 503. With count_refusals, a 503 (or a request that times out, no
+    status) on a request estimated past OVERSIZE x JEV_CONTEXT_TOKENS is a refusal at once, not retried; the same 503 on a
+    normal-size request is retried and then stops the read, as without the flag."""
+    import json, kev.predictors as P
+    monkeypatch.setattr(P.time, "sleep", lambda s: None)
+
+    class Worker:
+        def __init__(self, status): self.status = status; self.stdin = self; self.stdout = self; self.lines = 0
+        def write(self, _): pass
+        def flush(self): pass
+        def readline(self): self.lines += 1; return json.dumps({"error": {"name": "GatewayInternalServerError", "status": self.status}}) + "\n"
+
+    small = {"state": "x", "questions": {"q": {"type": "noul", "instructions": "?", "label": True, "src": "t"}}}
+    big = {**small, "state": "word " * int(P.OVERSIZE * P.JEV_CONTEXT_TOKENS)}   # ~5 characters per word: past the margin
+    assert P.oversize(P.api_request(big)) and not P.oversize(P.api_request(small))
+    for record, status, raised, lines, refusals in ((big, 503, P.JevRefused, 1, {"503 (oversize)": 1}), (big, None, P.JevRefused, 1, {"None (oversize)": 1}),
+                                                    (small, 503, RuntimeError, 4, {})):
+        w = Worker(status); monkeypatch.setattr(P.subprocess, "Popen", lambda *a, w=w, **kw: w)
+        j = P.JevPredictor("key", count_refusals=True, budget=100)
+        with pytest.raises(raised): j(record)
+        assert w.lines == lines and j.accounting()["refusals"] == refusals

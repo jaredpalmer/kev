@@ -165,6 +165,13 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   SGD share-alike, Humicroedit / cfcolor unlicensed text must not be public). `scripts/build_breadth_v1.py` rebuilds the partitions byte for byte;
   `scripts/breadth_report.py --suite evals/breadth-v1 --result NAME=DIR ...` scores rows per area with the Index's chance correction; baselines in `runs/breadth-v1-*`.
   These datasets must never enter a training corpus.
+  `evals/longdoc-v1` is a report-only long-document probe (eval-only, private mirror, development + locked test): state-length buckets 4k / 8k / 16k / 32k / 64k
+  under the Qwen3.8-27B tokenizer, CUAD contracts (CC BY 4.0, expert clause labels, a target padded with other contracts) and generated agreement bundles
+  (`scripts/build_longdoc_v1.py` + `longdoc_v1_synthetic.py`, byte for byte). Its manifest records `kev.suite.SERVING_CONTEXT`; `kev.benchmark` scores its
+  4k-16k buckets on the exact path and its 32k / 64k rows through the long-row rule (> `ROW_PASS_TOKENS`: state once, fused kernels, `kernels: efficient`).
+  Read-out `scripts/longdoc_report.py` (`--parity` compares two reads row by row), overlap `scripts/screen_longdoc_v1.py`, serving cost
+  `scripts/longdoc_serving.py` (`modal_app.py::script`); results in `runs/longdoc-v1-report/README.md`. Its synthetic part is at ceiling for every system read.
+  `kev.jev --count-refusals` counts HTTP 400/413/422, and a 5xx on a request past 1.5 x Jev's ~32k-token context (the gateway answers oversize with either), as refused.
   Partitions over ~10 MB are not in git; they are mirrored at the Hub dataset `jaredpalmer/kev-suites` (revision pinned
   in `kev/suite.py: SUITES_REVISION`) and `load_split` fetches + verifies them on first use. After freezing a new suite:
   `hf upload jaredpalmer/kev-suites evals . --type dataset --include "*.jsonl" --include "*.json"`, bump

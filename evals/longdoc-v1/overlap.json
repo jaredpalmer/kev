@@ -1,0 +1,1108 @@
+{
+  "suite": "evals/longdoc-v1",
+  "n": 8,
+  "normalisation": "casefold, \\w+ tokens",
+  "min_grams": 10,
+  "common_grams_over_items": 50,
+  "containment_threshold": 0.5,
+  "references": {
+    "jevbench": {
+      "items": 231,
+      "files": {
+        "easy.jsonl": {
+          "items": 48,
+          "sha256": "231df3c2c8e88a1a8c137ebe85de96ba70fabd330849098ac7b3c52c70b7172b"
+        },
+        "hard.jsonl": {
+          "items": 111,
+          "sha256": "89e9e6becb33ed88c1de7d42dcc87531b2fb64cfaef4e1986faf7c37b3f80ebb"
+        },
+        "original.jsonl": {
+          "items": 72,
+          "sha256": "5c2414edb3006b8bfcb70fda433f0f9ca015759433849f8d3104328a1f7c4180"
+        }
+      }
+    },
+    "kev_eval": {
+      "items": 52050,
+      "files": {
+        "evals/breadth-v1/development.jsonl": {
+          "records": 1990,
+          "sha256": "9aad8f4a7374988b2768d31135d5690137df3a3d6cbc1e771db4ee95ca515a94"
+        },
+        "evals/breadth-v1/test.jsonl": {
+          "records": 1990,
+          "sha256": "91a64f0a9448dcaece421c051a4b3fd079c15b84ea6cb9cfa8155237d8d1fa18"
+        },
+        "evals/decision-v1/development.jsonl": {
+          "records": 588,
+          "sha256": "82adc559bdda908e54ef681bdc3e2ae28dfbe95e2f7873eac965c7c67797d10b"
+        },
+        "evals/decision-v1/test.jsonl": {
+          "records": 588,
+          "sha256": "ee81c59634915e32b7da880912c5b1dcfd1ee0bbeb2221ab703158c486452be5"
+        },
+        "evals/decision-v2/development.jsonl": {
+          "records": 1176,
+          "sha256": "10e5a72102b844a167ade94c60cf4556cc63950b2ded17fb87bf96028cb557f1"
+        },
+        "evals/decision-v2/test.jsonl": {
+          "records": 1176,
+          "sha256": "cd7d129a84232e0c7a4e92b4840a6dfe14c8bb93c5d1904b526fa8c085325d2d"
+        },
+        "evals/devtools-v1/development.jsonl": {
+          "records": 900,
+          "sha256": "3df3aa83890c43db65ac73b5bb6e4fbb1466362fc1a25dbd383d4d2edd0a1fe6"
+        },
+        "evals/devtools-v1/test.jsonl": {
+          "records": 900,
+          "sha256": "2fb7c2a239fef923bcb62c0eee9d6884a608ce30e5e74a4e6b9082787679767f"
+        },
+        "evals/documents-v1/development.jsonl": {
+          "records": 568,
+          "sha256": "bfca7b41b0d8553b03f9781f48c942dfea368ce19b8508794316e555de8280f5"
+        },
+        "evals/documents-v1/test.jsonl": {
+          "records": 574,
+          "sha256": "742d04a1abc2207bd3e4f24b281f483cdc69238e4da747cbbc3774e836f2e557"
+        },
+        "evals/documents-v2/test.jsonl": {
+          "records": 577,
+          "sha256": "e5b53be5c6b34b5d0f912d7e14adaac45f1df4ba8ec77a3e544ada5b3197eef7"
+        },
+        "evals/external/scienthoon-v1/development.jsonl": {
+          "records": 291,
+          "sha256": "4a6511651209736b490097320d2b2a91480e068c6713bc285f5daa5fcca5fcf5"
+        },
+        "evals/external/scienthoon-v1/test.jsonl": {
+          "records": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evals/external/semif-v1/development.jsonl": {
+          "records": 252,
+          "sha256": "b9e0c7939a25a04a7ef7bc12334b5fa45b2027d04904d32021295b5539a97303"
+        },
+        "evals/external/semif-v1/test.jsonl": {
+          "records": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evals/external/typesafe-v1/development.jsonl": {
+          "records": 102,
+          "sha256": "877ed7cd473e3973d29f0bb0ff2a597192955e477f2127794df358b6ba795879"
+        },
+        "evals/external/typesafe-v1/test.jsonl": {
+          "records": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evals/external/wanli-v1/development.jsonl": {
+          "records": 256,
+          "sha256": "ab732d761daf51aa859263bb402fcc8e880bd801a21e3b882464a7766e8d1b5d"
+        },
+        "evals/external/wanli-v1/test.jsonl": {
+          "records": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evals/external/wanli-v2/development.jsonl": {
+          "records": 1002,
+          "sha256": "80216665abca483b8a0a197e073b69683ce3615c30fc5fc95d05848ae44a796e"
+        },
+        "evals/external/wanli-v2/test.jsonl": {
+          "records": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evals/hard-v1/development.jsonl": {
+          "records": 700,
+          "sha256": "3cdbf12a6b7c3b70c73e8c39f2677127ea61ef32f0ea75b55a43556d884b2d98"
+        },
+        "evals/hard-v1/test.jsonl": {
+          "records": 700,
+          "sha256": "246ee92234d33f8e3f10ac6e1542651531b128fd7cc66f3a9964589b77dfa22b"
+        },
+        "evals/public-pool-v4/development.jsonl": {
+          "records": 980,
+          "sha256": "1542b2def96f9c86510ea2976bbc68f878acef0c36aff4cd6ed19868c2d2349f"
+        },
+        "evals/public-pool-v4/test.jsonl": {
+          "records": 980,
+          "sha256": "34b527ea42bfcf23c321fac642118e50434c54fa5756a208dc7dccfa98586613"
+        },
+        "evals/public-pool-v5/development.jsonl": {
+          "records": 980,
+          "sha256": "1542b2def96f9c86510ea2976bbc68f878acef0c36aff4cd6ed19868c2d2349f"
+        },
+        "evals/public-pool-v5/test.jsonl": {
+          "records": 980,
+          "sha256": "34b527ea42bfcf23c321fac642118e50434c54fa5756a208dc7dccfa98586613"
+        },
+        "evals/public-pool-v6/development.jsonl": {
+          "records": 1328,
+          "sha256": "0d3b60dc355b4101372449bed321d420eb69618ad400b184684e46be4c33ee77"
+        },
+        "evals/public-pool-v6/test.jsonl": {
+          "records": 1328,
+          "sha256": "ea63dfe433d05ce9548399ac770a87c6b427f47662bd68121f0091ac9119493a"
+        },
+        "evals/round3/decision-r3/development.jsonl": {
+          "records": 1204,
+          "sha256": "8d5765d7aec4d08c61854f4664ca79ec2ba44ed092e9b967eaf61ed86c496d9c"
+        },
+        "evals/round3/decision-r3/test.jsonl": {
+          "records": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evals/round3/transfer-r3/development.jsonl": {
+          "records": 764,
+          "sha256": "ff374c49c6c9f15f8a56fb274b4a4857d20497eb8dd1ac07ce01560e682a5f2e"
+        },
+        "evals/round3/transfer-r3/test.jsonl": {
+          "records": 1260,
+          "sha256": "23e786cc71a72fc15b565b80d720d3dcaffb2e5c7c79c5243077592df7a46370"
+        },
+        "evals/round4/longstate-v1/development.jsonl": {
+          "records": 576,
+          "sha256": "efb8c47995d5146a58f1b562f55884b0a2166fef611e3dab8085f0031a051c4b"
+        },
+        "evals/round5/longstate-v2/development.jsonl": {
+          "records": 888,
+          "sha256": "4c03830a64479b9470fffee0b2e7da979dffa1a2c531126bd53047841c41046b"
+        },
+        "evals/round5/transfer-r5/development.jsonl": {
+          "records": 764,
+          "sha256": "ff374c49c6c9f15f8a56fb274b4a4857d20497eb8dd1ac07ce01560e682a5f2e"
+        },
+        "evals/round5/transfer-r5/test.jsonl": {
+          "records": 1260,
+          "sha256": "466e73e874f91515514ba61c388c2d767bbf652a83e0ea2a257bcf84526539c1"
+        },
+        "evals/sft-v1/development.jsonl": {
+          "records": 3483,
+          "sha256": "a5941af2227d513f823b2d24aee5840d5ece0d419e6a95e3748d5ad4da07b104"
+        },
+        "evals/smoke-v1/development.jsonl": {
+          "records": 30,
+          "sha256": "e0b18f4b8d95aaa2479a63bfc6b0af5f44bc2fd11bb87e5ca42317c5a5d8a306"
+        },
+        "evals/smoke-v1/test.jsonl": {
+          "records": 30,
+          "sha256": "740bbaa1ea4affafd7c63dff1f2103dcd9f98d7745868331fbd3472a5af41cda"
+        },
+        "evals/transfer-v1/development.jsonl": {
+          "records": 784,
+          "sha256": "c8a325cd2e04b4b4831e53a4e3165dbeed21d1db8c4b4520c942f38b936c0636"
+        },
+        "evals/transfer-v1/test.jsonl": {
+          "records": 784,
+          "sha256": "63d51ef4d81320b24c8208ffa4b493800931c3989a1a3f1d3bc5d15f6d075be3"
+        },
+        "evals/transfer-v2/development.jsonl": {
+          "records": 668,
+          "sha256": "02732ee2e662b7ec0c276f7f89ae29f44e7ce262ffac8e9c116c5bc82e5608b8"
+        },
+        "evals/transfer-v2/test.jsonl": {
+          "records": 668,
+          "sha256": "96c06100b7e94772c4eddbd61b42c1a1a9d60911ddb2c23767c11c8980618dde"
+        },
+        "evals/v3/decision-v3/development.jsonl": {
+          "records": 1204,
+          "sha256": "8d5765d7aec4d08c61854f4664ca79ec2ba44ed092e9b967eaf61ed86c496d9c"
+        },
+        "evals/v3/decision-v3/test.jsonl": {
+          "records": 1176,
+          "sha256": "cd7d129a84232e0c7a4e92b4840a6dfe14c8bb93c5d1904b526fa8c085325d2d"
+        },
+        "evals/v3/smoke-v3/development.jsonl": {
+          "records": 62,
+          "sha256": "b8a8df68bf8b673eb88888e8c2885b50db4fd98dbc91f1a7329e618d59005c01"
+        },
+        "evals/v3/smoke-v3/test.jsonl": {
+          "records": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "evals/v3/transfer-v3/development.jsonl": {
+          "records": 764,
+          "sha256": "ff374c49c6c9f15f8a56fb274b4a4857d20497eb8dd1ac07ce01560e682a5f2e"
+        },
+        "evals/v3/transfer-v3/test.jsonl": {
+          "records": 764,
+          "sha256": "c30a91274f9b483aac9e4f02ada5dea953b3f1a2829456e0bc07806c4e73b517"
+        },
+        "evals/v4/decision-v4/development.jsonl": {
+          "records": 1204,
+          "sha256": "8d5765d7aec4d08c61854f4664ca79ec2ba44ed092e9b967eaf61ed86c496d9c"
+        },
+        "evals/v4/decision-v4/test.jsonl": {
+          "records": 1176,
+          "sha256": "cd7d129a84232e0c7a4e92b4840a6dfe14c8bb93c5d1904b526fa8c085325d2d"
+        },
+        "evals/v4/transfer-v4/development.jsonl": {
+          "records": 764,
+          "sha256": "ff374c49c6c9f15f8a56fb274b4a4857d20497eb8dd1ac07ce01560e682a5f2e"
+        },
+        "evals/v4/transfer-v4/test.jsonl": {
+          "records": 764,
+          "sha256": "c30a91274f9b483aac9e4f02ada5dea953b3f1a2829456e0bc07806c4e73b517"
+        },
+        "evals/v5/decision-v5/development.jsonl": {
+          "records": 1204,
+          "sha256": "8d5765d7aec4d08c61854f4664ca79ec2ba44ed092e9b967eaf61ed86c496d9c"
+        },
+        "evals/v5/decision-v5/test.jsonl": {
+          "records": 1176,
+          "sha256": "cd7d129a84232e0c7a4e92b4840a6dfe14c8bb93c5d1904b526fa8c085325d2d"
+        },
+        "evals/v5/transfer-v5/development.jsonl": {
+          "records": 764,
+          "sha256": "ff374c49c6c9f15f8a56fb274b4a4857d20497eb8dd1ac07ce01560e682a5f2e"
+        },
+        "evals/v5/transfer-v5/test.jsonl": {
+          "records": 764,
+          "sha256": "c30a91274f9b483aac9e4f02ada5dea953b3f1a2829456e0bc07806c4e73b517"
+        },
+        "evals/v6/decision-v6/development.jsonl": {
+          "records": 1204,
+          "sha256": "8d5765d7aec4d08c61854f4664ca79ec2ba44ed092e9b967eaf61ed86c496d9c"
+        },
+        "evals/v6/decision-v6/test.jsonl": {
+          "records": 1176,
+          "sha256": "cd7d129a84232e0c7a4e92b4840a6dfe14c8bb93c5d1904b526fa8c085325d2d"
+        },
+        "evals/v6/transfer-v6/development.jsonl": {
+          "records": 764,
+          "sha256": "ff374c49c6c9f15f8a56fb274b4a4857d20497eb8dd1ac07ce01560e682a5f2e"
+        },
+        "evals/v6/transfer-v6/test.jsonl": {
+          "records": 764,
+          "sha256": "c30a91274f9b483aac9e4f02ada5dea953b3f1a2829456e0bc07806c4e73b517"
+        },
+        "evals/v7/decision-v7/development.jsonl": {
+          "records": 1204,
+          "sha256": "8d5765d7aec4d08c61854f4664ca79ec2ba44ed092e9b967eaf61ed86c496d9c"
+        },
+        "evals/v7/decision-v7/test.jsonl": {
+          "records": 1176,
+          "sha256": "cd7d129a84232e0c7a4e92b4840a6dfe14c8bb93c5d1904b526fa8c085325d2d"
+        },
+        "evals/v8/decision-v8/development.jsonl": {
+          "records": 1204,
+          "sha256": "8d5765d7aec4d08c61854f4664ca79ec2ba44ed092e9b967eaf61ed86c496d9c"
+        },
+        "evals/v8/decision-v8/test.jsonl": {
+          "records": 1176,
+          "sha256": "cd7d129a84232e0c7a4e92b4840a6dfe14c8bb93c5d1904b526fa8c085325d2d"
+        },
+        "evals/v9/transfer-v9/development.jsonl": {
+          "records": 1264,
+          "sha256": "53872ba045564315cf3c3dd8fb656e76441c6c514b1a7ff985ff0db3955710cf"
+        },
+        "evals/v9/transfer-v9/test.jsonl": {
+          "records": 1264,
+          "sha256": "048abea5e12c73c3a622ce5836898c00fa43766e0bf48fb2459e77ee9873497f"
+        }
+      }
+    },
+    "contractnli": {
+      "items": 80,
+      "files": {}
+    },
+    "ledgar": {
+      "items": 78622,
+      "files": {
+        "ledgar/train-00000-of-00001.parquet": {
+          "items": 60000,
+          "sha256": "e2901d9e019f5652dadda839d488155c681e50b90bd33f00574949418827867d"
+        },
+        "ledgar/validation-00000-of-00001.parquet": {
+          "items": 10000,
+          "sha256": "55ef0deada1ed75bbf13c68fdd1c1a1ebfa5b09176d5e68b92499234f51d6c9f"
+        },
+        "ledgar/test-00000-of-00001.parquet": {
+          "items": 10000,
+          "sha256": "af9ed0ec09545d39449ffddca3996a1a7774e2bd0a9d6fc09d4e9dd067892a7a"
+        }
+      }
+    },
+    "sft_v1_ledgar": {
+      "items": 4983,
+      "files": {
+        "evals/sft-v1/train.jsonl": {
+          "ledgar_records": 4650,
+          "sha256": "334c18b8bd70ff5145694826b86243b25d9e003e119ef56dcb32a53d4a16346e"
+        },
+        "evals/sft-v1/calibration.jsonl": {
+          "ledgar_records": 250,
+          "sha256": "c011d6d9c1f3f05b4e36b0a5bea130c9a9585a8a53b11e50cf260237bab36bf9"
+        },
+        "evals/sft-v1/development.jsonl": {
+          "ledgar_records": 100,
+          "sha256": "a5941af2227d513f823b2d24aee5840d5ece0d419e6a95e3748d5ad4da07b104"
+        }
+      }
+    }
+  },
+  "partitions": {
+    "development": {
+      "jevbench": {
+        "cuad/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0005
+        },
+        "synthetic/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0
+        },
+        "cuad/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.002
+        },
+        "synthetic/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0
+        },
+        "cuad/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.002
+        },
+        "synthetic/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0
+        },
+        "cuad/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.002
+        },
+        "synthetic/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0
+        },
+        "cuad/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.002
+        },
+        "synthetic/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0
+        }
+      },
+      "kev_eval": {
+        "cuad/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.375
+        },
+        "synthetic/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0192
+        },
+        "cuad/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.375
+        },
+        "synthetic/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0192
+        },
+        "cuad/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.4062
+        },
+        "synthetic/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0192
+        },
+        "cuad/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 1,
+          "max_containment": 0.5
+        },
+        "synthetic/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0192
+        },
+        "cuad/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.4118
+        },
+        "synthetic/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0192
+        }
+      },
+      "contractnli": {
+        "cuad/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0259
+        },
+        "synthetic/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0029
+        },
+        "cuad/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0763
+        },
+        "synthetic/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0029
+        },
+        "cuad/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0763
+        },
+        "synthetic/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0029
+        },
+        "cuad/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0811
+        },
+        "synthetic/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0029
+        },
+        "cuad/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0777
+        },
+        "synthetic/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0029
+        }
+      },
+      "ledgar": {
+        "cuad/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 30,
+          "max_containment": 1.0
+        },
+        "synthetic/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.3529
+        },
+        "cuad/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 63,
+          "max_containment": 1.0
+        },
+        "synthetic/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.3529
+        },
+        "cuad/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 84,
+          "max_containment": 1.0
+        },
+        "synthetic/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.3529
+        },
+        "cuad/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 108,
+          "max_containment": 1.0
+        },
+        "synthetic/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.3529
+        },
+        "cuad/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 120,
+          "max_containment": 1.0
+        },
+        "synthetic/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.3529
+        }
+      },
+      "sft_v1_ledgar": {
+        "cuad/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 13,
+          "max_containment": 0.5789
+        },
+        "synthetic/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.16
+        },
+        "cuad/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 23,
+          "max_containment": 0.831
+        },
+        "synthetic/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.16
+        },
+        "cuad/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 42,
+          "max_containment": 0.831
+        },
+        "synthetic/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.16
+        },
+        "cuad/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 56,
+          "max_containment": 0.8521
+        },
+        "synthetic/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.16
+        },
+        "cuad/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 95,
+          "max_containment": 0.9041
+        },
+        "synthetic/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.16
+        }
+      }
+    },
+    "test": {
+      "jevbench": {
+        "cuad/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0005
+        },
+        "synthetic/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0
+        },
+        "cuad/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0005
+        },
+        "synthetic/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0
+        },
+        "cuad/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0006
+        },
+        "synthetic/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0
+        },
+        "cuad/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0007
+        },
+        "synthetic/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0
+        },
+        "cuad/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0007
+        },
+        "synthetic/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0
+        }
+      },
+      "kev_eval": {
+        "cuad/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.2647
+        },
+        "synthetic/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0192
+        },
+        "cuad/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.2812
+        },
+        "synthetic/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0192
+        },
+        "cuad/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.3235
+        },
+        "synthetic/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0192
+        },
+        "cuad/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.3235
+        },
+        "synthetic/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0192
+        },
+        "cuad/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.3438
+        },
+        "synthetic/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0192
+        }
+      },
+      "contractnli": {
+        "cuad/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0281
+        },
+        "synthetic/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0029
+        },
+        "cuad/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0292
+        },
+        "synthetic/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0029
+        },
+        "cuad/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0336
+        },
+        "synthetic/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0029
+        },
+        "cuad/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0483
+        },
+        "synthetic/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0029
+        },
+        "cuad/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.069
+        },
+        "synthetic/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.0029
+        }
+      },
+      "ledgar": {
+        "cuad/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 35,
+          "max_containment": 1.0
+        },
+        "synthetic/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.3529
+        },
+        "cuad/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 58,
+          "max_containment": 1.0
+        },
+        "synthetic/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.3529
+        },
+        "cuad/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 86,
+          "max_containment": 1.0
+        },
+        "synthetic/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.3529
+        },
+        "cuad/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 106,
+          "max_containment": 1.0
+        },
+        "synthetic/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.3529
+        },
+        "cuad/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 117,
+          "max_containment": 1.0
+        },
+        "synthetic/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.3529
+        }
+      },
+      "sft_v1_ledgar": {
+        "cuad/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 13,
+          "max_containment": 0.5789
+        },
+        "synthetic/4k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.16
+        },
+        "cuad/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 17,
+          "max_containment": 0.7143
+        },
+        "synthetic/8k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.16
+        },
+        "cuad/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 40,
+          "max_containment": 0.7143
+        },
+        "synthetic/16k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.16
+        },
+        "cuad/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 58,
+          "max_containment": 0.8824
+        },
+        "synthetic/32k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.16
+        },
+        "cuad/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 90,
+          "max_containment": 0.9437
+        },
+        "synthetic/64k": {
+          "records": 120,
+          "exact_state": 0,
+          "overlapping": 0,
+          "max_containment": 0.16
+        }
+      }
+    }
+  },
+  "note": "counts only; no reference text is stored. A record overlaps a collection when one of its items has >= 0.5 of its word 8-grams inside the record (after dropping grams shared by > 50 of that collection's items).",
+  "cuad_targets": {
+    "ledgar": {
+      "development": {
+        "targets": 102,
+        "with_contained_item": 42
+      },
+      "test": {
+        "targets": 99,
+        "with_contained_item": 40
+      },
+      "titles_with_contained_item": [
+        "2ThemartComInc_19990826_10-12G_EX-10.10_6700288_EX-10.10_Co-Branding Agreement_ Agency Agreement",
+        "ABILITYINC_06_15_2020-EX-4.25-SERVICES AGREEMENT",
+        "ADUROBIOTECH,INC_06_02_2020-EX-10.7-CONSULTING AGREEMENT",
+        "ADUROBIOTECH,INC_06_02_2020-EX-10.7-CONSULTING AGREEMENT(1)",
+        "ATMOSENERGYCORP_11_22_2002-EX-10.17-TRANSPORTATION SERVICE AGREEMENT",
+        "AgapeAtpCorp_20191202_10-KA_EX-10.1_11911128_EX-10.1_Supply Agreement",
+        "ArcGroupInc_20171211_8-K_EX-10.1_10976103_EX-10.1_Sponsorship Agreement",
+        "ArconicRolledProductsCorp_20191217_10-12B_EX-2.7_11923804_EX-2.7_Trademark License Agreement",
+        "BLACKBOXSTOCKSINC_08_05_2014-EX-10.1-DISTRIBUTOR AGREEMENT",
+        "BravatekSolutionsInc_20170418_8-K_EX-10.1_10205739_EX-10.1_Reseller Agreement",
+        "CANOPETROLEUM,INC_12_13_2007-EX-10.1-Sponsorship Agreement",
+        "CHERRYHILLMORTGAGEINVESTMENTCORP_09_26_2013-EX-10.1-Strategic Alliance Agreement",
+        "CORALGOLDRESOURCES,LTD_05_28_2020-EX-4.1-CONSULTING AGREEMENT",
+        "CcRealEstateIncomeFundadv_20181205_POS 8C_EX-99.(H)(3)_11447739_EX-99.(H)(3)_Marketing Agreement",
+        "CnsPharmaceuticalsInc_20200326_8-K_EX-10.1_12079626_EX-10.1_Development Agreement",
+        "DOMINIADVISORTRUST_02_18_2005-EX-99.(H)(2)-SPONSORSHIP AGREEMENT",
+        "DRIVENDELIVERIES,INC_05_22_2020-EX-10.4-CONSULTING AGREEMENT",
+        "DYNTEKINC_07_30_1999-EX-10-ONLINE HOSTING AGREEMENT",
+        "DeltathreeInc_19991102_S-1A_EX-10.19_6227850_EX-10.19_Co-Branding Agreement_ Service Agreement",
+        "EcoScienceSolutionsInc_20171117_8-K_EX-10.1_10956472_EX-10.1_Endorsement Agreement",
+        "EmmisCommunicationsCorp_20191125_8-K_EX-10.6_11906433_EX-10.6_Marketing Agreement",
+        "FEDERATEDGOVERNMENTINCOMESECURITIESINC_04_28_2020-EX-99.SERV AGREE-SERVICES AGREEMENT",
+        "FLOTEKINDUSTRIESINCCN_05_09_2019-EX-10.1-SUPPLY AGREEMENT",
+        "FreezeTagInc_20180411_8-K_EX-10.1_11139603_EX-10.1_Sponsorship Agreement",
+        "FulucaiProductionsLtd_20131223_10-Q_EX-10.9_8368347_EX-10.9_Content License Agreement",
+        "GAINSCOINC_01_21_2010-EX-10.41-SPONSORSHIP AGREEMENT",
+        "GIGGLESN_HUGS,INC_06_23_2016-EX-10.2-STRATEGIC ALLIANCE AGREEMENT",
+        "GWG HOLDINGS, INC. - ORDERLY MARKETING AGREEMENT",
+        "GentechHoldingsInc_20190808_1-A_EX1A-6 MAT CTRCT_11776814_EX1A-6 MAT CTRCT_Distributor Agreement",
+        "GridironBionutrientsInc_20171206_8-K_EX-10.1_10972555_EX-10.1_Endorsement Agreement",
+        "HOLIDAYRVSUPERSTORESINC_04_15_2002-EX-10.13-ENDORSEMENT AGREEMENT",
+        "HPILHOLDING_01_07_2015-EX-99.1-COOPERATION AGREEMENT",
+        "HertzGroupRealtyTrustInc_20190920_S-11A_EX-10.8_11816941_EX-10.8_Trademark License Agreement",
+        "HfEnterprisesInc_20191223_S-1_EX-10.22_11931299_EX-10.22_Development Agreement",
+        "IMAGEWARESYSTEMSINC_12_20_1999-EX-10.22-MAINTENANCE AGREEMENT",
+        "InnerscopeHearingTechnologiesInc_20181109_8-K_EX-10.6_11419704_EX-10.6_Distributor Agreement",
+        "JINGWEIINTERNATIONALLTD_10_04_2007-EX-10.7-INTELLECTUAL PROPERTY AGREEMENT",
+        "KIROMICBIOPHARMA,INC_05_11_2020-EX-10.23-CONSULTING AGREEMENT",
+        "KNOWLABS,INC_08_15_2005-EX-10-INTELLECTUAL PROPERTY AGREEMENT",
+        "LEGACYTECHNOLOGYHOLDINGS,INC_12_09_2005-EX-10.2-DISTRIBUTOR AGREEMENT",
+        "LOGANSROADHOUSEINC_03_27_1998-EX-10.17-SPONSORSHIP AGREEMENT",
+        "LOOKSMARTLTD_07_20_2012-EX-99.(D)(I)-SPONSORSHIP AGREEMENT",
+        "LegacyEducationAllianceInc_20141110_8-K_EX-10.9_8828866_EX-10.9_Endorsement Agreement",
+        "LifewayFoodsInc_20160316_10-K_EX-10.24_9489766_EX-10.24_Endorsement Agreement",
+        "MARSHALLHOLDINGSINTERNATIONAL,INC_04_14_2004-EX-10.15-ENDORSEMENT AGREEMENT",
+        "MEDALISTDIVERSIFIEDREIT,INC_05_18_2020-EX-10.1-CONSULTING AGREEMENT",
+        "MERITLIFEINSURANCECO_06_19_2020-EX-10.(XIV)-MASTER SERVICES AGREEMENT",
+        "MOSSIMOINC_04_14_2000-EX-10.14-ENDORSEMENT AGREEMENT",
+        "MOVADOGROUPINC_04_30_2003-EX-10.28-ENDORSEMENT AGREEMENT",
+        "MSCIINC_02_28_2008-EX-10.10-",
+        "MorganStanleyDirectLendingFund_20191119_10-12GA_EX-10.5_11898508_EX-10.5_Trademark License Agreement",
+        "NEONSYSTEMSINC_03_01_1999-EX-10.5-DISTRIBUTOR AGREEMENT_Amendment",
+        "NOVOINTEGRATEDSCIENCES,INC_12_23_2019-EX-10.1-JOINT VENTURE AGREEMENT",
+        "NeuroboPharmaceuticalsInc_20190903_S-4_EX-10.36_11802165_EX-10.36_Manufacturing Agreement_ Supply Agreement",
+        "NmfSlfIInc_20200115_10-12GA_EX-10.5_11946987_EX-10.5_Trademark License Agreement",
+        "OAKTREECAPITALGROUP,LLC_03_02_2020-EX-10.8-Services Agreement",
+        "ON4COMMUNICATIONSINC_07_02_2009-EX-10.1-PROMOTION AGREEMENT",
+        "PANDIONTHERAPEUTICSHOLDCOLLC_05_22_2020-EX-10.17-CONSULTING AGREEMENT",
+        "PLAYAHOTELS_RESORTSNV_03_14_2017-EX-10.22-STRATEGIC ALLIANCE AGREEMENT (Hyatt Ziva Cancun)",
+        "PREMIERBIOMEDICALINC_05_14_2020-EX-10.2-INTELLECTUAL PROPERTY AGREEMENT",
+        "PROLONGINTERNATIONALCORP_03_23_1998-EX-10.16-SPONSORSHIP AGREEMENT",
+        "PalmerSquareCapitalBdcInc_20200116_10-12GA_EX-10.6_11949289_EX-10.6_Trademark License Agreement",
+        "PcquoteComInc_19990721_S-1A_EX-10.11_6377149_EX-10.11_Co-Branding Agreement1",
+        "PharmagenInc_20120803_8-KA_EX-10.1_7693204_EX-10.1_Endorsement Agreement",
+        "PrecheckHealthServicesInc_20200320_8-K_EX-99.2_12070169_EX-99.2_Distributor Agreement",
+        "Quaker Chemical Corporation - NON COMPETITION AND NON SOLICITATION AGREEMENT",
+        "SONUSCORP_03_12_1997-EX-10.11-SPONSORSHIP AGREEMENT",
+        "SPHERE3DCORP_06_24_2020-EX-10.12-CONSULTING AGREEMENT",
+        "SPOKHOLDINGS,INC_06_19_2020-EX-10.1-COOPERATION AGREEMENT",
+        "STWRESOURCESHOLDINGCORP_08_06_2014-EX-10.1-COOPERATION AGREEMENT",
+        "SightLife Surgical, Inc. - STRATEGIC SALES _ MARKETING AGREEMENT",
+        "SimplicityEsportsGamingCompany_20181130_8-K_EX-10.1_11444071_EX-10.1_Franchise Agreement",
+        "TRANSMONTAIGNEPARTNERSLLC_03_13_2020-EX-10.9-SERVICES AGREEMENT",
+        "UAGHINC_04_14_2004-EX-10.18-MAINTENANCE AGREEMENT",
+        "VARIABLESEPARATEACCOUNT_04_30_2014-EX-13.C-UNCONDITIONAL CAPITAL MAINTENANCE AGREEMENT",
+        "VERSOTECHNOLOGIESINC_12_28_2007-EX-99.3-INTELLECTUAL PROPERTY AGREEMENT",
+        "VnueInc_20150914_8-K_EX-10.1_9259571_EX-10.1_Promotion Agreement",
+        "WARNERCHILCOTTPLC_12_31_2003-EX-4.36-DEVELOPMENT AGREEMENT",
+        "WESTERN COPPER - NON-COMPETITION AGREEMENT",
+        "WebmdHealthCorp_20050908_S-1A_EX-10.7_1027007_EX-10.7_Content License Agreement",
+        "XLITECHNOLOGIES,INC_12_11_2015-EX-10.1-Sponsorship Agreement",
+        "XinhuaSportsEntertainmentLtd_20070221_F-1_EX-99.4_645553_EX-99.4_Content License Agreement"
+      ]
+    },
+    "sft_v1_ledgar": {
+      "development": {
+        "targets": 102,
+        "with_contained_item": 17
+      },
+      "test": {
+        "targets": 99,
+        "with_contained_item": 14
+      },
+      "titles_with_contained_item": [
+        "ABILITYINC_06_15_2020-EX-4.25-SERVICES AGREEMENT",
+        "AgapeAtpCorp_20191202_10-KA_EX-10.1_11911128_EX-10.1_Supply Agreement",
+        "BerkshireHillsBancorpInc_20120809_10-Q_EX-10.16_7708169_EX-10.16_Endorsement Agreement",
+        "COOLTECHNOLOGIES,INC_10_25_2017-EX-10.71-Strategic Alliance Agreement",
+        "CcRealEstateIncomeFundadv_20181205_POS 8C_EX-99.(H)(3)_11447739_EX-99.(H)(3)_Marketing Agreement",
+        "DYNTEKINC_07_30_1999-EX-10-ONLINE HOSTING AGREEMENT",
+        "DeltathreeInc_19991102_S-1A_EX-10.19_6227850_EX-10.19_Co-Branding Agreement_ Service Agreement",
+        "EcoScienceSolutionsInc_20171117_8-K_EX-10.1_10956472_EX-10.1_Endorsement Agreement",
+        "FulucaiProductionsLtd_20131223_10-Q_EX-10.9_8368347_EX-10.9_Content License Agreement",
+        "GLOBALTECHNOLOGIESLTD_06_08_2020-EX-10.16-CONSULTING AGREEMENT",
+        "GWG HOLDINGS, INC. - ORDERLY MARKETING AGREEMENT",
+        "HOLIDAYRVSUPERSTORESINC_04_15_2002-EX-10.13-ENDORSEMENT AGREEMENT",
+        "IVILLAGEINC_03_17_1999-EX-10.16-SPONSORSHIP AGREEMENT",
+        "JINGWEIINTERNATIONALLTD_10_04_2007-EX-10.7-INTELLECTUAL PROPERTY AGREEMENT",
+        "LIGHTBRIDGECORP_11_23_2015-EX-10.26-STRATEGIC ALLIANCE AGREEMENT",
+        "LifewayFoodsInc_20160316_10-K_EX-10.24_9489766_EX-10.24_Endorsement Agreement",
+        "MARSHALLHOLDINGSINTERNATIONAL,INC_04_14_2004-EX-10.15-ENDORSEMENT AGREEMENT",
+        "MEDALISTDIVERSIFIEDREIT,INC_05_18_2020-EX-10.1-CONSULTING AGREEMENT",
+        "MorganStanleyDirectLendingFund_20191119_10-12GA_EX-10.5_11898508_EX-10.5_Trademark License Agreement",
+        "ON4COMMUNICATIONSINC_07_02_2009-EX-10.1-PROMOTION AGREEMENT",
+        "PACIFICSYSTEMSCONTROLTECHNOLOGYINC_08_24_2000-EX-10.53-SPONSORSHIP AGREEMENT",
+        "PLAYAHOTELS_RESORTSNV_03_14_2017-EX-10.22-STRATEGIC ALLIANCE AGREEMENT (Hyatt Ziva Cancun)",
+        "PREMIERBIOMEDICALINC_05_14_2020-EX-10.2-INTELLECTUAL PROPERTY AGREEMENT",
+        "PerformanceSportsBrandsInc_20110909_S-1_EX-10.10_7220214_EX-10.10_Endorsement Agreement",
+        "PharmagenInc_20120803_8-KA_EX-10.1_7693204_EX-10.1_Endorsement Agreement",
+        "SPOKHOLDINGS,INC_06_19_2020-EX-10.1-COOPERATION AGREEMENT",
+        "SightLife Surgical, Inc. - STRATEGIC SALES _ MARKETING AGREEMENT",
+        "VERSOTECHNOLOGIESINC_12_28_2007-EX-99.3-INTELLECTUAL PROPERTY AGREEMENT",
+        "WOMENSGOLFUNLIMITEDINC_03_29_2000-EX-10.13-ENDORSEMENT AGREEMENT",
+        "WOMENSGOLFUNLIMITEDINC_03_29_2000-EX-10.13-ENDORSEMENT AGREEMENT - Intellectual Property Rights                 Confidentiality and Non-Use Obligations Agreement",
+        "XinhuaSportsEntertainmentLtd_20070221_F-1_EX-99.4_645553_EX-99.4_Content License Agreement"
+      ]
+    }
+  }
+}
