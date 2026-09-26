@@ -442,7 +442,7 @@ def _pool_round(root):
     write_json(root / "r99.json", {
         "round": 99, "registered": "test", "gpu": "H200",
         "reads": {tag: {"suite": "evals/v4/transfer-v4"} for tag in ("main", "cal", "v9", "transfer4")} | {"locked": {"entrypoint": "locked_test", "decision": "evals/v7/decision-v7"}},
-        "temperature": {"reads": ["cal", "v9"], "sources": {"cal": ["s"]}, "exclude_reads": ["transfer"]},
+        "temperature": {"reads": ["cal", "v9"], "sources": {"cal": ["mmlu"]}, "exclude_reads": ["transfer"]},   # mmlu: a transfer-v4 source
         "parents": {"p": {"trial": "runs/p/00-trial-0", "reads": {"main": "runs/p-main"}}},
         "arms": {"x-trained": {"trial": "runs/s/00-trial-0", "parent": "p"},
                  "x-wise": {"checkpoint": "/runs/wise/x-w50/checkpoint", "parent": "p", "transfer_read": "transfer4"}},
@@ -457,7 +457,7 @@ def _pool_round(root):
     for d, seed in (("runs/p/00-trial-0/transfer", 2), ("runs/s/00-trial-0/transfer", 3), ("runs/r99-x-wise-transfer4", 4)): _rows(root, d, transfer_ids, seed)
     for d, seed in (("runs/p-main", 5), ("runs/r99-x-trained-main", 6), ("runs/r99-x-wise-main", 7)): _rows(root, d, [f"m/{i}" for i in range(50)], seed)
     for arm in ("x-trained", "x-wise"):
-        cal = _rows(root, f"runs/r99-{arm}-cal", [f"c/{i}" for i in range(80)], 8) + _rows(root, f"runs/r99-{arm}-other", [f"o/{i}" for i in range(10)], 11, source="other")
+        cal = _rows(root, f"runs/r99-{arm}-cal", [f"c/{i}" for i in range(80)], 8, source="mmlu") + _rows(root, f"runs/r99-{arm}-other", [f"o/{i}" for i in range(10)], 11, source="other")
         for r in cal[-10:]: r.update(logits=[20.0, 0.0, 0.0], p=[1.0, 0.0, 0.0], label=1)   # another source, confidently wrong
         write_json(root / f"runs/r99-{arm}-cal/rows.json", cal)
         v9 = _rows(root, f"runs/r99-{arm}-v9", [f"v/{i}" for i in range(30)] + transfer_ids[:5], 9)
@@ -478,7 +478,7 @@ def test_arms_are_served_at_the_pooled_temperature_and_parents_at_their_own(tmp_
     assert wise["temperature"] == served(pooled, [])[0] != served(unfiltered, [])[0]   # the filtered rows would move the fit
     assert trained["temperature"] == wise["temperature"]                               # same pool rows here, different arm
     assert wise["parent_temperature"] == rounds.temperature("runs/p/00-trial-0", tmp_path)
-    assert wise["temperature_fit"] == {"reads": ["runs/r99-x-wise-cal", "runs/r99-x-wise-v9"], "sources": {"runs/r99-x-wise-cal": ["s"]},
+    assert wise["temperature_fit"] == {"reads": ["runs/r99-x-wise-cal", "runs/r99-x-wise-v9"], "sources": {"runs/r99-x-wise-cal": ["mmlu"]},
                                        "exclude_reads": ["runs/r99-x-wise-transfer4"], "questions": 110, "excluded_questions": 5}   # 80 + 30 knowable; the 10 unknowable never count
     assert trained["temperature_fit"]["exclude_reads"] == ["runs/s/00-trial-0/transfer"] and wise["checkpoint"] == "/runs/wise/x-w50/checkpoint" and wise["trial"] is None
     assert wise["complete"] and wise["panels"]["main"]["n"] == 90                     # main (50) + transfer4 standing in for transfer (40)
@@ -492,7 +492,7 @@ def test_calibrate_checkpoint_ships_the_pooled_temperature(tmp_path):
     from kev.metrics import TEMPERATURE_FIT, fit_temperature
     from scripts.calibrate_checkpoint import fit_rows
     spec = _pool_round(tmp_path)
-    rows = fit_rows([f"{tmp_path}/runs/r99-x-wise-cal/rows.json:s", f"{tmp_path}/runs/r99-x-wise-v9/rows.json"], [tmp_path / "runs/r99-x-wise-transfer4/rows.json"])
+    rows = fit_rows([f"{tmp_path}/runs/r99-x-wise-cal/rows.json:mmlu", f"{tmp_path}/runs/r99-x-wise-v9/rows.json"], [tmp_path / "runs/r99-x-wise-transfer4/rows.json"])
     assert fit_temperature(rows, **TEMPERATURE_FIT) == rounds.arm_side(spec, "x-wise", tmp_path).t
 
 
@@ -647,7 +647,7 @@ def test_from_round_21_a_temperature_criterion_needs_a_pool(tmp_path):
         assert rounds.pool_required_problems({**spec, "round": number}) == []
         assert any(w.startswith("arm x-trained will be served") for w in rounds.calibration_warnings({**spec, "round": number}, tmp_path))
     assert not any(w.startswith("arm ") for w in rounds.calibration_warnings(spec, tmp_path))   # round 99: a problem, not a warning
-    spec["temperature"] = {"reads": ["cal"], "sources": {"cal": ["s"]}}
+    spec["temperature"] = {"reads": ["cal"], "sources": {"cal": ["mmlu"]}}
     spec["arms"]["x-trained"]["reads"] = {"cal": "runs/r99-x-trained-cal", "main": "runs/r99-x-trained-main"}
     assert rounds.pool_required_problems(spec) == [] and rounds.validate(spec, tmp_path, rows=False, plans=False).problems == []
 
@@ -681,6 +681,70 @@ def test_a_parent_served_far_from_its_shipped_temperature_is_warned_about(tmp_pa
     assert rounds.validate(spec, tmp_path, rows=False, plans=False).problems == []   # report only
     source = rounds.readout(spec, tmp_path)["arms"]["x-wise"]["parent_temperature_source"]
     assert source == {"kind": "trial development rows", "rows": "runs/p/00-trial-0/development", "suite": "evals/v7/decision-v7", "training_corpus": True, "shipped": served_t + 0.2}
+
+
+def test_a_data_file_outside_evals_cannot_be_checked(tmp_path):
+    """A trial trained with `data` outside evals/ (kev.train --data): its sources cannot be listed, so the pool cannot be
+    checked against it. A problem for a new round, reported (archived) for a recorded one; never silently dropped."""
+    spec = _pool_round(tmp_path)
+    _trained_on(tmp_path, "runs/s/00-trial-0", "evals/v7/decision-v7", data="/data/mine.jsonl")
+    assert rounds.trial_training(spec, "runs/s/00-trial-0", tmp_path).unlisted == ("data /data/mine.jsonl (outside evals/)",)
+    problems, archived = rounds.validate(spec, tmp_path, rows=False, plans=False)
+    assert any("arm x-trained: cannot list the sources of data /data/mine.jsonl (outside evals/)" in p for p in problems) and archived == []
+    problems, archived = rounds.validate({**spec, "archive": "tag"}, tmp_path, rows=False, plans=False)
+    assert problems == [] and any("data /data/mine.jsonl (outside evals/)" in a for a in archived)
+    _trained_on(tmp_path, "runs/s/00-trial-0", "evals/v7/decision-v7", data="evals/round6/b1v2/train.jsonl")   # inside evals/: its suite counts
+    training = rounds.trial_training(spec, "runs/s/00-trial-0", tmp_path)
+    assert "evals/round6/b1v2" in training.suites and training.unlisted == ()
+
+
+def test_a_sources_allowlist_typo_is_a_problem(tmp_path):
+    """A pool read's allowlist names only sources its suite lists: a typo would silently shrink the pool. Round 20's passes."""
+    assert rounds.validate(rounds.load(ROOT / "experiments/rounds/r20.json"), ROOT, rows=False, plans=False).problems == []
+    spec = _pool_round(tmp_path)
+    spec["temperature"]["sources"]["cal"] = ["mmlu", "emotoin"]
+    assert "temperature: sources for 'cal' name ['emotoin'] which evals/v4/transfer-v4 does not contain" in rounds.validate(spec, tmp_path, rows=False, plans=False).problems
+    spec["reads"]["nosrc"] = {"suite": "evals/round15/joint"}                                                  # a manifest listing no sources
+    assert rounds.allowlist_problems("nosrc", "evals/round15/joint", ["x"]) == ["temperature: cannot check the sources allowlist of 'nosrc': 'evals/round15/joint' lists no sources in this checkout"]
+
+
+def test_calibrate_checkpoint_manual_temperature_needs_a_reason(tmp_path, monkeypatch):
+    from kev.checkpoint import read_meta
+    run = _checkpoint(tmp_path)
+    _rows(tmp_path, "loose", [f"d/{i}" for i in range(30)], 1)
+    with pytest.raises(SystemExit):   # argparse error: no --reason
+        _calibrate(monkeypatch, "--run", run, "--rows", tmp_path / "loose/rows.json", "--temperature", "1.41")
+    _calibrate(monkeypatch, "--run", run, "--rows", tmp_path / "loose/rows.json", "--temperature", "1.41", "--reason", "copied from the pool fit of runs/r20-readout")
+    meta = read_meta(run)
+    assert meta.temperature == 1.41 and meta.extra["temperature_fit"] == {"method": "manual", "reason": "copied from the pool fit of runs/r20-readout"}
+    with pytest.raises(SystemExit, match=r"\['mmluu'\] not among the sources of these rows \['s'\]"):   # an allowlist typo is refused before anything else
+        _calibrate(monkeypatch, "--run", run, "--rows", f"{tmp_path / 'loose/rows.json'}:mmluu")
+
+
+def test_state_lengths_count_the_encoded_state_segment(monkeypatch):
+    """One definition of a state's token count: kev.model.encode's state segment, <state> token included (what serve reports)."""
+    from kev.data import materialize
+    from kev.model import encode
+    records = [{"state": "Refund window: 30 days. Order placed 12 days ago.", "questions": {"q": {"type": "noul", "instructions": "Refundable?", "label": True, "src": "x"}},
+                "_meta": {"id": "r/0"}}]
+    class Tok:   # characters as tokens, plus the special tokens encode asks for
+        def __call__(self, text, add_special_tokens=False): return type("E", (), {"input_ids": [ord(c) for c in text]})()
+        def convert_tokens_to_ids(self, t): return 1
+    monkeypatch.setattr(rounds, "load_split", lambda *a, **k: records)
+    monkeypatch.setattr("kev.model.load_tokenizer", lambda *a: Tok())
+    rounds.state_lengths.cache_clear()
+    try:
+        n = rounds.state_lengths("evals/x", "development", ("t", "r"))["r/0"]
+    finally:
+        rounds.state_lengths.cache_clear()
+    assert n == encode(Tok(), materialize(records[0]))["seg"].count(0) == len(materialize(records[0])["state"]) + 1
+
+
+def test_a_malformed_by_length_option_is_a_problem_not_a_crash(tmp_path):
+    spec = _pool_round(tmp_path)
+    for option in ({"edges": 8192}, {"tokenizer": 5}, {"edges": [8192, "16k"]}):
+        spec["rule"]["panels"]["long"] = {"reads": ["main"], "metrics": ["acc"], "by_length": option}
+        assert any("panel long: by_length" in p for p in rounds.validate(spec, tmp_path, rows=False, plans=False).problems), option
 
 
 # --- calibration by state length -------------------------------------------------------------------------------------
@@ -774,7 +838,9 @@ def test_calibrate_checkpoint_refuses_its_own_training_suite(tmp_path, monkeypat
     bench = tmp_path / "runs/x-r3cal"
     _rows(tmp_path, "runs/x-r3cal", [f"c/{i}" for i in range(50)], 2, source="mmlu")
     write_json(bench / "report.json", {"suite_sha256": digest(ROOT / "evals/round3/transfer-r3/manifest.json"), "split": "calibration"})
-    _calibrate(monkeypatch, "--run", run, "--rows", f"{bench / 'rows.json'}:mmlu,emotion")
+    _calibrate(monkeypatch, "--run", run, "--rows", f"{bench / 'rows.json'}:mmlu,emotion")   # emotion: a transfer-r3 source, absent from these rows
+    with pytest.raises(SystemExit, match=r"\['emotoin'\] not among the sources of evals/round3/transfer-r3"):
+        _calibrate(monkeypatch, "--run", run, "--rows", f"{bench / 'rows.json'}:mmlu,emotoin")
     fit = read_meta(run).extra["temperature_fit"]
     assert "in_distribution" not in fit and fit["fit_rows"] == [{"rows": str(bench / "rows.json"), "suite": "evals/round3/transfer-r3", "split": "calibration", "sources": ["mmlu", "emotion"], "questions": 50}]
 

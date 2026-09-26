@@ -344,10 +344,12 @@ def by_length_problems(panel, spec):
     if option is not True and (not isinstance(option, dict) or set(option) - {"edges", "tokenizer"}):
         return ["by_length is true or {edges?, tokenizer?}"]
     problems = []
-    edges, tokenizer = by_length_options(panel)
-    try: length_buckets(edges)
-    except (ValueError, TypeError) as error: problems.append(f"by_length: {error}")
-    if len(tokenizer) != 2 or not all(isinstance(x, str) for x in tokenizer): problems.append("by_length: tokenizer is [name, revision]")
+    try:
+        edges, tokenizer = by_length_options(panel)   # tuple() of a non-iterable raises: a malformed option is a problem, not a crash
+        length_buckets(edges)
+        if len(tokenizer) != 2 or not all(isinstance(x, str) for x in tokenizer): problems.append("by_length: tokenizer is [name, revision]")
+    except (ValueError, TypeError) as error:
+        problems.append(f"by_length: {error}" if isinstance(error, ValueError) else f"by_length: edges are a list of token counts and tokenizer is [name, revision] ({error})")
     if TRANSFER in panel["reads"]: problems.append("by_length counts state tokens from a read's suite; 'transfer' names no single suite")
     problems += [f"by_length: read {tag!r} has no suite" for tag in panel["reads"] if tag in spec["reads"] and not spec["reads"][tag].get("suite")]
     return problems
@@ -355,12 +357,14 @@ def by_length_problems(panel, spec):
 
 @functools.cache
 def state_lengths(suite, split, tokenizer=ADMISSION_TOKENIZER):
-    """{record id: state tokens} of a suite partition, counted as kev.model encodes the state (user_tokens of the
-    materialised state) with the tokenizer (name, revision): the counts a by_length panel buckets both sides by."""
+    """{record id: state tokens} of a suite partition with the tokenizer (name, revision): the counts a by_length panel
+    buckets both sides by. A state's token count is its encoded state segment, as kev.model.encode builds it: the <state>
+    token plus user_tokens of the materialised state (len + 1, what encode checks against max_state and kev.serve reports
+    as `state_tokens`, seg.count(0)); the one definition behind a row's `state_tokens` (kev.metrics.calibration_by_length)."""
     from kev.data import materialize
     from kev.model import load_tokenizer, user_tokens
     tok = load_tokenizer(*tokenizer)
-    return {r["_meta"]["id"]: len(user_tokens(tok, materialize(r)["state"])) for r in load_split(ROOT / suite, split, allow_test=split == "test")}
+    return {r["_meta"]["id"]: 1 + len(user_tokens(tok, materialize(r)["state"])) for r in load_split(ROOT / suite, split, allow_test=split == "test")}
 
 
 def panel_lengths(spec, panel):
@@ -436,11 +440,14 @@ class Training(NamedTuple):
     unlisted: tuple       # training suites whose sources this checkout cannot list
 
 
-def training_data(suites):
-    """Training over suite dirs (a training suite, a `data` file's directory): each suite's trainable sources (every listed
-    source for a data-only manifest without `trainable_sources`, e.g. round6/b1v2) plus the suites its manifest names as
-    components (sft-v1's `inputs.components`: documents-v1-train -> evals/documents-v1, hard-v1-extra-train -> evals/hard-v1)."""
-    seen, sources, unlisted, todo = set(), set(), [], [d for d in suites if d]
+def training_data(suites, data=None):
+    """Training over suite dirs plus a `data` file: each suite's trainable sources (every listed source for a data-only
+    manifest without `trainable_sources`, e.g. round6/b1v2) plus the suites its manifest names as components (sft-v1's
+    `inputs.components`: documents-v1-train -> evals/documents-v1, hard-v1-extra-train -> evals/hard-v1). A `data` file
+    counts through its directory's suite; one outside evals/ (a `kev.train --data` run) cannot be checked, so it is
+    `unlisted` like any training this checkout cannot place, never silently dropped."""
+    data_dir = suite_dir(Path(data).parent) if data else None
+    seen, sources, unlisted, todo = set(), set(), [] if data_dir or not data else [f"data {data} (outside evals/)"], [d for d in (*suites, data_dir) if d]
     while todo:
         d = todo.pop(0)
         if d in seen: continue
@@ -462,11 +469,7 @@ def recorded_training(suite_sha256=None, suite=None, data=None):
     suite_sha256 (else the suite path it was given) and its `data` file's directory; None when no suite of this checkout matches."""
     trained = suite_by_digest(suite_sha256)
     if trained is None and suite and suite_dir(suite) and suite_manifest(suite_dir(suite)) is not None: trained = suite_dir(suite)
-    return training_data([trained, _data_dir(data)]) if trained else None
-
-
-def _data_dir(data):
-    return suite_dir(Path(data).parent) if data else None   # a plan's `data` is a .jsonl under evals/ (experiment.validated_trial)
+    return training_data([trained], data) if trained else None
 
 
 def _study(spec, trial):
@@ -489,7 +492,7 @@ def trial_training(spec, trial, root=ROOT):
         plan = next((p / study["plan"] for p in (Path(root), ROOT) if (p / study["plan"]).exists()), None)
         entries, index = (read_json(plan) if plan else []), Path(trial).name.split("-")[0]
         data = entries[int(index)].get("data") if isinstance(entries, list) and index.isdigit() and int(index) < len(entries) else None
-        if plan or not provenance.exists(): return training_data([suite_dir(study["suite"]), _data_dir(data)])
+        if plan or not provenance.exists(): return training_data([suite_dir(study["suite"])], data)
     if not provenance.exists(): return None
     p = read_json(provenance)
     return recorded_training(p.get("suite_sha256"), data=p.get("config", {}).get("data"))
@@ -520,8 +523,9 @@ def pool_conflicts(pooled, training):
 def pool_training_problems(spec, root=ROOT):
     """(problems, unknown) of the round's `temperature` pool against every arm's training data (pool_conflicts; message
     names round 19's failure mode). An arm's training comes from `trained_on`, else from its trial (trial_training); an arm
-    without either (a checkpoint made from the round's trials) is covered by the trial arms. unknown: trial arms whose
-    training this checkout cannot establish (a problem for a new round, archived for a recorded one)."""
+    without either (a checkpoint made from the round's trials) is covered by the trial arms. unknown: arms whose training
+    this checkout cannot establish or list (a trial without provenance, a manifest without sources, a `data` file outside
+    evals/): a problem for a new round, reported under archived for a recorded one."""
     pool = spec.get("temperature")
     if not pool or not pool.get("reads"): return [], []
     pooled = [(tag, spec["reads"][tag].get("suite"), read_split(spec["reads"][tag]), pool.get("sources", {}).get(tag)) for tag in pool["reads"] if tag in spec["reads"]]
@@ -537,13 +541,12 @@ def pool_training_problems(spec, root=ROOT):
                 unknown.append(f"arm {arm}: what {a['trial']} trained on is unknown (no study of this spec, no provenance.json), so the temperature pool cannot be checked against it"); continue
         else:
             continue
-        for d in training.unlisted: found.setdefault((None, d), []).append(arm)
+        unknown += [f"arm {arm}: cannot list the sources of {d}, part of its training, so the temperature pool cannot be checked against it" for d in training.unlisted]
         by_tag = {}
         for tag, why in pool_conflicts(pooled, training): by_tag.setdefault(tag, []).append(why)
         for tag, whys in by_tag.items(): found.setdefault((tag, "; ".join(whys)), []).append(arm)
     for (tag, why), arms in found.items():
-        if tag is None: problems.append(f"temperature: cannot list the sources of {why}, training data of arm(s) {', '.join(arms)}, so the pool cannot be checked against them")
-        else: problems.append(f"temperature: pooled read {tag!r} shares data with the training of arm(s) {', '.join(arms)}: {why}. This is {ROUND_19}")
+        problems.append(f"temperature: pooled read {tag!r} shares data with the training of arm(s) {', '.join(arms)}: {why}. This is {ROUND_19}")
     if not any("trained_on" in a or a.get("trial") for a in spec["arms"].values()):
         problems.append("temperature: no arm names its training (a trial or `trained_on`), so the pool cannot be checked against it")
     return problems, unknown
@@ -624,6 +627,15 @@ def _moves_with_temperature(path, rule):
     return panel != "unknowable" and by_length_names(rule["panels"].get(panel, {})).get(metric, metric) not in TEMPERATURE_FREE
 
 
+def allowlist_problems(tag, suite, sources):
+    """A pool read's `sources` allowlist against the sources its suite's manifest lists: a name the suite does not contain
+    (a typo) would silently shrink the pool, so it is a problem, as is a suite whose sources cannot be listed."""
+    m = suite_manifest(suite_dir(suite)) if suite and suite_dir(suite) else None
+    listed = listed_sources(m) if m is not None else set()
+    if not listed: return [f"temperature: cannot check the sources allowlist of {tag!r}: {suite!r} lists no sources in this checkout"]
+    return [f"temperature: sources for {tag!r} name {unknown} which {suite} does not contain" for unknown in [sorted(set(sources) - listed)] if unknown]
+
+
 def pool_problems(spec, stages):
     """What is wrong with the round's `temperature` pool: tags that are not reads of the spec, tags an arm cannot locate,
     and pooled tags inside a panel that a temperature-dependent criterion reads (any metric but accuracy, at any stage):
@@ -637,7 +649,9 @@ def pool_problems(spec, stages):
     problems += [f"temperature: exclude_reads {tag!r} is not a read tag of this spec" for tag in exclude if tag not in spec["reads"] and tag != TRANSFER]
     for tag, sources in pool.get("sources", {}).items():
         if tag not in reads: problems.append(f"temperature: sources for {tag!r}, which is not pooled")
-        if not sources or not isinstance(sources, list) or not all(isinstance(s, str) for s in sources): problems.append(f"temperature: sources for {tag!r} must be a non-empty list of source names")
+        if not sources or not isinstance(sources, list) or not all(isinstance(s, str) for s in sources):
+            problems.append(f"temperature: sources for {tag!r} must be a non-empty list of source names"); continue
+        problems += allowlist_problems(tag, spec["reads"].get(tag, {}).get("suite"), sources)
     for stage, rule in stages.items():
         for cname, c in rule["criteria"].items():
             for path in _paths(c):

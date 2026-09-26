@@ -108,7 +108,9 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   (a) a pooled suite is an arm's training suite, a component its manifest names (sft-v1's `inputs.components`) or a plan's `data`
   suite; (b) it pools sources the arm trained on; (c) it reads the `calibration` or `development` partition of any training corpus
   (a suite with trainable sources). The arm's training comes from its study in the spec or its trial's `provenance.json` (manifest
-  hash); a checkpoint arm is covered by the round's trial arms or names `trained_on`; unknown training is a problem for a new round.
+  hash); a checkpoint arm is covered by the round's trial arms or names `trained_on`; training it cannot establish or list (no provenance,
+  a manifest without sources, a `data` file outside `evals/`) is a problem for a new round, archived for a recorded one. Sources are
+  compared by name, so pools use sources that are eval-only in Kev by construction; a `sources` allowlist must name sources its suite lists.
   Why: round 19 fitted its SFT arms' temperature on `sft-v1` development rows, held-out *items* of the training sources, so
   in distribution (T 0.955, breadth-v1 ECE 0.059); round 20's pool of held-out *datasets* gave 0.0085 on the same checkpoint.
   Each arm's read-out records `temperature_source` (the pool with its reads and question count, or its trial's development rows
@@ -120,7 +122,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   development rows, is more than 0.05 from its shipped head.pt T. A panel with
   `"by_length": true` (or `{edges, tokenizer}`) adds acc / ECE / Brier / confident errors per state-token bucket
   (`kev.metrics.calibration_by_length`: under_8k, 8k_16k, 16k_32k, 32k_64k, 64k_plus and the tails 8k_plus/16k_plus/32k_plus;
-  tokens counted from the reads' suite records with `kev.suite.ADMISSION_TOKENIZER` unless given), and a criterion may read a
+  tokens = the encoded state segment, `<state>` included, as `kev.model.encode` builds it and `kev.serve` reports it, counted from the reads' suite records with `kev.suite.ADMISSION_TOKENIZER` unless given), and a criterion may read a
   bucket (`long.ece_16k_plus.candidate <= 0.05`). An arm may be a checkpoint without a trial (`"checkpoint": "/runs/..."`, its "transfer" rows
   from a `transfer_read`), e.g. a WiSE-FT interpolation (`scripts/interpolate_checkpoint.py`, `modal_app.py::interpolate`);
   deltas are `kev.rounds.paired` (2,000 resamples, seed 0, micro). Rounds 5-18 are recorded specs (`"archive": "research-archive-2026-09-24"`): their plans, reads, data builders
@@ -195,7 +197,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   Those were fitted in distribution; the script now refuses rows that share data with the checkpoint's training (its own suite,
   sources it trained on, a training corpus's calibration/development partition; `kev.rounds.pool_conflicts`, training from
   head.pt or the trial's provenance, rows' suite from the kev.benchmark `report.json` beside them) unless `--allow-in-distribution`,
-  which warns and is recorded in `head.pt["temperature_fit"]["in_distribution"]`; `temperature_fit["fit_rows"]` records each rows
+  which warns and is recorded in `head.pt["temperature_fit"]["in_distribution"]`; a manual `--temperature` needs `--reason` (recorded); `temperature_fit["fit_rows"]` records each rows
   file's suite, partition, sources and question count. Ship a temperature fitted on held-out datasets (round 20's pool). A trial's
   own `calibration_fit` (`result.json`, `calibration/temperature.json`) is labelled `role: "in-trial screening; ... not a served or shipped temperature"`. The script also reports an out-of-fold grouped-CV ECE with bootstrap CIs alongside the in-sample fit (4B: 0.075 raw -> 0.020 OOF, separated) and stores it under `head.pt["temperature_fit"]["cross_validation"]`; re-run it after any new checkpoint before publishing. Opt-in: `KEV_DATE_FACTS=1` (day counts). Delta data: evals/night2/ (scripts/build_night2_data.py). Previous generation, kept for Mac latency: `kev-8b`, `kev-0.6b`, `kev-4b@qwen3` (cards `*-qwen3.md`). Qwen3.5 backbones are hybrid (Gated DeltaNet): `DecisionModel.hybrid`
   routes `forward()` (so `kev.benchmark`) through `forward_rows_batch` (one causal row per question, state repeated) and serving and `probs()` through `_branch_rows_from_prefix` (state once, #77); the packed

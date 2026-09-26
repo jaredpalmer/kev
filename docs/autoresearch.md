@@ -73,8 +73,16 @@ A round is a PLAN.md section plus a spec, committed together before any training
      `--allow-in-distribution` is for reproducing an old fit only, and it is recorded in `head.pt["temperature_fit"]`.
    - A trial's in-trial temperature (`result.json` `calibration_fit`) says `role: in-trial screening ... not a served or
      shipped temperature`.
-   - Parents are served at their trial's development rows; the read-out records that and their shipped head.pt T
-     (`parent_temperature_source`), and `validate` warns when the two differ by more than 0.05 on a training corpus's rows.
+   - Parents are served at the temperature fitted on their trial's development rows (for Kev-27B that is its shipped 1.38,
+     fitted on the same rows); the read-out records that and their shipped head.pt T (`parent_temperature_source`), and
+     `validate` warns when the two differ by more than 0.05 on a training corpus's rows.
+   - The disjointness check is by source NAME (nominal, not semantic): two suites carrying the same dataset under different
+     names pass it. So a pool must use sources that are eval-only in Kev by construction, like transfer-r3's eight held-out
+     public sources and transfer-v9's MMLU-Pro. A pool read's `sources` allowlist must name sources its suite lists (a
+     typo is a problem), and training the checker cannot list (a `data` file outside `evals/`, a manifest without
+     sources) is a problem for a new round.
+   - `calibrate_checkpoint.py --temperature T` (a manual value, nothing fitted) needs `--reason`, recorded in
+     `head.pt["temperature_fit"]` (e.g. "copied from the pool fit of runs/r20-readout").
 5. `uv run python -m kev.rounds validate experiments/rounds/r<N>.json` (add `--partitions` to verify the partitions) until it
    prints `ok`. Commit the PLAN section and the spec in one commit, push. That commit time is the registration time.
 

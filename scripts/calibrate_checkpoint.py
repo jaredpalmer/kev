@@ -14,7 +14,9 @@ file's suite and partition from the kev.benchmark report.json beside it, or from
 (<trial>/{calibration,development,transfer}/rows.json). Rows or training this checkout cannot place are refused too.
 `--allow-in-distribution` fits anyway, prints a warning and records it (with every conflict) in
 head.pt["temperature_fit"]["in_distribution"]; head.pt["temperature_fit"]["fit_rows"] records each rows file's suite,
-partition, sources and question count either way.
+partition, sources and question count either way. A `path:source,...` allowlist must name sources the rows' suite lists
+(or, for rows it cannot place, sources present in them): a typo is refused. `--temperature T` writes a value without
+fitting and needs `--reason`, recorded in head.pt["temperature_fit"].
 
 A round that registers a temperature pool (kev.rounds, spec `temperature`: round 20) ships the temperature fitted on that
 pool, selected the same way (kev.rounds.select_rows): repeat --rows, limit a file to some sources with `path:source,...`,
@@ -34,7 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from kev.metrics import TEMPERATURE_FIT as FIT, TEMPERATURE_FIT_METHOD, cross_validated_temperature, fit_temperature, metrics, raw_row, recorded, scored_rows  # noqa: E402
 from kev.checkpoint import read_meta, write_meta  # noqa: E402
-from kev.rounds import ROUND_19, pool_conflicts, recorded_training, select_rows, suite_by_digest  # noqa: E402
+from kev.rounds import ROUND_19, listed_sources, pool_conflicts, recorded_training, select_rows, suite_by_digest, suite_manifest  # noqa: E402
 from kev.suite import read_json  # noqa: E402
 
 
@@ -47,6 +49,19 @@ def fit_rows(rows, exclude=()):
     """The clean rows a temperature is fitted on, at raw logits: --rows files (each `path` or `path:source,...`) pooled and
     filtered by kev.rounds.select_rows, as a round's temperature pool is."""
     return [raw_row(recorded(r)) for r in select_rows(_reads(rows), exclude)[0] if r["variant"] == "clean"]
+
+
+def allowlist_typos(rows):
+    """Each `path:source,...` whose allowlist names a source its suite does not contain (a typo would silently drop out): the
+    sources its suite's manifest lists (kev.rounds.listed_sources, as for a round's pool) when rows_origin places the rows,
+    else the sources present in the rows file."""
+    out = []
+    for path, sources in _reads(rows):
+        if not sources: continue
+        suite = rows_origin(path)[0]
+        known = listed_sources(suite_manifest(suite)) if suite else {r["source"] for r in read_json(path)}
+        if missing := sorted(set(sources) - known): out.append(f"{path}: {missing} not among the sources of {suite or 'these rows'} {sorted(known)[:10]}")
+    return out
 
 
 def rows_origin(path):
@@ -103,11 +118,14 @@ def main():
     ap.add_argument("--rows", required=True, action="append", help="fit set: a rows.json, optionally path:source,... to keep only those sources; repeat to pool")
     ap.add_argument("--exclude_rows", action="append", default=[], help="rows.json whose record ids are dropped from the fit set; repeatable")
     ap.add_argument("--transfer", help="out-of-domain rows.json, reported before/after (never fitted)")
-    ap.add_argument("--temperature", type=float, help="skip fitting (and cross-validation, and the in-distribution check: nothing is fitted) and write this value")
+    ap.add_argument("--temperature", type=float, help="skip fitting (and cross-validation, and the in-distribution check: nothing is fitted) and write this value; needs --reason")
+    ap.add_argument("--reason", help="with --temperature: where the value comes from, recorded in head.pt (e.g. 'copied from the pool fit of runs/r20-readout')")
     ap.add_argument("--allow-in-distribution", action="store_true", help="fit even on rows that share data with the checkpoint's training "
                     "(round 19's failure mode); warned about and recorded in head.pt")
     ap.add_argument("--folds", type=int, default=5); ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
+    if a.temperature is not None and not (a.reason or "").strip(): ap.error("--temperature needs --reason: where the value comes from (recorded in head.pt)")
+    if typos := allowlist_typos(a.rows): raise SystemExit("refusing a sources allowlist that names sources its rows do not contain (a typo shrinks the fit set):\n  " + "\n  ".join(typos))
     fitted, training_suites, problems = fit_report(a.run, a.rows, a.exclude_rows) if a.temperature is None else ([], None, [])
     if problems and not a.allow_in_distribution:
         raise SystemExit("refusing to fit a temperature on these rows:\n  " + "\n  ".join(problems) + f"\nThis is {ROUND_19}. "
@@ -123,7 +141,7 @@ def main():
     meta = read_meta(a.run)
     meta.temperature = T
     if a.temperature is not None:
-        meta.extra["temperature_fit"] = {"method": "manual"}
+        meta.extra["temperature_fit"] = {"method": "manual", "reason": a.reason.strip()}
         write_meta(a.run, meta); print(f"wrote temperature {T:.2f} to {a.run}/head.pt")
         return
     cv = cross_validated_temperature(dev, folds=a.folds, seed=a.seed, **FIT)

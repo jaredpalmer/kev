@@ -205,7 +205,8 @@ def length_buckets(edges=LENGTH_EDGES):
 
 def calibration_by_length(rows, lengths=None, edges=LENGTH_EDGES):
     """{bucket: {"n", acc, ece, brier, confident_error_rate}} of rows (scored as given, at T=1: pass them served) split by
-    state-token count: the row's own `state_tokens` when it records one, else lengths[row id] ({record id: tokens}). An
+    state-token count: the row's own `state_tokens` when it records one, else lengths[row id] ({record id: tokens}); a count
+    is the encoded state segment, the <state> token included (kev.model.encode; kev.rounds.state_lengths computes it). An
     empty bucket has n 0 and None values. The one home of per-length calibration (kev.rounds panels with `by_length`)."""
     def tokens(row):
         if row.get("state_tokens") is not None: return row["state_tokens"]
