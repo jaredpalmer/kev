@@ -361,9 +361,10 @@ def test_confirm_reproduces_the_committed_verdicts(round_number, name):
 
 
 def as_committed(report):
-    """A read-out without `temperature_source` (recorded per arm since the calibration guards; the committed read-outs of
-    rounds 19 and 20 predate it, and every other number must reproduce as committed)."""
-    return {**report, "arms": {a: {k: v for k, v in r.items() if k != "temperature_source"} for a, r in report["arms"].items()}}
+    """A read-out without `temperature_source` / `parent_temperature_source` (recorded per arm since the calibration guards;
+    the committed read-outs of rounds 19 and 20 predate them, and every other number must reproduce as committed)."""
+    new = ("temperature_source", "parent_temperature_source")
+    return {**report, "arms": {a: {k: v for k, v in r.items() if k not in new} for a, r in report["arms"].items()}}
 
 
 def test_readout_reproduces_round_19():
@@ -615,6 +616,7 @@ def test_a_trial_served_at_its_training_corpus_rows_is_flagged(tmp_path):
     warns when that suite is a training corpus (decision-v7 here, sft-v1 in round 19)."""
     spec = _pool_round(tmp_path)
     del spec["temperature"], spec["arms"]["x-wise"]
+    spec["round"] = 20   # the last round that only warns (from 21 a missing pool is refused)
     report = rounds.readout(spec, tmp_path)
     assert report["arms"]["x-trained"]["temperature_source"] == {"kind": "trial development rows", "rows": "runs/s/00-trial-0/development",
                                                                  "suite": "evals/v7/decision-v7", "training_corpus": True}
@@ -626,6 +628,59 @@ def test_a_trial_served_at_its_training_corpus_rows_is_flagged(tmp_path):
     assert warning.startswith("arm x-trained will be served at a temperature fitted on its trial's evals/v7/decision-v7 development rows") and "rule ece" in warning
     r19 = rounds.load(ROOT / "experiments/rounds/r19.json")
     assert len(rounds.calibration_warnings(r19)) == 3 and rounds.calibration_warnings(rounds.load(ROOT / "experiments/rounds/r20.json")) == []
+
+
+def test_from_round_21_a_temperature_criterion_needs_a_pool(tmp_path):
+    """Jared: make sure we don't botch calibration. From round 21 a rule or confirmation criterion the temperature moves,
+    without a registered `temperature` pool, is a problem (so launch refuses too), with the round-19 message; up to round 20
+    it stays a warning, so rounds 5-20 still validate. Accuracy-only criteria need no pool."""
+    spec = _pool_round(tmp_path)
+    del spec["temperature"], spec["arms"]["x-wise"]
+    assert rounds.pool_required_problems(spec) == []                                  # round 99, accuracy criteria only
+    spec["confirm"]["locked"]["panels"]["locked"]["metrics"].append("brier")
+    spec["confirm"]["locked"]["criteria"]["brier"] = {"left": "locked.brier.candidate", "op": "<=", "right": 0.2}   # a confirmation criterion counts too
+    [problem] = rounds.pool_required_problems(spec)
+    assert problem.startswith("temperature: round 99 registers no `temperature` pool, but 1 (confirm.locked brier) criteria") and "round 19's failure mode" in problem
+    assert problem in rounds.validate(spec, tmp_path, rows=False, plans=False).problems
+    assert problem in rounds.validate({**spec, "archive": "tag"}, tmp_path, rows=False, plans=False).problems   # the number decides, not the record
+    for number in (20, 19):
+        assert rounds.pool_required_problems({**spec, "round": number}) == []
+        assert any(w.startswith("arm x-trained will be served") for w in rounds.calibration_warnings({**spec, "round": number}, tmp_path))
+    assert not any(w.startswith("arm ") for w in rounds.calibration_warnings(spec, tmp_path))   # round 99: a problem, not a warning
+    spec["temperature"] = {"reads": ["cal"], "sources": {"cal": ["s"]}}
+    spec["arms"]["x-trained"]["reads"] = {"cal": "runs/r99-x-trained-cal", "main": "runs/r99-x-trained-main"}
+    assert rounds.pool_required_problems(spec) == [] and rounds.validate(spec, tmp_path, rows=False, plans=False).problems == []
+
+
+def test_launch_refuses_a_new_round_without_a_pool(tmp_path, monkeypatch):
+    spec = _pool_round(tmp_path)
+    del spec["temperature"], spec["arms"]["x-wise"]
+    spec["rule"]["criteria"]["ece"] = {"left": "main.ece.upper", "op": "<=", "right": 0.01}
+    monkeypatch.setattr(rounds, "ROOT", tmp_path)
+    assert any("registers no `temperature` pool" in p for p in rounds.launchable(spec, rows=False))
+    write_json(tmp_path / "r99.json", spec)
+    with pytest.raises(SystemExit, match="registers no `temperature` pool"):
+        rounds.main(["launch", str(tmp_path / "r99.json"), "--dry-run"])
+
+
+def test_a_parent_served_far_from_its_shipped_temperature_is_warned_about(tmp_path):
+    """Parents are served at their trial's development rows; the read-out records that and the head.pt temperature its
+    checkpoint ships. When those rows are a training corpus's and the two differ by more than 0.05, validate warns (report only)."""
+    from kev.checkpoint import Meta, write_meta
+    spec = _pool_round(tmp_path)
+    _trained_on(tmp_path, "runs/p/00-trial-0", "evals/v7/decision-v7")
+    served_t = rounds.temperature("runs/p/00-trial-0", tmp_path)
+    assert rounds.calibration_warnings(spec, tmp_path) == []                           # no head.pt here: nothing to compare
+    (tmp_path / "runs/p/00-trial-0/checkpoint").mkdir()
+    for shipped, warned in ((served_t + 0.04, False), (served_t + 0.2, True)):
+        write_meta(tmp_path / "runs/p/00-trial-0/checkpoint", Meta(base="b", temperature=shipped))
+        warnings = rounds.calibration_warnings(spec, tmp_path)
+        assert bool(warnings) is warned
+    [warning] = warnings
+    assert warning.startswith(f"parent p is served at T {served_t:.3f} fitted on runs/p/00-trial-0/development (evals/v7/decision-v7, a training corpus), 0.200 from")
+    assert rounds.validate(spec, tmp_path, rows=False, plans=False).problems == []   # report only
+    source = rounds.readout(spec, tmp_path)["arms"]["x-wise"]["parent_temperature_source"]
+    assert source == {"kind": "trial development rows", "rows": "runs/p/00-trial-0/development", "suite": "evals/v7/decision-v7", "training_corpus": True, "shipped": served_t + 0.2}
 
 
 # --- calibration by state length -------------------------------------------------------------------------------------

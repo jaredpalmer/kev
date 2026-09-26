@@ -59,9 +59,10 @@ A round is a PLAN.md section plus a spec, committed together before any training
    ships the temperature `scripts/calibrate_checkpoint.py` fits on the same pool. The held-out *items* of the training sources
    (a training suite's `calibration` / `development` partitions) are in distribution: round 19 served its SFT arms at T 0.955
    fitted on `sft-v1` development rows and failed every calibration criterion (breadth-v1 ECE 0.059); round 20's held-out-datasets
-   pool gave 0.0085 on the same checkpoint. Registering the pool is on you: `validate` does not require one (round 19's spec
-   must keep validating), but for a round without one whose criteria depend on the temperature, `validate` and `launch` print
-   a `!!! warning` per arm trained on a training corpus. Treat that warning as a failure. What enforces the rest:
+   pool gave 0.0085 on the same checkpoint. What enforces it:
+   - From round 21, `kev.rounds validate` and `launch` refuse a round whose rule or confirmation has a criterion the
+     temperature moves (ECE, Brier, NLL, confident errors, coverage; anything but accuracy) and no `temperature` pool.
+     Rounds <= 20 only print a `!!! warning` per arm trained on a training corpus, so their recorded specs still validate.
    - `kev.rounds validate` refuses a pool read that (a) is an arm's training suite, a component of it (sft-v1's
      `inputs.components`) or its plan's `data` suite, (b) pools a source any arm trained on, or (c) reads the `calibration` or
      `development` partition of any training corpus; it also refuses a pool it cannot check (an arm whose training is
@@ -72,6 +73,8 @@ A round is a PLAN.md section plus a spec, committed together before any training
      `--allow-in-distribution` is for reproducing an old fit only, and it is recorded in `head.pt["temperature_fit"]`.
    - A trial's in-trial temperature (`result.json` `calibration_fit`) says `role: in-trial screening ... not a served or
      shipped temperature`.
+   - Parents are served at their trial's development rows; the read-out records that and their shipped head.pt T
+     (`parent_temperature_source`), and `validate` warns when the two differ by more than 0.05 on a training corpus's rows.
 5. `uv run python -m kev.rounds validate experiments/rounds/r<N>.json` (add `--partitions` to verify the partitions) until it
    prints `ok`. Commit the PLAN section and the spec in one commit, push. That commit time is the registration time.
 

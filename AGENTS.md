@@ -112,9 +112,12 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   Why: round 19 fitted its SFT arms' temperature on `sft-v1` development rows, held-out *items* of the training sources, so
   in distribution (T 0.955, breadth-v1 ECE 0.059); round 20's pool of held-out *datasets* gave 0.0085 on the same checkpoint.
   Each arm's read-out records `temperature_source` (the pool with its reads and question count, or its trial's development rows
-  and their suite) and the printed table warns (`!!!`) when an arm is served at a training corpus's rows; `validate` and `launch`
-  print the same warning for a round with no pool whose criteria depend on the temperature (not a failure: round 19's spec
-  must keep validating). A panel with
+  and their suite; parents in `parent_temperature_source`: their trial's development rows plus `shipped`, head.pt's T when
+  it is local or in the HF cache) and the printed table warns (`!!!`) when an arm is served at a training corpus's rows. From
+  round 21 (`POOL_REQUIRED_FROM`) a rule or confirmation criterion the temperature moves (anything but accuracy) without a
+  `temperature` pool is a problem, so `validate` and `launch` refuse the round; rounds <= 20 only get the warning, so their
+  specs keep validating. `validate`/`launch` also warn (report only) when a parent's served T, fitted on a training corpus's
+  development rows, is more than 0.05 from its shipped head.pt T. A panel with
   `"by_length": true` (or `{edges, tokenizer}`) adds acc / ECE / Brier / confident errors per state-token bucket
   (`kev.metrics.calibration_by_length`: under_8k, 8k_16k, 16k_32k, 32k_64k, 64k_plus and the tails 8k_plus/16k_plus/32k_plus;
   tokens counted from the reads' suite records with `kev.suite.ADMISSION_TOKENIZER` unless given), and a criterion may read a

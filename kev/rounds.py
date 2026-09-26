@@ -59,8 +59,11 @@ from the reads' suite records. A criterion is {left, op, right, plus?} where lef
 rank is a list of {by: path | [paths summed], order}.
 
 Every arm's read-out records where its temperature came from (`temperature_source`: the pool with its reads and question
-count, or its trial's development rows with their suite), and the printed table warns when those rows are a training
-corpus's (in distribution: round 19's failure mode).
+count, or its trial's development rows with their suite) and its parent's (`parent_temperature_source`: its trial's
+development rows, plus `shipped`, the head.pt temperature when it is here), and the printed table warns when an arm's rows
+are a training corpus's (in distribution: round 19's failure mode). From round 21 (POOL_REQUIRED_FROM) a rule or
+confirmation with a temperature-dependent criterion must register a `temperature` pool: validate and launch refuse it
+otherwise; earlier rounds get a warning, so their recorded specs keep validating.
 """
 import argparse
 import functools
@@ -134,9 +137,10 @@ class Side:
     """One checkpoint of a comparison: its trial, where each read tag's rows live and its served temperature (fitted on
     the trial's development rows, or on `pool` when the round registers one for its arms)."""
 
-    def __init__(self, trial, dirs, root=ROOT, drop=(), pool=None, checkpoint=None, suite=None):
+    def __init__(self, trial, dirs, root=ROOT, drop=(), pool=None, checkpoint=None, suite=None, shipped=None):
         self.trial, self.dirs, self.root, self.drop, self.pool, self.checkpoint = trial, dirs, Path(root), set(drop), pool, checkpoint
-        self.suite = suite   # the suite the trial trained and was scored on (its development rows'), when known
+        self.suite = suite       # the suite the trial trained and was scored on (its development rows'), when known
+        self.shipped = shipped   # a parent's: () -> the temperature its checkpoint ships (head.pt), or None when not here
         self._t, self._served, self.fit = None, {}, None
 
     def rows_path(self, tag):
@@ -164,7 +168,7 @@ class Side:
         if self.pool: return {"kind": "pool", "reads": self.pool.reads, "questions": self.fit["questions"] if self.fit else None}
         m = suite_manifest(self.suite) if self.suite else None
         return {"kind": "trial development rows", "rows": f"{self.trial}/development", "suite": self.suite,
-                "training_corpus": bool(trainable_sources(m)) if m is not None else None}
+                "training_corpus": bool(trainable_sources(m)) if m is not None else None, **({"shipped": self.shipped()} if self.shipped else {})}
 
     def served(self, tag):
         if tag not in self._served: self._served[tag] = served_at(read_json(self.rows_path(tag)), self.t)
@@ -226,7 +230,7 @@ def parent_side(spec, arm, root=ROOT, stage=None):
     p = spec["parents"][spec["arms"][arm]["parent"]]
     where = (spec["confirm"][stage].get("parent_reads") if stage else None) or p["reads"]
     dirs = {**locations(where, spec, arm=arm, size=size_of(arm)), TRANSFER: f"{p['trial']}/transfer"}
-    return Side(p["trial"], dirs, root, spec.get("drop_ids", ()))
+    return Side(p["trial"], dirs, root, spec.get("drop_ids", ()), suite=trial_suite(spec, p["trial"], root), shipped=lambda: shipped_temperature(p, root))
 
 
 def rule_tags(rule):
@@ -275,7 +279,7 @@ def validate(spec, root=ROOT, rows=True, plans=True, partitions=False):
             if reads_transfer and tag is None: problems.append(f"arm {name}: no trial, so no in-trial transfer read; give it a transfer_read")
     problems += pool_problems(spec, stages)
     conflicts, unknown_training = pool_training_problems(spec, root)
-    problems += conflicts
+    problems += conflicts + pool_required_problems(spec)
     for line in unknown_training: absent(line)
     for stage, rule in stages.items():
         where = f"confirm.{stage}" if stage else "rule"
@@ -545,20 +549,68 @@ def pool_training_problems(spec, root=ROOT):
     return problems, unknown
 
 
-def calibration_warnings(spec, root=ROOT):
-    """Warnings (not problems: round 19's own spec must keep validating) for a round without a `temperature` pool whose
-    criteria depend on the temperature: each trial arm whose development rows are a training corpus's is served in
-    distribution, round 19's failure mode. `validate` and `launch` print them."""
-    if spec.get("temperature"): return []
+POOL_REQUIRED_FROM = 21   # from this round on, a temperature-dependent criterion without a `temperature` pool is refused
+
+
+def temperature_criteria(spec):
+    """["rule <name>" | "confirm.<stage> <name>"] of every criterion that reads a number the temperature moves."""
     stages = {None: spec["rule"], **spec.get("confirm", {})}
-    moved = sorted({f"{'confirm.' + s if s else 'rule'} {name}" for s, rule in stages.items() for name, c in rule["criteria"].items()
-                    if any(_moves_with_temperature(path, rule) for path in _paths(c))})
-    out = []
-    for arm, a in spec["arms"].items() if moved else ():
+    return sorted({f"{'confirm.' + s if s else 'rule'} {name}" for s, rule in stages.items() for name, c in rule["criteria"].items()
+                   if any(_moves_with_temperature(path, rule) for path in _paths(c))})
+
+
+def _listed(names):
+    return f"{len(names)} ({', '.join(names[:3])}{', ...' if len(names) > 3 else ''})"
+
+
+def pool_required_problems(spec):
+    """Round >= POOL_REQUIRED_FROM with a temperature-dependent criterion and no `temperature` pool: refused (its arms would
+    be served at their trials' development rows, round 19's failure mode). Earlier rounds only warn (calibration_warnings),
+    so their recorded specs keep validating."""
+    number, moved = spec.get("round"), temperature_criteria(spec)
+    if spec.get("temperature") or not moved or not isinstance(number, int) or number < POOL_REQUIRED_FROM: return []
+    return [f"temperature: round {number} registers no `temperature` pool, but {_listed(moved)} criteria depend on the temperature, "
+            f"so its arms would be served at their trials' development rows. This is {ROUND_19}; register a pool of held-out datasets (copy r20)"]
+
+
+def shipped_temperature(entry, root=ROOT):
+    """The temperature a parent's checkpoint ships (head.pt), read locally only: <trial>/checkpoint/head.pt, else its Hub
+    checkpoint's head.pt in the local Hugging Face cache (no network); None when neither is here."""
+    path = Path(root) / entry["trial"] / "checkpoint" / "head.pt"
+    if not path.exists() and entry.get("checkpoint") and not str(entry["checkpoint"]).startswith("/"):
+        from huggingface_hub import try_to_load_from_cache
+        repo, _, revision = entry["checkpoint"].partition("@")
+        cached = try_to_load_from_cache(repo, "head.pt", revision=revision or None)
+        path = Path(cached) if isinstance(cached, str) else path
+    if not path.exists(): return None
+    from kev.checkpoint import read_meta
+    return read_meta(path.parent).temperature
+
+
+SHIPPED_TOLERANCE = 0.05   # a parent served this far from its shipped temperature, fitted in distribution, is warned about
+
+
+def calibration_warnings(spec, root=ROOT):
+    """Report-only warnings that `validate` and `launch` print. (1) For a round before POOL_REQUIRED_FROM without a
+    `temperature` pool whose criteria depend on the temperature (from then on it is a problem: pool_required_problems): each
+    trial arm whose development rows are a training corpus's is served in distribution, round 19's failure mode. (2) Every
+    parent served at a temperature fitted on a training corpus's development rows that differs from its shipped head.pt
+    temperature by more than SHIPPED_TOLERANCE (when both are here)."""
+    out, moved = [], temperature_criteria(spec)
+    early = isinstance(spec.get("round"), int) and spec["round"] < POOL_REQUIRED_FROM
+    for arm, a in spec["arms"].items() if moved and early and not spec.get("temperature") else ():
         suite = trial_suite(spec, a["trial"], root) if a.get("trial") else None
         if suite and trainable_sources(suite_manifest(suite) or {}):
             out.append(f"arm {arm} will be served at a temperature fitted on its trial's {suite} development rows, a training corpus, and "
-                       f"{len(moved)} criteria depend on it ({', '.join(moved[:3])}{', ...' if len(moved) > 3 else ''}): {ROUND_19}; register a `temperature` pool")
+                       f"{_listed(moved)} criteria depend on it: {ROUND_19}; register a `temperature` pool")
+    for name, p in spec["parents"].items():
+        suite = trial_suite(spec, p["trial"], root)
+        if not (suite and trainable_sources(suite_manifest(suite) or {}) and (Path(root) / p["trial"] / "development/rows.json").exists()): continue
+        shipped = shipped_temperature(p, root)
+        served_t = temperature(p["trial"], root) if shipped is not None else None
+        if shipped is not None and abs(served_t - shipped) > SHIPPED_TOLERANCE:
+            out.append(f"parent {name} is served at T {served_t:.3f} fitted on {p['trial']}/development ({suite}, a training corpus), "
+                       f"{abs(served_t - shipped):.3f} from the T {shipped:.3f} its checkpoint ships: its reads are not what it serves (report only)")
     return out
 
 
@@ -628,6 +680,7 @@ def compare(candidate, parent, rule, lengths=None):
     out.update(temperature=candidate.t, parent_temperature=parent.t, panels={}, missing=[])
     if candidate.fit: out["temperature_fit"] = candidate.fit
     out["temperature_source"] = candidate.temperature_source()
+    out["parent_temperature_source"] = parent.temperature_source()   # parents are served at their trial's development rows; `shipped` is head.pt's T
     for name, spec in rule["panels"].items():
         absent = [f"{who}:{side.dirs[t] if t in side.dirs else t}" for who, side in (("candidate", candidate), ("parent", parent)) for t in spec["reads"] if not side.has(t)]
         if absent: out["missing"] += absent; continue
