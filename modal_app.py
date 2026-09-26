@@ -129,10 +129,10 @@ def trial(study, index, label, config, suite, expected_sources, git_commit, exis
     print(f"[{label}] {torch.cuda.get_device_name(0)} torch {torch.__version__} {'continuing' if again else 'config='+json.dumps(config)}", flush=True)
     transfer = Path("/root") / transfer if transfer else None
     stop = threading.Event()
-    repo = config.get("snapshot_hub_repo")   # a private Hub mirror of each committed snapshot and the final checkpoint (off unless set)
-    committer = threading.Thread(target=commit_resume_points, args=(out / "checkpoint" / "resume", stop, out / "snapshots"),
-                                 kwargs={"final_dir": out / "checkpoint", "mirror": (lambda path: spawn_mirror([path], repo)) if repo else None}, daemon=True)
-    if config.get("full_ft"): committer.start()
+    committer = None
+    if config.get("full_ft"):   # snapshot_hub_repo: a private Hub mirror of each committed snapshot and the final checkpoint (off unless set)
+        watcher = VolumeWatcher(out / "checkpoint" / "resume", out / "snapshots", out / "checkpoint", mirror_to(config.get("snapshot_hub_repo")))
+        committer = threading.Thread(target=commit_resume_points, args=(watcher, stop), daemon=True); committer.start()
     try:
         report, _ = (continue_trial(Path("/root") / suite, out, expected_sources, "cuda", transfer) if again
                      else execute_trial(config or {}, Path("/root") / suite, out, expected_sources, "cuda", existing, transfer))
@@ -142,7 +142,7 @@ def trial(study, index, label, config, suite, expected_sources, git_commit, exis
         raise
     finally:
         stop.set()
-        if committer.is_alive(): committer.join()
+        if committer and committer.is_alive(): committer.join()
         runs_volume.commit()
         hf_cache.commit()
     return {"label": label, "objective": report["objective"], "clean_acc": report["clean"]["acc"],
@@ -589,42 +589,66 @@ def failed_trial(label, out):
 RESUME_COMMIT_POLL = 15   # seconds between looks at a training trial's latest.json
 
 
-def commit_resume_points(resume_dir, stop, snapshot_dir=None, final_dir=None, mirror=None):
-    """While a full-weight trial trains, commit the runs volume each time the trainer completes a resume point (its
-    latest.json changes), a snapshot (kev.full_ft.completed_snapshots under `snapshot_dir` gains a step) or the final
-    checkpoint (`final_dir`/training_metrics.json, written last, appears). A timeout kills the container without running
-    trial()'s `finally`, and the retry can only continue from a committed point and keep committed snapshots. A failed
-    commit is reported loudly and tried again on the next look; after `stop` it looks once more. `mirror(path)`, when
-    given, is called for each newly committed snapshot and final checkpoint (spawn_mirror: the private Hub copy)."""
-    from kev.full_ft import completed_snapshot_dirs
-    latest = resume_dir / "latest.json"
-    read = lambda: latest.read_text(encoding="utf-8") if latest.exists() else None
-    snaps = lambda: completed_snapshot_dirs(snapshot_dir) if snapshot_dir else {}
-    final = lambda: bool(final_dir) and (final_dir / "training_metrics.json").exists()
-    committed, committed_snaps, committed_final = read(), set(snaps()), final()   # what a new container finds on the volume is committed already
+class VolumeWatcher:
+    """What a full-weight trial has committed to the runs volume, and one look for more (poll). A timeout kills the
+    container without running trial()'s `finally`, and the retry can only continue from a committed point and keep
+    committed snapshots, so the runs volume is committed each time the trainer completes a resume point (its latest.json
+    changes), a snapshot (kev.full_ft.completed_snapshots under `snapshot_dir` gains a step) or the final checkpoint
+    (`final_dir`/training_metrics.json, written last, appears). What is on disk when the watcher is built (what a new
+    container finds on the volume) counts as committed already, so build it before training starts. `mirror(path)`, when
+    given, is called once for each newly committed snapshot and final checkpoint, after the commit that includes it
+    (mirror_to: the private Hub copy)."""
+
+    def __init__(self, resume_dir, snapshot_dir=None, final_dir=None, mirror=None):
+        self.latest, self.snapshot_dir, self.final_dir, self.mirror = resume_dir / "latest.json", snapshot_dir, final_dir, mirror
+        self.committed, self.committed_snaps, self.committed_final = self._marker(), set(self._snaps()), self._final()
+
+    def _marker(self):
+        return self.latest.read_text(encoding="utf-8") if self.latest.exists() else None
+
+    def _snaps(self):
+        from kev.full_ft import completed_snapshot_dirs
+        return completed_snapshot_dirs(self.snapshot_dir) if self.snapshot_dir else {}
+
+    def _final(self):
+        return bool(self.final_dir) and (self.final_dir / "training_metrics.json").exists()
+
+    def poll(self):
+        """One look: commit the runs volume if anything new is complete, then mirror what that commit included. A failed
+        commit is reported loudly and leaves everything uncommitted, so the next look tries again."""
+        marker, found = self._marker(), self._snaps()
+        new_snaps = sorted(set(found) - self.committed_snaps)
+        new_point, new_final = marker is not None and marker != self.committed, self._final() and not self.committed_final
+        if not (new_point or new_snaps or new_final): return
+        point = json.loads(marker) if new_point else None
+        what = lambda detail: " and ".join(([f"resume point {point['step']}" + (f" ({point['dir']})" if detail else "")] if point else [])
+                                           + ([f"snapshot(s) at step(s) {new_snaps}"] if new_snaps else []) + (["the final checkpoint"] if new_final else []))
+        started = time.time()
+        try:
+            runs_volume.commit()
+        except Exception as error:   # noqa: BLE001 - loud, and retried: the point stays on disk until it is committed
+            print(f"!!! {what(False)} NOT committed to the runs volume ({type(error).__name__}: {str(error)[:300]}); "
+                  f"retrying in {RESUME_COMMIT_POLL} s; a timeout before then continues from the previous point", flush=True)
+            return
+        self.committed, self.committed_snaps, self.committed_final = marker, self.committed_snaps | set(new_snaps), self.committed_final or new_final
+        print(f"[volume] committed {what(True)} to the runs volume in {time.time() - started:.0f} s", flush=True)
+        if self.mirror:
+            for s in new_snaps: self.mirror(found[s])
+            if new_final: self.mirror(self.final_dir)
+
+
+def commit_resume_points(watcher, stop):
+    """While a full-weight trial trains (in a thread of trial()), look every RESUME_COMMIT_POLL seconds (VolumeWatcher.poll);
+    after `stop` it looks once more, so the final checkpoint written right before the trial stops is committed too."""
     while True:
         stopping = stop.wait(RESUME_COMMIT_POLL)
-        marker, found = read(), snaps()
-        new_snaps = sorted(set(found) - committed_snaps)
-        new_point, new_final = marker is not None and marker != committed, final() and not committed_final
-        if new_point or new_snaps or new_final:
-            point = json.loads(marker) if new_point else None
-            what = lambda detail: " and ".join(([f"resume point {point['step']}" + (f" ({point['dir']})" if detail else "")] if point else [])
-                                               + ([f"snapshot(s) at step(s) {new_snaps}"] if new_snaps else []) + (["the final checkpoint"] if new_final else []))
-            started = time.time()
-            try:
-                runs_volume.commit()
-            except Exception as error:   # noqa: BLE001 - loud, and retried: the point stays on disk until it is committed
-                print(f"!!! {what(False)} NOT committed to the runs volume ({type(error).__name__}: {str(error)[:300]}); "
-                      f"retrying in {RESUME_COMMIT_POLL} s; a timeout before then continues from the previous point", flush=True)
-                if stopping: break
-                continue
-            committed, committed_snaps, committed_final = marker, committed_snaps | set(new_snaps), committed_final or new_final
-            print(f"[volume] committed {what(True)} to the runs volume in {time.time() - started:.0f} s", flush=True)
-            if mirror:
-                for s in new_snaps: mirror(found[s])
-                if new_final: mirror(final_dir)
+        watcher.poll()
         if stopping: break
+
+
+def mirror_to(repo):
+    """The VolumeWatcher `mirror` of a trial whose plan sets snapshot_hub_repo: one run_mirror spawn per committed checkpoint."""
+    return (lambda path: spawn_mirror([path], repo)) if repo else None
 
 
 def spawn_mirror(paths, repo):

@@ -1009,10 +1009,19 @@ def test_full_weight_trial_failures_are_returned_and_seen(tmp_path, monkeypatch)
     assert rounds.poll_modal("fc-x") == "done"
 
 
+class _ScriptedStop:
+    """threading.Event stand-in for commit_resume_points: each wait() runs the next step (what the trainer does during
+    that poll interval) instead of sleeping, and reports the stop on the last one, so the loop runs without a thread."""
+    def __init__(self, *steps): self.steps, self.timeouts = list(steps), []
+
+    def wait(self, timeout):
+        self.timeouts.append(timeout); self.steps.pop(0)()
+        return not self.steps
+
+
 def test_resume_points_are_committed_as_they_complete(tmp_path, monkeypatch, capsys):
     """While a full-weight trial trains, modal_app commits the runs volume after each completed resume point (a timeout
-    skips trial()'s finally); a failed commit is printed loudly and tried again."""
-    import threading
+    skips trial()'s finally); a failed commit is printed loudly and tried again on the next look."""
     import modal_app
     from kev.suite import write_json
     commits = []
@@ -1020,40 +1029,34 @@ def test_resume_points_are_committed_as_they_complete(tmp_path, monkeypatch, cap
         commits.append(len(commits))
         if len(commits) == 1: raise RuntimeError("volume busy")
     monkeypatch.setattr(modal_app, "runs_volume", SimpleNamespace(commit=commit))
-    monkeypatch.setattr(modal_app, "RESUME_COMMIT_POLL", 0.05)
-    stop = threading.Event()
-    thread = threading.Thread(target=modal_app.commit_resume_points, args=(tmp_path, stop)); thread.start()
+    watcher = modal_app.VolumeWatcher(tmp_path)
+    watcher.poll()
+    assert commits == []   # nothing new
     write_json(tmp_path / "latest.json", {"dir": "step-0000005", "step": 5})
-    for _ in range(100):
-        if len(commits) >= 2: break
-        threading.Event().wait(0.05)
-    stop.set(); thread.join()
-    out = capsys.readouterr().out
-    assert len(commits) == 2 and "resume point 5 NOT committed" in out and "committed resume point 5 (step-0000005)" in out
+    watcher.poll()
+    assert commits == [0] and "resume point 5 NOT committed" in capsys.readouterr().out
+    watcher.poll()
+    assert commits == [0, 1] and "committed resume point 5 (step-0000005)" in capsys.readouterr().out
+    watcher.poll()
+    assert commits == [0, 1]   # committed once
+    assert modal_app.VolumeWatcher(tmp_path).committed is not None   # a new container takes the point it finds as committed
 
 
 def test_snapshots_are_committed_as_they_complete(tmp_path, monkeypatch, capsys):
     """The same watcher commits the runs volume once a snapshot is complete (its snapshot.json exists), so a snapshot
     survives a timeout; snapshots an earlier attempt left are not committed again, an incomplete one is not committed."""
-    import threading
     import modal_app
     from kev.full_ft import SNAPSHOT_INFO, snapshot_path
     from kev.suite import write_json
     commits, snaps = [], tmp_path / "snapshots"
     snapshot_path(snaps, 2).mkdir(parents=True); write_json(snapshot_path(snaps, 2) / SNAPSHOT_INFO, {"step": 2})   # an earlier attempt's
     monkeypatch.setattr(modal_app, "runs_volume", SimpleNamespace(commit=lambda: commits.append(1)))
-    monkeypatch.setattr(modal_app, "RESUME_COMMIT_POLL", 0.05)
-    stop = threading.Event()
-    thread = threading.Thread(target=modal_app.commit_resume_points, args=(tmp_path / "resume", stop, snaps)); thread.start()
+    watcher = modal_app.VolumeWatcher(tmp_path / "resume", snaps)
     snapshot_path(snaps, 4).mkdir(parents=True)   # being written
-    threading.Event().wait(0.3)
+    watcher.poll()
     assert commits == []
     write_json(snapshot_path(snaps, 4) / SNAPSHOT_INFO, {"step": 4})
-    for _ in range(100):
-        if commits: break
-        threading.Event().wait(0.05)
-    threading.Event().wait(0.2)
-    stop.set(); thread.join()
+    watcher.poll(); watcher.poll()
     assert commits == [1] and "committed snapshot(s) at step(s) [4]" in capsys.readouterr().out
 
 
@@ -1159,26 +1162,47 @@ def test_mirror_uploads_complete_checkpoints_to_a_private_repo_only(tmp_path):
 
 
 def test_committed_snapshots_and_the_final_checkpoint_are_mirrored(tmp_path, monkeypatch, capsys):
-    """With snapshot_hub_repo set, the volume watcher hands each snapshot and the final checkpoint to the mirror only after
-    the commit that includes it, including the final checkpoint it sees on its last look after the trial stops; a failed
-    spawn is logged, not raised. mirror_targets lists a study's complete snapshots and final checkpoints on the volume."""
-    import threading
+    """With snapshot_hub_repo set, the volume watcher spawns one run_mirror per new complete snapshot and for the final
+    checkpoint, only after the commit that includes it (a failed commit defers it), never for an incomplete snapshot or an
+    earlier attempt's, never twice, including the final checkpoint it sees on its last look after the trial stops; a
+    failed spawn is logged, not raised. mirror_targets lists a study's complete snapshots and final checkpoints on the
+    volume. No threads or sleeps: the test calls VolumeWatcher.poll and drives commit_resume_points with _ScriptedStop."""
     import modal_app
     from kev.full_ft import SNAPSHOT_INFO, snapshot_path
     from kev.suite import write_json
-    events, snaps, final = [], tmp_path / "snapshots", tmp_path / "checkpoint"
-    monkeypatch.setattr(modal_app, "runs_volume", SimpleNamespace(commit=lambda: events.append("commit")))
-    monkeypatch.setattr(modal_app, "RESUME_COMMIT_POLL", 0.05)
-    stop = threading.Event()
-    thread = threading.Thread(target=modal_app.commit_resume_points, args=(final / "resume", stop, snaps),
-                              kwargs={"final_dir": final, "mirror": lambda path: events.append(("mirror", Path(path)))}); thread.start()
-    snapshot_path(snaps, 4).mkdir(parents=True); write_json(snapshot_path(snaps, 4) / SNAPSHOT_INFO, {"step": 4})
-    for _ in range(100):
-        if len(events) >= 2: break
-        threading.Event().wait(0.05)
-    final.mkdir(); write_json(final / "training_metrics.json", {})   # written last by the trainer, right before the trial stops the watcher
-    stop.set(); thread.join()
-    assert events == ["commit", ("mirror", snapshot_path(snaps, 4)), "commit", ("mirror", final)]
+    events, snaps, final, repo = [], tmp_path / "snapshots", tmp_path / "checkpoint", "me/kev-snapshots"
+    fail_commits = []
+    def commit():
+        if fail_commits: fail_commits.pop(); events.append("commit failed"); raise RuntimeError("volume busy")
+        events.append("commit")
+    def complete(step):
+        snapshot_path(snaps, step).mkdir(parents=True, exist_ok=True); write_json(snapshot_path(snaps, step) / SNAPSHOT_INFO, {"step": step})
+    monkeypatch.setattr(modal_app, "runs_volume", SimpleNamespace(commit=commit))
+    monkeypatch.setattr(modal_app, "run_mirror", SimpleNamespace(spawn=lambda paths, r: events.append(("spawn", tuple(paths), r)) or SimpleNamespace(object_id="fc-1")))
+    assert modal_app.mirror_to("") is None
+    complete(2)   # an earlier attempt's, committed (and mirrored) by that attempt
+    watcher = modal_app.VolumeWatcher(final / "resume", snaps, final, modal_app.mirror_to(repo))   # trial() builds it this way
+    snapshot_path(snaps, 4).mkdir(parents=True); (snapshot_path(snaps, 4) / "head.pt").write_bytes(b"h")   # being written
+    watcher.poll()
+    assert events == []
+    complete(4)
+    watcher.poll(); watcher.poll()
+    assert events == ["commit", ("spawn", (str(snapshot_path(snaps, 4)),), repo)]   # after its commit, once
+    events.clear(); fail_commits.append(1); complete(6)
+    watcher.poll()
+    assert events == ["commit failed"]   # not in a commit yet: not mirrored
+    watcher.poll(); watcher.poll()
+    assert events == ["commit failed", "commit", ("spawn", (str(snapshot_path(snaps, 6)),), repo)]
+    events.clear()
+    def finish():   # written last by the trainer, right before the trial stops the watcher
+        final.mkdir(); write_json(final / "training_metrics.json", {})
+    stop = _ScriptedStop(lambda: None, finish)
+    modal_app.commit_resume_points(watcher, stop)   # looks once more after the stop
+    assert events == ["commit", ("spawn", (str(final),), repo)] and stop.timeouts == [modal_app.RESUME_COMMIT_POLL] * 2
+    events.clear(); fail_commits.append(1); (final / "resume").mkdir()
+    point = lambda: write_json(final / "resume" / "latest.json", {"dir": "step-0000009", "step": 9})
+    modal_app.commit_resume_points(watcher, _ScriptedStop(point))   # a failed commit on the last look ends the loop too
+    assert events == ["commit failed"] and "resume point 9 NOT committed" in capsys.readouterr().out
     monkeypatch.setattr(modal_app, "run_mirror", SimpleNamespace(spawn=lambda *a: (_ for _ in ()).throw(RuntimeError("no app"))))
     modal_app.spawn_mirror([final], "me/kev-snapshots")
     assert "could not start the upload" in capsys.readouterr().out
