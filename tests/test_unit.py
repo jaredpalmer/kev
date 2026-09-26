@@ -615,6 +615,42 @@ def test_master_adamw_refuses_nonfinite_gradients():
                for p, (w, m) in zip(params, before))
 
 
+def test_none_pair_max_state_pairs_only_short_states_and_the_plan_counts_them(tiny_base):
+    """--none_pair_max_state: the records that train none pairs are exactly the eligible ones whose state (encode's count,
+    <state> included) is at most N tokens, drawn from each record's own stream (the same set every call, a new draw per
+    epoch); encode_batch gives exactly those records their two siblings; microbatch_plan counts the siblings in a record's
+    cost, and without pairs cuts the same runs as before (the default path is today's)."""
+    from collections import Counter
+    from types import SimpleNamespace
+    from kev.data import load_records, materialize
+    from kev.model import MAX_STATE, encode, load_tokenizer
+    from kev.train import encode_batch, microbatch_plan, none_pairs, state_token_counts
+    tok = load_tokenizer(str(tiny_base / "base"))
+    reqs = load_records(tiny_base / "data.jsonl")   # states of 6 + i tokens, each with a 3-option Choice
+    counts = state_token_counts(tok, reqs)
+    assert [counts[id(r)] for r in reqs] == [sum(s == 0 for s in encode(tok, materialize(r))["seg"]) for r in reqs] == [6 + i for i in range(16)]
+    knobs = dict(seed=0, p_none=0.0, p_none_distract=0.0, p_distract=0.0, perm_kl=0.0, perm_frac=0.0, max_state=MAX_STATE, row_budget=0, shared_prefix=1)
+    a = SimpleNamespace(**knobs, p_none_pair=1.0, none_pair_max_state=10)
+    everything = 100   # a gate every state passes
+    short = {id(r) for r in reqs if counts[id(r)] <= 10}
+    assert none_pairs(a, reqs, 0, counts) == short and len(short) == 5
+    noul = [{**r, "questions": {"angry": r["questions"]["angry"]}} for r in reqs]   # no eligible Choice: no pair
+    assert none_pairs(a, noul, 0, state_token_counts(tok, noul)) == set()
+    half = SimpleNamespace(**{**vars(a), "p_none_pair": 0.5, "none_pair_max_state": everything})
+    drawn = [none_pairs(half, reqs, ep, counts) for ep in (0, 0, 1)]
+    assert drawn[0] == drawn[1] and drawn[0] != drawn[2] and 0 < len(drawn[0]) < 16
+    model = DecisionModel(str(tiny_base / "base"), tok, "cpu")
+    batch = encode_batch(model, tok, a, reqs, 0, short)
+    assert Counter(v.request_id for v in batch) == Counter({r["_meta"]["id"]: 3 if id(r) in short else 1 for r in reqs})
+    assert len(encode_batch(model, tok, SimpleNamespace(**{**knobs, "p_none_pair": 0.0}), reqs, 0)) == 16   # pairs None: today's draw
+    plan_knobs = SimpleNamespace(batch=2, accum=2, length_sort=1, shared_prefix=1)
+    plain = [microbatch_plan(reqs, plan_knobs, 2, rank) for rank in (0, 1)]
+    assert [microbatch_plan(reqs, plan_knobs, 2, rank, set()) for rank in (0, 1)] == plain
+    paired = [microbatch_plan(reqs, plan_knobs, 2, rank, short) for rank in (0, 1)]
+    assert paired != plain and [[len(c) for c, _, _ in p] for p in paired] != [[len(c) for c, _, _ in p] for p in plain]
+    assert sorted(r["_meta"]["id"] for p in paired for c, _, _ in p for r in c) == sorted(r["_meta"]["id"] for p in plain for c, _, _ in p for r in c)
+
+
 @pytest.mark.parametrize("shared", [0, 1])
 def test_row_budget_changes_passes_not_gradients(tiny_base, shared):
     """--row_budget splits a micro-batch into forward/backward passes (here every record by question, each part carrying
@@ -760,16 +796,17 @@ def _run_train(args, out, ranks=1):
     return done.stdout
 
 
-@pytest.mark.parametrize("ranks", [1, 2])
-def test_resume_is_bit_identical(tiny_base, tmp_path, ranks):
+@pytest.mark.parametrize("ranks,gate", [(1, ()), (2, ()), (1, ("--none_pair_max_state", "10")), (2, ("--none_pair_max_state", "10"))])
+def test_resume_is_bit_identical(tiny_base, tmp_path, ranks, gate):
     """A full-weight run that stops after step 3 (its resume point: fp32 masters and moments, scheduler, RNG, data
     position) and continues with --resume 1 ends with the same bits as an uninterrupted run, across an epoch boundary,
-    on one process and on two FSDP2 ranks."""
+    on one process and on two FSDP2 ranks; with --none_pair_max_state too (the ranks deal the same gated pairs)."""
     from safetensors.torch import load_file
     from kev.checkpoint import read_meta
     args = ["--base", str(tiny_base / "base"), "--data", str(tiny_base / "data.jsonl"), "--device", "cpu", "--batch", "2", "--accum", str(2 // ranks),
-            "--lr", "1e-3", "--epochs", "2", "--p_none_pair", "0.5", "--length_sort", "1", *FULL]
-    _run_train(args, tmp_path / "whole", ranks)
+            "--lr", "1e-3", "--epochs", "2", "--p_none_pair", "0.5", "--length_sort", "1", *FULL, *gate]
+    out = _run_train(args, tmp_path / "whole", ranks)
+    assert ("none pairs: " in out) == bool(gate)
     _run_train([*args, "--save_every_steps", "3", "--stop_after", "3"], tmp_path / "split", ranks)
     assert (tmp_path / "split/resume/latest.json").exists() and not (tmp_path / "split/model.safetensors").exists()
     _run_train([*args, "--resume", "1"], tmp_path / "split", ranks)
@@ -953,6 +990,13 @@ def test_full_ft_plumbing():
     manifest = {"base_revisions": {"b": "0" * 40}, "trainable_sources": []}
     trial = validated_trial({"base": "b", "full_ft": 1, "weights_dtype": "bf16", "row_budget": 16384, "max_steps": 20, "accum": 128}, manifest)
     assert (trial["full_ft"], trial["row_budget"], trial["max_steps"]) == (1, 16384, 20) and "max_steps" not in validated_trial({"base": "b"}, manifest)
+    from kev.model import MAX_STATE, MAX_TRAIN_STATE
+    gate = MAX_STATE * 8
+    assert validated_trial({"base": "b", "p_none_pair": 0.25, "none_pair_max_state": gate}, manifest)["none_pair_max_state"] == gate
+    assert "none_pair_max_state" not in validated_trial({"base": "b", "p_none_pair": 0.25}, manifest)   # absent: today's recipe and config hash
+    for bad in ({"none_pair_max_state": gate}, {"p_none_pair": 0.25, "none_pair_max_state": 0}, {"p_none_pair": 0.25, "none_pair_max_state": MAX_TRAIN_STATE + 1}):
+        with pytest.raises(ValueError):
+            validated_trial({"base": "b", **bad}, manifest)
     for bad in ({"full_ft": 1}, {"full_ft": 1, "weights_dtype": "bf16", "row_budget": -1}, {"max_steps": 1.5}):
         with pytest.raises(ValueError):
             validated_trial({"base": "b", **bad}, manifest)

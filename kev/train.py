@@ -21,7 +21,7 @@ from .checkpoint import Checkpoint, Meta, write_meta
 from .device import allocated_bytes, default_device, empty_cache, sync
 from .data import EVAL_ONLY, build, augment, load_records, materialize, none_pair, source_seed
 from .suite import SYNTHETIC_SOURCES, digest, load_split, read_json, read_manifest, validate_training, write_json
-from .model import MAX_STATE, MAX_TRAIN_STATE, DecisionModel, fits, load_tokenizer, rows_of, training_context
+from .model import MAX_STATE, MAX_TRAIN_STATE, DecisionModel, fits, load_tokenizer, rows_of, training_context, user_tokens
 
 
 # --- losses -----------------------------------------------------------------------------------------------------------
@@ -175,7 +175,10 @@ def question_parts(enc, budget, shared):
     return parts
 
 
-def microbatch_plan(reqs, a, world, rank):
+NONE_OPTION_CHARS = 64   # a none-pair sibling's extra option, in the characters microbatch_plan measures (kev.data.NONE_OPTIONS' longest is shorter)
+
+
+def microbatch_plan(reqs, a, world, rank, pairs=None):
     """This rank's micro-batches for one epoch of `reqs` (already shuffled), in order: (records, records in its optimizer
     step over all ranks, whether that step ends after it). Every rank gets the same number of micro-batches (FSDP2's
     collectives line up) and each record is seen once per epoch (the last step wraps around to fill every rank, as
@@ -187,14 +190,22 @@ def microbatch_plan(reqs, a, world, rank):
     ranks, which wait for the slowest at every layer, run similar loads. A step still sees the same records (the same
     gradient up to summation order). Characters stand in for tokens (known before encoding). On the SFT corpus's shapes
     (8 ranks, 128 records per step) the ranks' critical path is 1.4x the real tokens; plain length order, a fixed --batch
-    of neighbours, left it 4.3x (a few 6k-token states among many short public records)."""
+    of neighbours, left it 4.3x (a few 6k-token states among many short public records).
+    pairs (--none_pair_max_state: the records whose none-pair siblings this epoch trains, by id(), from none_pairs): each
+    such record's cost also counts its two siblings (its state twice more, each with its longest Choice question and one
+    more option), so a micro-batch's real padded tokens stay within the cost the runs were cut to. Without it the siblings
+    of --p_none_pair are not in the cost: on long states they tripled a pass past the GPU (round 21's projection)."""
     if not a.length_sort:
         mine = full_ft.rank_share(reqs, rank, world)
         n = math.ceil(len(mine) / a.batch)
         return [(mine[mb * a.batch:(mb + 1) * a.batch], world * accumulation_records(len(mine), a.batch, a.accum, mb), (mb + 1) % a.accum == 0 or mb + 1 == n)
                 for mb in range(n)]
-    shapes = {id(r): (len(json.dumps(r["state"], ensure_ascii=False)), [len(json.dumps(q, ensure_ascii=False)) for q in r["questions"].values()]) for r in reqs}
-    cost = lambda rs: pass_tokens([shapes[id(r)] for r in rs], a.shared_prefix)
+    shapes = {id(r): [(len(json.dumps(r["state"], ensure_ascii=False)), [len(json.dumps(q, ensure_ascii=False)) for q in r["questions"].values()])] for r in reqs}
+    for r in reqs if pairs else ():
+        if id(r) in pairs:   # a sibling: the state again with one Choice (at most the longest) and a none option
+            choice = max(len(json.dumps(q, ensure_ascii=False)) for q in r["questions"].values() if q["type"] == "choice")
+            shapes[id(r)] += [(shapes[id(r)][0][0], [choice + NONE_OPTION_CHARS])] * 2
+    cost = lambda rs: pass_tokens([s for r in rs for s in shapes[id(r)]], a.shared_prefix)
     plan, per_step = [], a.batch * a.accum * world
     for start in range(0, len(reqs), per_step):
         step = reqs[start:start + per_step]
@@ -242,15 +253,36 @@ def row_passes(batch, budget, shared):
     return [p[0] for p in passes]
 
 
-def encode_batch(model, tok, a, chunk, epoch):
+def state_token_counts(tok, reqs):
+    """{id(record): state tokens} as kev.model.encode counts them: the <state> token plus user_tokens of the materialised
+    state (kev.rounds.state_lengths, `state_tokens` in rows); the length --none_pair_max_state gates on."""
+    return {id(r): 1 + len(user_tokens(tok, materialize(r)["state"])) for r in reqs}
+
+
+def none_pairs(a, reqs, epoch, state_tokens):
+    """--none_pair_max_state: {id(record)} of the records that train their none-pair siblings this epoch. A record draws
+    from its own stream (seed, epoch, record id, "none_pair"), so microbatch_plan knows the siblings before anything is
+    encoded; it pairs with probability --p_none_pair when its state has at most none_pair_max_state tokens and it has an
+    eligible Choice (kev.data.none_pair returns its pair)."""
+    return {id(r) for r in reqs if state_tokens[id(r)] <= a.none_pair_max_state
+            and random.Random(source_seed(a.seed, f"{epoch}:{r['_meta']['id']}:none_pair")).random() < a.p_none_pair
+            and none_pair(r, random.Random(0))}
+
+
+def encode_batch(model, tok, a, chunk, epoch, pairs=None):
     """Augment each request (fresh permutation / none option / distractor per epoch), optionally add its none-pair
-    siblings and a permuted copy for the KL term, and encode strictly."""
+    siblings and a permuted copy for the KL term, and encode strictly. pairs None: a record draws its none pair from its
+    own item stream with probability --p_none_pair (every recipe before --none_pair_max_state); otherwise exactly the
+    records in pairs (by id(), none_pairs) get theirs."""
     out, c = [], training_context(a.max_state)
     limits = {"max_state": c["max_state"], "max_branch": c["max_branch"]}
     for req in chunk:
         item_rng = random.Random(source_seed(a.seed, f"{epoch}:{req['_meta']['id']}"))
         variants = [augment(req, item_rng, p_none=a.p_none, p_none_distract=a.p_none_distract, p_distract=a.p_distract)]
-        if a.p_none_pair > 0 and item_rng.random() < a.p_none_pair:
+        if pairs is None:
+            if a.p_none_pair > 0 and item_rng.random() < a.p_none_pair:
+                variants += none_pair(req, item_rng)
+        elif id(req) in pairs:
             variants += none_pair(req, item_rng)
         for v in variants:
             rec = materialize(v)
@@ -330,6 +362,8 @@ def parse_args():
     ap.add_argument("--p_none_distract", type=float, default=0.12)
     ap.add_argument("--p_distract", type=float, default=0.15)
     ap.add_argument("--p_none_pair", type=float, default=0.0, help="fraction of Choice records that additionally emit a none-present/none-absent minimal pair")
+    ap.add_argument("--none_pair_max_state", type=int, default=None, help="only records whose state has at most this many tokens emit none pairs (each pair repeats "
+                                                                          "the state twice); their siblings count in the --length_sort cost (default: every record, as before)")
     ap.add_argument("--synthetic_repeat", type=int, default=1, help="oversample synthetic policy sources (legacy_policy, compositional, contrastive) this many times per epoch")
     ap.add_argument("--public_frac", type=float, default=1.0, help="deterministic subsample of public-source training records (mix ablations)")
     ap.add_argument("--anchor", default="", help="JSON of frozen-base zero-shot distributions {record_id: {qid: {key: p}}} (kev.anchors); enables the anchoring loss")
@@ -375,6 +409,8 @@ def parse_args():
         ap.error("--anchor and --anchor_w > 0 go together")
     if not MAX_STATE <= a.max_state <= MAX_TRAIN_STATE:
         ap.error(f"--max_state must be in [{MAX_STATE}, {MAX_TRAIN_STATE}]")
+    if a.none_pair_max_state is not None and (a.none_pair_max_state < 1 or a.p_none_pair <= 0):
+        ap.error("--none_pair_max_state is a positive token count and needs --p_none_pair > 0")
     if a.replay and not (a.data and a.suite):
         ap.error("--replay needs both --data and --suite")
     if a.full_ft and (problem := full_ft.unsupported_torch()):
@@ -477,6 +513,7 @@ def main():
     print(f"device={dev} world={world} trainable params={sum(p.numel() for p in model.trainable_parameters())/1e6:.1f}M", flush=True)
 
     reqs = training_requests(a, tok, manifest, holdout)
+    state_tokens = state_token_counts(tok, reqs) if a.none_pair_max_state is not None else None   # the none-pair gate (none_pairs)
     suite_hash = digest(Path(a.suite) / "manifest.json") if manifest else None
     if not rank:
         write_json(out_dir / "training_config.json", {"args": vars(a), "suite_sha256": suite_hash, "base_revision": revision, "init_source": init_source,
@@ -515,10 +552,13 @@ def main():
     for ep in range(a.epochs):
         rng.shuffle(reqs)
         if ep < start_epoch: continue   # the finished epochs' shuffles are replayed, so the interrupted epoch's order returns
-        plan = microbatch_plan(reqs, a, world, rank)   # every record once per epoch across the ranks (all of them on one GPU)
+        pairs = none_pairs(a, reqs, ep, state_tokens) if state_tokens is not None else None
+        if pairs is not None and not rank:
+            print(f"none pairs: {len(pairs)} of {len(reqs)} records (states of at most {a.none_pair_max_state} tokens, p {a.p_none_pair})", flush=True)
+        plan = microbatch_plan(reqs, a, world, rank, pairs)   # every record once per epoch across the ranks (all of them on one GPU)
         for mb in range(start_mb if ep == start_epoch else 0, len(plan)):
             chunk, step_records, ends_step = plan[mb]
-            batch = encode_batch(model, tok, a, chunk, ep)
+            batch = encode_batch(model, tok, a, chunk, ep, pairs)
             variants = sum(v.share for v in batch)   # a record split by --row_budget counts once
             # weight by source records in the accumulation group (over all ranks) so none-pair siblings do not inflate a record's share
             group_records = step_records * (variants / len(chunk))
