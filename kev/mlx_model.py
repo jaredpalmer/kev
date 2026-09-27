@@ -11,6 +11,7 @@ head / dtype. Selected by `LoadOptions(backend="mlx")` (or "auto" on Apple Silic
 benchmark, whose reported numbers stay on the fp32 torch path. Parity against that path is measured in
 tests/test_mlx.py (max |dp| and argmax flips on development records, prefix vs full pass, one question vs several).
 """
+import copy
 import json
 from pathlib import Path
 
@@ -109,7 +110,7 @@ class MLXDecisionModel:
 
     # --- state prefix: the state runs once into an mlx-lm prompt cache (KV for the attention layers, conv + recurrent state
     # for the DeltaNet layers); the branches run as one batch on a replicated copy, so the prefix stays pristine and can be
-    # reused by the next request with the same state. On Metal this is also the cheapest way to answer a single request
+    # reused by the next request with the same state, or copied and extended for appended history. On Metal this is also the cheapest way to answer a single request
     # (state once instead of once per question), so it is the only path `forward` / `probs` take.
 
     def prefix(self, enc):
@@ -117,6 +118,18 @@ class MLXDecisionModel:
         cache = make_prompt_cache(self.lm)
         self._hidden([enc["ids"][:Ls]], cache)
         return Ls, cache
+
+    def extend_prefix(self, enc, prefix):
+        """Continue a complete matching state on a private copy, including DeltaNet's
+        recurrent and convolution states. Token-prefix matching is owned by PrefixCache;
+        recurrent caches cannot be cropped to an earlier common token boundary."""
+        previous, cache = prefix
+        length = enc["seg"].count(0)
+        if previous > length: raise ValueError("prefix is longer than this record's state")
+        if previous == length: return prefix
+        cache = copy.deepcopy(cache)   # the same snapshot may serve other queued requests
+        self._hidden([enc["ids"][previous:length]], cache)
+        return length, cache
 
     def _branch_logits(self, enc, cache):
         """Branches as rows on a replicated copy of the state cache, rows_per_pass rows (and cache copies) at a time."""

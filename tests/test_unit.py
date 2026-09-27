@@ -292,7 +292,7 @@ def test_out_of_memory_drops_the_prefix_cache_and_retries_once():
             tensors = Tensors(); self.passes.append(weakref.ref(tensors))
             if self.fail == "always" or self.fail == "cached" and any(c is not None for c in cached): raise torch.OutOfMemoryError("CUDA out of memory")
             if self.fail == "other": raise ValueError("not memory")
-            return [[torch.tensor([0.5, 0.5])] for _ in encs], [("prefix", self.calls) if k else None for k in keep]
+            return [[torch.tensor([0.5, 0.5])] for _ in encs], [(enc["seg"].count(0), self.calls) if k else None for enc, k in zip(encs, keep)]
 
     enc = lambda state: {"ids": list(state) + [9], "seg": [0] * len(state) + [1]}
     model = Model()
@@ -302,7 +302,7 @@ def test_out_of_memory_drops_the_prefix_cache_and_retries_once():
         model.fail, model.calls = "cached", 0
         ps, stats = s.probs(enc("abc"))                       # the hit fails, the retry runs it as a miss
         assert ps == [[0.5, 0.5]] and stats["prefix_cache_hit"] is False and model.calls == 2
-        assert s.prefix_cache.oom_retries == 1 and list(s.prefix_cache.entries.values()) == [("prefix", 2)]   # only the retry's prefix
+        assert s.prefix_cache.oom_retries == 1 and list(s.prefix_cache.entries.values()) == [(3, 2)]   # only the retry's prefix
         model.fail, model.calls = "always", 0
         with pytest.raises(torch.OutOfMemoryError): s.probs(enc("abc"))
         assert model.calls == 2 and s.prefix_cache.entries == {} and s.prefix_cache.oom_retries == 2
@@ -1819,3 +1819,40 @@ def test_jev_counts_a_hosted_error_on_an_oversize_request_as_a_refusal(monkeypat
         j = P.JevPredictor("key", count_refusals=True, budget=100)
         with pytest.raises(raised): j(record)
         assert w.lines == lines and j.accounting()["refusals"] == refusals
+
+
+def test_prefix_cache_matches_only_complete_saved_prefixes():
+    from kev.serve import PrefixCache
+    enc = lambda state, isolation=False: {"ids": list(state) + [9], "seg": [0] * len(state) + [1], "option_isolation": isolation}
+    cache = PrefixCache(size=4, min_tokens=1, max_tokens=20)
+    for text in ("abc", "abcde", "xyz"):
+        keys, cached, _ = cache.plan([enc(text)])
+        cache.store(keys, cached, [text])
+    requests = [enc("abcdef"), enc("abcd!"), enc("ab!"), enc("abc", True), enc("xyz")]
+    assert cache.plan(requests)[1] == [None, None, None, None, "xyz"]
+    assert cache.plan(requests, extend=True)[1] == ["abcde", "abc", None, None, "xyz"]
+    assert cache.plan([enc("a" * 21)], extend=True) == ([None], [None], [False])
+    keys, cached, keep = cache.plan([enc("abcdef")], extend=True)
+    cache.store(keys, cached, ["abcdef"])
+    assert cache.hits == 1 and cache.misses == 3
+    assert sum(len(k[0]) for k in cache.entries) <= cache.max_tokens
+    cache.size = 0
+    assert cache.plan([enc("abcdef")], extend=True) == ([None], [None], [False])
+
+
+def test_probs_one_retains_an_extended_prefix_only_when_requested():
+    from kev.model import probs_one
+
+    class Model:
+        def extend_prefix(self, enc, prefix):
+            assert prefix == (2, "old")
+            return (len(enc["seg"]), "new")
+        def probs_with_prefix(self, enc, prefix):
+            assert prefix[0] == len(enc["seg"])
+            return [0.25, 0.75]
+
+    m, short, enc = Model(), (2, "old"), {"seg": [0] * 4}
+    assert probs_one(m, enc, short, True) == ([0.25, 0.75], (4, "new"))
+    assert probs_one(m, enc, short, False) == ([0.25, 0.75], None)
+    exact = (4, "existing")
+    assert probs_one(m, enc, exact, True)[1] is exact
