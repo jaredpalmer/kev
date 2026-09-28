@@ -273,10 +273,13 @@ def main():
     ap.add_argument("--fallback", default="runs/smoke")
     ap.add_argument("--host", default="127.0.0.1", help="interface to bind; 0.0.0.0 to serve beyond this machine (a container, a VM behind a proxy)")
     ap.add_argument("--port", type=int, default=8008)
+    ap.add_argument("--device", default="auto", choices=("auto", "cuda", "mps", "cpu"),
+                    help="accelerator to serve on; auto (default) probes cuda usability via kev.device.default_device "
+                    "(a ROCm wheel without the local arch reports cuda available but cannot run kernels: issue #170)")
     a = ap.parse_args()
     run = a.run if is_hub_id(a.run) or os.path.exists(f"{a.run}/head.pt") else a.fallback
     if run != a.run: print(f"{a.run} not found, falling back to {run}")
-    dev = default_device()
+    dev = default_device() if a.device == "auto" else a.device
     opts = LoadOptions.from_env()
     if dev == "mps" and opts.attn is None: opts = replace(opts, attn="sdpa")   # serving default on Apple GPUs (parity measured)
     if dev != "cpu" and opts.dtype is None: opts = replace(opts, dtype=torch.bfloat16)   # serving default: 2-4.5x faster than fp32 on an L4, same answers (LoadOptions.dtype); KEV_DTYPE=fp32 for the exact path
