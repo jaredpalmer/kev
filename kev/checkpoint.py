@@ -229,6 +229,14 @@ class Checkpoint:
         from transformers import AutoConfig
         return is_hybrid(AutoConfig.from_pretrained(self.meta.base, revision=self.meta.base_revision).get_text_config())
 
+    def base(self, opts=LoadOptions()):
+        """-> (name, revision) of the base the model and tokenizer load from: meta.base, or LoadOptions.base (a base saved
+        quantized by scripts/save_quantized.py, which carries the same tokenizer, so KEV_BASE runs need nothing else)."""
+        if not opts.base: return self.meta.base, self.meta.base_revision
+        if not opts.quant: raise ValueError("a quantized base (KEV_BASE) needs KEV_QUANT set to its precision")
+        name, _, revision = opts.base.partition("@")
+        return name, revision or None
+
     def backend(self, device, opts=LoadOptions()):
         """The backend `load` will use: LoadOptions.backend resolved ("auto" -> mlx only where it pays and is installed)."""
         if opts.backend not in LoadOptions.BACKENDS: raise ValueError(f"unknown backend {opts.backend!r}")
@@ -240,7 +248,7 @@ class Checkpoint:
         """-> (tokenizer, model) in eval mode with the LoRA applied (or the full backbone loaded) and the pointer head loaded. The model is a
         DecisionModel (torch) or an MLXDecisionModel (backend mlx); both expose the same scoring interface."""
         meta = self.meta
-        tok = load_tokenizer(meta.base, revision=meta.base_revision)
+        tok = load_tokenizer(*self.base(opts))
         m = self._load_mlx(tok, opts) if self.backend(device, opts) == "mlx" else self._load_torch(tok, device, opts)
         m.head.load_state_dict(meta.head); m.eval()
         m.head.temperature = meta.temperature if opts.temperature is None else opts.temperature
@@ -276,6 +284,7 @@ class Checkpoint:
         otherwise a mislabelled export would be silently cast (fp32 weights rounded to bf16, or bf16 upcast to twice the
         memory). An explicit dtype still casts on purpose (fp32: the same values computed in fp32). Nothing to merge."""
         if opts.lora_scale != 1: raise ValueError("lora_scale interpolates an adapter; a full-weight checkpoint has none")
+        if opts.base: raise ValueError("KEV_BASE replaces an adapter's base; a full-weight checkpoint has none")
         meta = self.meta
         cfg = json.loads(self.file("config.json").read_text(encoding="utf-8"))
         expected, saved = self.SAVED_DTYPES.get(meta.weights_dtype), cfg.get("dtype") or cfg.get("torch_dtype")
@@ -296,11 +305,8 @@ class Checkpoint:
             dtype, merge = torch.bfloat16, merge and bool(opts.fused)
         merge = merge and not self.adapter_config().get("trainable_token_indices")   # token-trained adapters stay unmerged
         merge = merge and not opts.quant   # merging would requantize W + delta and round most of the delta away
-        base, revision = meta.base, meta.base_revision
-        if opts.base:
-            if not opts.quant: raise ValueError("a quantized base (KEV_BASE) needs KEV_QUANT set to its precision")
-            base, _, revision = opts.base.partition("@")
-        m = DecisionModel(base, tok, device, lora=None, revision=revision or None, head_dim=meta.head_dim,
+        base, revision = self.base(opts)
+        m = DecisionModel(base, tok, device, lora=None, revision=revision, head_dim=meta.head_dim,
                           option_isolation=meta.option_isolation, dtype=dtype, attn=opts.attn, quant=opts.quant)
         m.lm = PeftModel.from_pretrained(m.lm, self.path, torch_device=str(device)).to(device)   # trainable token embeddings, if any, live in the adapter
         if opts.lora_scale != 1:

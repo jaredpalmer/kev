@@ -579,7 +579,8 @@ def test_quantized_base_keeps_the_adapter_unmerged(tiny_base, tmp_path, monkeypa
     assert type(mixer.in_proj_qkv.base_layer.weight) is not torch.nn.Parameter                  # a torchao tensor subclass
     assert type(mixer.in_proj_a.base_layer.weight) is torch.nn.Parameter and mixer.in_proj_a.base_layer.weight.dtype == torch.bfloat16
     save(tmp_path / "lora", "int8", tmp_path / "base-int8")
-    _, saved = ck.load("cpu", LoadOptions(quant="int8", base=str(tmp_path / "base-int8")))
+    saved_tok, saved = ck.load("cpu", LoadOptions(quant="int8", base=str(tmp_path / "base-int8")))
+    assert saved_tok.name_or_path == str(tmp_path / "base-int8")                                 # the tokenizer saved with the base
     with pytest.raises(ValueError, match="KEV_QUANT"):
         ck.load("cpu", LoadOptions(base=str(tmp_path / "base-int8")))
     rec = materialize(load_records(tiny_base / "data.jsonl")[0])
