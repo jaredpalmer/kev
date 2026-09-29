@@ -3,7 +3,7 @@ import copy, math, os, re
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer, DynamicCache
+from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, AutoTokenizer, DynamicCache
 from transformers.cache_utils import LinearAttentionCacheLayerMixin
 
 # Reuse existing rarely-used Qwen special tokens as delimiters (state, q, opt, /opt, decide) so no
@@ -217,9 +217,25 @@ def probs_one(model, enc, prefix, keep):
     return model.probs_and_prefix(enc) if keep else (model.probs(enc), None)
 
 
+# the Gated DeltaNet decay / beta projections (in_proj_a, in_proj_b) stay bf16: tiny, and their error compounds through
+# the recurrence over the whole state. A regex because torchao matches parameter names and bitsandbytes module names.
+QUANT_SKIP = ["lm_head", r".*\.in_proj_[ab]"]
+
+
+def quant_config(quant, dtype):
+    """The transformers quantization_config for LoadOptions.quant: "int8" (torchao int8 weight-only, per channel) or "nf4"."""
+    if quant == "int8":
+        from torchao.quantization import Int8WeightOnlyConfig
+        from transformers import TorchAoConfig
+        return TorchAoConfig(Int8WeightOnlyConfig(version=2), modules_to_not_convert=QUANT_SKIP)   # Int8Tensor: the default from torchao 0.18, and what safetensors export takes
+    from transformers import BitsAndBytesConfig
+    return BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=dtype,
+                              llm_int8_skip_modules=QUANT_SKIP)
+
+
 class DecisionModel(nn.Module):
     def __init__(self, name, tok, device, lora=None, revision=None, attn=None, head_dim=256, option_isolation=False, special_embeddings=False, lora_targets="all", dtype=torch.float32,
-                 weights=None, direct_load=False):
+                 weights=None, direct_load=False, quant=None):
         """weights: a full-weight checkpoint directory whose saved backbone replaces the base's (kev.checkpoint's loader rule).
         direct_load: load the backbone straight onto `device` (transformers device_map) instead of staging it in host memory;
         full-weight training on several GPUs in one container needs it (N processes x a 51 GB checkpoint otherwise). Off by
@@ -230,7 +246,10 @@ class DecisionModel(nn.Module):
         attn = attn or ("sdpa" if str(device).startswith("cuda") else "eager")
         # dtype: fp32 for training and exact evaluation; bf16 is a serving option for large backbones (8B on a 32 GB Mac)
         load = {"dtype": dtype, "attn_implementation": attn}
-        if direct_load: load["device_map"] = {"": torch.cuda.current_device() if device == "cuda" else device}   # "cuda": under torchrun, this rank's GPU
+        # a base saved quantized (scripts/save_quantized.py) brings its own quantization_config
+        if quant and getattr(AutoConfig.from_pretrained(weights or name, revision=revision), "quantization_config", None) is None:
+            load["quantization_config"] = quant_config(quant, dtype)
+        if direct_load or quant: load["device_map"] = {"": torch.cuda.current_device() if device == "cuda" else device}   # "cuda": under torchrun, this rank's GPU
         self.lm = AutoModel.from_pretrained(weights, **load) if weights else AutoModelForCausalLM.from_pretrained(name, revision=revision, **load).model
         self.pad_id = pad_id(tok)
         # hybrid backbones (Qwen3.5: Gated DeltaNet layers, recurrent) cannot honour the block-causal mask, so every

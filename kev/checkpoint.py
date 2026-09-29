@@ -115,6 +115,15 @@ class LoadOptions:
     fused        rewrite a merged hybrid backbone on CUDA with fused Triton kernels (kev.fused_qwen35; needs
                  flash-linear-attention fused_qwen35.FLA_VERSION and refuses any other). None = off; kev.serve turns it on
                  for CUDA when fused_available() (KEV_FUSED=0 to decline). Equal to the reference layers up to bf16 rounding.
+    quant        None = off. "int8" (torchao int8 weight-only, per channel) or "nf4" (bitsandbytes) quantizes the base's linear
+                 layers while loading; the adapter stays unmerged in bf16 on top (QLoRA-style), so merge and fused are
+                 off. Kev-27B on transfer-v4 / decision-v7 development: accuracy and Brier unchanged; per question against
+                 bf16, int8 mean |dp| 0.002-0.003 (max 0.05), nf4 0.012-0.019 (max 0.85); bases saved by
+                 scripts/save_quantized.py, A100 40GB. Needs torchao >= 0.16 (peft's floor) or bitsandbytes, not in the serve extra.
+                 bitsandbytes LLM.int8 was worse on every count and is batch-dependent (its outlier columns come from the
+                 whole batch), so it is not offered.
+    base         None = the checkpoint's base. A Hub id (repo[@revision]) or directory holding that base saved quantized by
+                 scripts/save_quantized.py (a smaller download, nothing quantized at load); needs `quant` set to its precision.
     """
     dtype: torch.dtype | None = None
     merge: bool = True
@@ -124,24 +133,30 @@ class LoadOptions:
     backend: str | None = None
     cuda_graphs: bool | None = None
     fused: bool | None = None
+    quant: str | None = None
+    base: str | None = None
 
     BACKENDS = (None, "torch", "mlx", "auto")
+    QUANTS = (None, "int8", "nf4")
 
     @classmethod
     def from_env(cls, env=os.environ):
         """KEV_DTYPE=bf16|fp16|fp32, KEV_MERGE=0, KEV_ATTN=sdpa|eager, KEV_LORA_SCALE, KEV_TEMPERATURE, KEV_BACKEND=torch|mlx|auto,
-        KEV_CUDA_GRAPHS=0|1, KEV_FUSED=0|1.
+        KEV_CUDA_GRAPHS=0|1, KEV_FUSED=0|1, KEV_QUANT=int8|nf4, KEV_BASE.
         For command-line entry points only; library code passes an explicit LoadOptions. Explicit values that equal a
         library default are kept (fp32 as torch.float32, "torch" as a string) so a caller with its own default, like
         kev.serve, can tell "asked for it" from "did not say"."""
         backend = env.get("KEV_BACKEND") or None
         if backend not in cls.BACKENDS: raise ValueError(f"KEV_BACKEND must be one of torch, mlx, auto; got {backend!r}")
+        quant = env.get("KEV_QUANT") or None
+        if quant not in cls.QUANTS: raise ValueError(f"KEV_QUANT must be one of int8, nf4; got {quant!r}")
         return cls(dtype={"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}.get(env.get("KEV_DTYPE", "")),
                    merge=env.get("KEV_MERGE", "1") != "0", attn=env.get("KEV_ATTN") or None,
                    lora_scale=float(env.get("KEV_LORA_SCALE", "1")),
                    temperature=float(env["KEV_TEMPERATURE"]) if env.get("KEV_TEMPERATURE") else None, backend=backend,
                    cuda_graphs={"0": False, "1": True}.get(env.get("KEV_CUDA_GRAPHS", "")),
-                   fused={"0": False, "1": True}.get(env.get("KEV_FUSED", "")))
+                   fused={"0": False, "1": True}.get(env.get("KEV_FUSED", "")), quant=quant,
+                   base=env.get("KEV_BASE") or None)
 
 
 def mlx_available():
@@ -267,7 +282,7 @@ class Checkpoint:
         if expected is None or saved not in (None, expected):
             raise ValueError(f"{self.path}: config.json records the weights as {saved} but head.pt says weights_dtype={meta.weights_dtype!r}")
         return DecisionModel(meta.base, tok, device, head_dim=meta.head_dim, option_isolation=meta.option_isolation,
-                             dtype=opts.dtype or getattr(torch, expected), attn=opts.attn, weights=self.path), True
+                             dtype=opts.dtype or getattr(torch, expected), attn=opts.attn, weights=self.path, quant=opts.quant), True
 
     def _adapted_torch(self, tok, device, opts):
         """-> (model, whether the adapter was merged): the base with this checkpoint's LoRA."""
@@ -280,8 +295,13 @@ class Checkpoint:
             # (one rounding of W + delta, as for every served Kev; parity in runs/serving-27b-*).
             dtype, merge = torch.bfloat16, merge and bool(opts.fused)
         merge = merge and not self.adapter_config().get("trainable_token_indices")   # token-trained adapters stay unmerged
-        m = DecisionModel(meta.base, tok, device, lora=None, revision=meta.base_revision, head_dim=meta.head_dim,
-                          option_isolation=meta.option_isolation, dtype=dtype, attn=opts.attn)
+        merge = merge and not opts.quant   # merging would requantize W + delta and round most of the delta away
+        base, revision = meta.base, meta.base_revision
+        if opts.base:
+            if not opts.quant: raise ValueError("a quantized base (KEV_BASE) needs KEV_QUANT set to its precision")
+            base, _, revision = opts.base.partition("@")
+        m = DecisionModel(base, tok, device, lora=None, revision=revision or None, head_dim=meta.head_dim,
+                          option_isolation=meta.option_isolation, dtype=dtype, attn=opts.attn, quant=opts.quant)
         m.lm = PeftModel.from_pretrained(m.lm, self.path, torch_device=str(device)).to(device)   # trainable token embeddings, if any, live in the adapter
         if opts.lora_scale != 1:
             for module in m.lm.modules():
