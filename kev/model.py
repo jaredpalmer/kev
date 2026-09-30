@@ -213,7 +213,13 @@ EAGER_STATES = 4   # long new states (past the graphed state pass) whose eager p
 def probs_one(model, enc, prefix, keep):
     """-> (probs, prefix to keep) for one request, on any backend: the question rows on the cached prefix on a hit, one
     pass that also returns the prefix when it is to be kept, the plain pass otherwise."""
-    if prefix is not None: return model.probs_with_prefix(enc, prefix), prefix
+    if prefix is not None:
+        if prefix[0] < enc["seg"].count(0):
+            # Serving only selects shorter states when the backend supports extension.
+            # Extend one request at a time, and retain its new state only if it survives.
+            prefix = model.extend_prefix(enc, prefix)
+            return model.probs_with_prefix(enc, prefix), prefix if keep else None
+        return model.probs_with_prefix(enc, prefix), prefix
     return model.probs_and_prefix(enc) if keep else (model.probs(enc), None)
 
 

@@ -25,7 +25,8 @@ def test_choice_basic():
     assert a["type"] == "choice" and a["choice"] in DEPARTMENT and set(a["probabilities"]) == set(DEPARTMENT)
     assert math.isclose(sum(a["probabilities"].values()), 1.0, abs_tol=0.03) and 0 <= a["confidence"] <= 1
     assert a["choice"] == max(a["probabilities"], key=a["probabilities"].get)
-    assert set(r["usage"]) == {"input_tokens", "output_tokens"}
+    assert set(r["usage"]) == {"input_tokens", "output_tokens", "input_tokens_details"}
+    assert 0 <= r["usage"]["input_tokens_details"]["cached_tokens"] <= r["usage"]["input_tokens"]
 
 
 def test_five_questions_and_null_descriptions():

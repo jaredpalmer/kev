@@ -136,3 +136,48 @@ def test_prefix_reuse_and_question_isolation(models):
     assert same(chunked, alone)   # one branch row on the cached prefix, whether asked alone or split out of a batch
     with pytest.raises(ValueError, match="prefix"):
         m.probs_with_prefix(m.encode(tok, {**rec, "state": rec["state"] + " extra words here"}), prefix)
+
+
+def test_incremental_prefix_matches_full_pass_and_preserves_ancestors(models, monkeypatch):
+    """Actual Qwen3.5 weights: append several chunks, fork two histories from one
+    snapshot, and reuse the ancestor afterward. Every extension consumes only its
+    new tokens. Cached tensors must stay bit-identical; probabilities use the same
+    bf16 rounding bar as prefix-vs-rows above."""
+    from kev.model import SERVE_MAX_STATE, SERVE_MAX_BRANCH
+    tok, m, _, records = models
+    encode = lambda state: m.encode(tok, {**records[0], "state": state},
+                                   max_state=SERVE_MAX_STATE, max_branch=SERVE_MAX_BRANCH, strict=True)
+    state = "Conversation history:\n\n"
+    initial = encode(state)
+    ancestor = m.prefix(initial)
+    frozen = [[np.asarray(a.astype(mx.float32)).copy() for a in c.state] for c in ancestor[1]]
+    previous = initial
+    prefix = ancestor
+    for record in records[:4]:
+        state += record["state"] + "\n\n"
+        enc = encode(state)
+        assert enc["ids"][:prefix[0]] == previous["ids"][:prefix[0]]
+        lengths = []
+        hidden = m._hidden
+        with monkeypatch.context() as patch:
+            def observe(rows, cache=None):
+                lengths.extend(map(len, rows))
+                return hidden(rows, cache)
+            patch.setattr(m, "_hidden", observe)
+            extended = m.extend_prefix(enc, prefix)
+        assert lengths == [enc["seg"].count(0) - prefix[0]]
+        near(m.probs_with_prefix(enc, extended), m.probs(enc), bar=0.04, tie=0.04)
+        prefix, previous = extended, enc
+
+    forks = [encode("Conversation history:\n\n" + r["state"] + "\n\n") for r in records[4:6]]
+    outputs, saved = m.probs_batch(forks, [ancestor, ancestor], [True, False])
+    assert saved[0][0] == forks[0]["seg"].count(0) and saved[1] is None
+    for enc, output in zip(forks, outputs):
+        near(output, m.probs(enc), bar=0.04, tie=0.04)
+    for cache, old_arrays in zip(ancestor[1], frozen):
+        for current, old in zip(cache.state, old_arrays):
+            np.testing.assert_array_equal(np.asarray(current.astype(mx.float32)), old)
+    assert all(torch.equal(a, b) for a, b in zip(m.probs_with_prefix(initial, ancestor), m.probs(initial)))
+    assert m.extend_prefix(initial, ancestor) is ancestor
+    with pytest.raises(ValueError, match="longer"):
+        m.extend_prefix(initial, prefix)

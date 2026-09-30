@@ -36,7 +36,8 @@ MODEL_NAMES = ("kev-latest", "jev-latest")                               # both 
 class PrefixCache:
     """State prefixes kept across requests, least recently used first: (state token ids, option_isolation) -> prefix.
     At most `size` states and `max_tokens` state tokens in all; states shorter than min_tokens or longer than max_tokens
-    are not cached. A batch keeps (copies) only the new states that will still be here after it, its last distinct ones
+    are not cached. On an extension-capable backend, plan can select a shorter complete state.
+    A batch keeps (copies) only the new states that will still be here after it, its last distinct ones
     within both bounds: the rest would be evicted by the batch itself."""
     size: int
     min_tokens: int
@@ -46,7 +47,7 @@ class PrefixCache:
     misses: int = 0
     oom_retries: int = 0   # batches that ran out of device memory with states cached, dropped them and ran again (Server._run)
 
-    def plan(self, encs):
+    def plan(self, encs, *, extend=False):
         """-> (key per request, None when its state is not cached; its cached prefix or None; whether to keep a new one)."""
         lengths = [enc["seg"].count(0) for enc in encs]
         keys = [(tuple(enc["ids"][:n]), bool(enc.get("option_isolation"))) if self.size and self.min_tokens <= n <= self.max_tokens else None
@@ -55,7 +56,16 @@ class PrefixCache:
         for key in dict.fromkeys(k for k in reversed(keys) if k is not None):   # most recent first, as store() keeps them
             if len(survivors) == self.size or tokens + len(key[0]) > self.max_tokens: break
             survivors.add(key); tokens += len(key[0])
-        return keys, [self.entries.get(k) if k is not None else None for k in keys], [k in survivors for k in keys]
+        cached = []
+        for key in keys:
+            match = key
+            if extend and key is not None and key not in self.entries:
+                # A hybrid model cannot rewind its recurrent state. Only a whole saved
+                # state may be extended, never an arbitrary common token subsequence.
+                match = max((k for k in self.entries if k[1] == key[1] and key[0][:len(k[0])] == k[0]),
+                            key=lambda k: len(k[0]), default=None)
+            cached.append(self.entries.get(match))
+        return keys, cached, [k in survivors for k in keys]
 
     def store(self, keys, cached, prefixes):
         """Record hits and misses, and (re)insert the batch's prefixes in order: most recently used last."""
@@ -150,7 +160,7 @@ class Server:
         it failed every later batch of that size (#75, @vtxyer)."""
         sync(self.device); t = time.time()
         for retry in (False, True):
-            keys, cached, keep = self.prefix_cache.plan(encs)
+            keys, cached, keep = self.prefix_cache.plan(encs, extend=callable(getattr(self.model, "extend_prefix", None)))
             try: ps, prefixes = self.model.probs_batch(encs, cached, keep); break
             except Exception as e:
                 if retry or not self.prefix_cache.entries or not out_of_memory(e): raise
@@ -159,7 +169,7 @@ class Server:
         sync(self.device); dt = round((time.time() - t) * 1000, 1)
         self.prefix_cache.store(keys, cached, prefixes)
         self.batches += 1; self.batched_requests += len(encs)
-        return [([q.tolist() for q in p], {"tokens": len(enc["ids"]), "state_tokens": enc["seg"].count(0), "latency_ms": dt, "prefix_cache_hit": c is not None})
+        return [([q.tolist() for q in p], {"tokens": len(enc["ids"]), "state_tokens": enc["seg"].count(0), "latency_ms": dt, "prefix_cache_hit": c is not None, "cached_tokens": c[0] if c is not None else 0})
                 for enc, p, c in zip(encs, ps, cached)]
 
     def wait_idle(self):
@@ -182,7 +192,8 @@ class Server:
 
     def _body(self, req, meta, ps, m):
         answers = to_answers(ps, meta)
-        return {"model": req.model, "answers": answers, "usage": {"input_tokens": m["tokens"], "output_tokens": output_tokens(self.tok, answers)}, "latency_ms": m["latency_ms"]}
+        return {"model": req.model, "answers": answers, "usage": {"input_tokens": m["tokens"], "output_tokens": output_tokens(self.tok, answers),
+                "input_tokens_details": {"cached_tokens": m["cached_tokens"]}}, "latency_ms": m["latency_ms"]}
 
 
 def prepare(req):
@@ -261,7 +272,7 @@ def models():
             "run": ck.requested, "base": meta.base, "lora": meta.lora, "device": s.device, "backend": s.model.backend, "dtype": s.model.dtype,
             "temperature": s.model.head.temperature,
             "cuda_graphs": graphs.stats() if (graphs := getattr(s.model, "graphs", None)) else None,
-            "prefix_cache": {"size": s.prefix_cache.size, "min_state_tokens": s.prefix_cache.min_tokens, "max_tokens": s.prefix_cache.max_tokens, "hits": s.prefix_cache.hits,
+            "prefix_cache": {"incremental": callable(getattr(s.model, "extend_prefix", None)), "size": s.prefix_cache.size, "min_state_tokens": s.prefix_cache.min_tokens, "max_tokens": s.prefix_cache.max_tokens, "hits": s.prefix_cache.hits,
                              "misses": s.prefix_cache.misses, "cached_states": len(s.prefix_cache.entries), "oom_retries": s.prefix_cache.oom_retries},
             "batches": {"count": s.batches, "requests": s.batched_requests, "queued": s.queue.qsize()}}
     return {"models": [{"name": name, **card} for name in MODEL_NAMES]}
