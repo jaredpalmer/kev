@@ -15,8 +15,10 @@ SCANNED = ("kev", "scripts", "space", "tests", "modal_app.py")
 RULES = [
     ("head.pt is read and written through kev.checkpoint (Meta, read_meta, write_meta)",
      r"torch\.(load|save)\([^\n]*head\.pt", {"kev/checkpoint.py"}),
-    ("KEV_DTYPE/KEV_MERGE/KEV_ATTN/KEV_LORA_SCALE/KEV_TEMPERATURE/KEV_BACKEND/KEV_CUDA_GRAPHS are read only by LoadOptions.from_env",
-     r"environ(\.get)?\(?\[?\s*\"KEV_(DTYPE|MERGE|ATTN|LORA_SCALE|TEMPERATURE|BACKEND|CUDA_GRAPHS)\"", {"kev/checkpoint.py"}),
+    ("KEV_DTYPE/KEV_MERGE/KEV_ATTN/KEV_LORA_SCALE/KEV_TEMPERATURE/KEV_BACKEND/KEV_CUDA_GRAPHS/KEV_QUANT/KEV_BASE are read only by LoadOptions.from_env",
+     r"environ(\.get)?\(?\[?\s*\"KEV_(DTYPE|MERGE|ATTN|LORA_SCALE|TEMPERATURE|BACKEND|CUDA_GRAPHS|QUANT|BASE)\"", {"kev/checkpoint.py"}),
+    ("a quantized base (KEV_QUANT, scripts/save_quantized.py) is configured only by kev.model.quant_config (QUANT_SKIP)",
+     r"(TorchAo|BitsAndBytes)Config\(", {"kev/model.py"}),
     ("whether a checkpoint is a LoRA adapter or full weights, and where its shards are, is kev.checkpoint.Checkpoint.full / shards (the loader rule)",
      r"glob\(\"model\*\.safetensors\"\)|adapter_config\.json\"\)\.exists\(\)", {"kev/checkpoint.py"}),
     ("a checkpoint becomes a model only through kev.checkpoint (Checkpoint.load picks the torch or MLX implementation)",

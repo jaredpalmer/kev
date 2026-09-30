@@ -183,6 +183,9 @@ def test_checkpoint_meta_round_trip_and_defaults(tmp_path):
     assert [LoadOptions.from_env(e).fused for e in ({}, {"KEV_FUSED": "0"}, {"KEV_FUSED": "1"})] == [None, False, True]
     with pytest.raises(ValueError, match="KEV_BACKEND"):
         LoadOptions.from_env({"KEV_BACKEND": "metal"})
+    assert LoadOptions.from_env({"KEV_QUANT": "int8", "KEV_BASE": "user/base@rev"}) == LoadOptions(quant="int8", base="user/base@rev")
+    with pytest.raises(ValueError, match="KEV_QUANT"):
+        LoadOptions.from_env({"KEV_QUANT": "int4"})
 
 
 def test_fused_default_needs_pinned_fla(monkeypatch):
@@ -555,6 +558,36 @@ def test_interpolation_refuses_a_checkpoint_that_does_not_match_its_base(tiny_ba
         assert not (tmp_path / f"{name}-out").exists()
     with pytest.raises(ValueError, match="was trained from"):
         interpolate(tmp_path / "sft", [0.5], [tmp_path / "other/checkpoint"], base="Qwen/Qwen3.8-27B", log=lambda m: None)
+
+
+def test_quantized_base_keeps_the_adapter_unmerged(tiny_base, tmp_path, monkeypatch):
+    """KEV_QUANT=int8 (torchao weight-only) on a bf16-backbone LoRA checkpoint: the base's linear layers load quantized except
+    the DeltaNet decay / beta projections (kev.model.QUANT_SKIP), the adapter stays unmerged on top even when fused is asked
+    for (folding it into int8 weights would round most of it away), and a base saved by scripts/save_quantized.py and loaded
+    through KEV_BASE scores exactly like quantizing at load."""
+    pytest.importorskip("torchao")
+    from peft import PeftModel
+    from kev.checkpoint import Checkpoint, LoadOptions
+    from kev.data import load_records, materialize
+    from scripts.save_quantized import save
+    train_tiny(tiny_base, tmp_path / "lora", "--lora", "4", "--weights_dtype", "bf16", "--max_steps", "3", monkeypatch=monkeypatch)
+    ck = Checkpoint(tmp_path / "lora")
+    tok, bf16 = ck.load("cpu")
+    _, at_load = ck.load("cpu", LoadOptions(quant="int8", fused=True))
+    assert isinstance(at_load.lm, PeftModel)
+    mixer = at_load.lm.base_model.model.layers[0].linear_attn
+    assert type(mixer.in_proj_qkv.base_layer.weight) is not torch.nn.Parameter                  # a torchao tensor subclass
+    assert type(mixer.in_proj_a.base_layer.weight) is torch.nn.Parameter and mixer.in_proj_a.base_layer.weight.dtype == torch.bfloat16
+    save(tmp_path / "lora", "int8", tmp_path / "base-int8")
+    saved_tok, saved = ck.load("cpu", LoadOptions(quant="int8", base=str(tmp_path / "base-int8")))
+    assert saved_tok.name_or_path == str(tmp_path / "base-int8")                                 # the tokenizer saved with the base
+    with pytest.raises(ValueError, match="KEV_QUANT"):
+        ck.load("cpu", LoadOptions(base=str(tmp_path / "base-int8")))
+    rec = materialize(load_records(tiny_base / "data.jsonl")[0])
+    with torch.no_grad():
+        pb, pq, ps = (m.probs(m.encode(tok, rec)) for m in (bf16, at_load, saved))
+    assert all(torch.equal(a, b) for a, b in zip(pq, ps))
+    assert max(float((a - b).abs().max()) for a, b in zip(pb, pq)) < 0.05
 
 
 def test_interpolation_toward_a_lora_checkpoint_merged_in_fp32(tiny_base, tmp_path, monkeypatch):

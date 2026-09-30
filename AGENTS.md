@@ -304,6 +304,11 @@ Title Case sections, API tables, Authors + License); model cards are formal.
     `tests/test_model.py::test_cuda_graphs_match_eager` needs CUDA (run it on Modal). Over HTTP, Modal's `asgi_app` path caps a container at
     ~40-50 req/s; `modal.experimental.http_server` served ~99 req/s at 64 clients (Kev-4B, H100).
     Loading merges the fp32 adapter straight into bf16 weights (same bits as the old fp32 merge + cast), so Kev-9B needs ~17 GB, not 36 GB.
+  - Quantized base (`LoadOptions.quant` / `.base`, `KEV_QUANT=int8|nf4`, `KEV_BASE=<repo or dir>`): `kev.model.quant_config` quantizes the base's linear
+    layers while loading (int8: torchao weight-only, >= 0.16 for peft, 0.16-0.17 on the pinned torch; nf4: bitsandbytes; neither is in the serve extra) and keeps the DeltaNet `in_proj_a`/`in_proj_b` in bf16
+    (`QUANT_SKIP`, a regex: torchao matches parameter names, bitsandbytes module names). The adapter stays unmerged, so fused is off.
+    `scripts/save_quantized.py` writes the base pre-quantized for `KEV_BASE` (the same bits). CUDA graphs preallocate ~13.5 GB for Kev-27B:
+    `KEV_CUDA_GRAPHS=0` on a 40 GB card (int8 Kev-27B: 25.3 GB loaded on an A100 40GB). `scripts/quant_eval.py` / `quant_compare.py` measure parity against bf16.
 - Extra endpoints for the demo: `POST /v1/systemone/permute` (one Choice under n option orders), `POST /v1/systemone/separate`
   (each question alone; packed-vs-separate comparison). `/v1/systemone` also returns `latency_ms`.
 - Web demo: `cd playground && npm run dev -- -p 3001` (:3000 is used by another project). Next 16 app router; `/kev/*` is
