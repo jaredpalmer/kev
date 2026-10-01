@@ -162,6 +162,31 @@ def test_soft_targets_and_date_facts():
     assert with_date_facts({"case": "one date: May 1, 2026"}) == {"case": "one date: May 1, 2026"}
 
 
+@pytest.mark.parametrize("platform,scale", [("linux", 1024), ("darwin", 1)])
+def test_peak_rss_scales_ru_maxrss_to_bytes(monkeypatch, platform, scale):
+    """training_metrics.json's peak_rss_bytes: getrusage's ru_maxrss counts KiB on Linux and bytes on macOS."""
+    import sys
+    from kev import train
+    monkeypatch.setitem(sys.modules, "resource", SimpleNamespace(RUSAGE_SELF=0, getrusage=lambda who: SimpleNamespace(ru_maxrss=3000)))
+    monkeypatch.setattr(sys, "platform", platform)
+    assert train.peak_rss_bytes() == 3000 * scale
+
+
+def test_peak_rss_on_windows_is_the_peak_working_set_and_a_failed_query_raises():
+    """Windows has no `resource`: peak_rss_bytes is K32GetProcessMemoryInfo's PeakWorkingSetSize in bytes, and a failed
+    query raises its Windows error instead of recording a number."""
+    import sys
+    if sys.platform != "win32":
+        pytest.skip("Win32 API")
+    from kev.train import peak_rss_bytes, peak_working_set_bytes
+    touched = bytearray(b"\x01") * (64 << 20)   # written, so resident
+    assert 64 << 20 <= peak_rss_bytes() < 1 << 50, "a KiB count would fall below the 64 MiB just touched"
+    del touched
+    with pytest.raises(OSError) as raised:
+        peak_working_set_bytes(process=0)   # NULL is not a process handle
+    assert raised.value.winerror == 6   # ERROR_INVALID_HANDLE
+
+
 def test_checkpoint_meta_round_trip_and_defaults(tmp_path):
     """head.pt has one schema (kev.checkpoint.Meta): old files get the same defaults everywhere, unknown keys survive a
     read-modify-write, and LoadOptions.from_env is the only place the KEV_* variables are read."""
@@ -1373,10 +1398,14 @@ def assert_shared_prefix_equals_rows(tiny_base, checkpointing, lora, shapes, att
 
 # torchrun on this machine only, by address: --standalone resolves the hostname, which hangs where it has no DNS entry
 LOCAL_RENDEZVOUS = ("--nnodes=1", "--rdzv-backend=c10d", "--rdzv-endpoint=127.0.0.1:0", "--local-addr=127.0.0.1")
+# multi-rank runs are Linux-only: PyTorch's Windows wheels are built without libuv, which that rendezvous store needs
+NO_TORCHRUN = "torchrun's c10d rendezvous needs libuv, which PyTorch's Windows wheels lack"
 
 
 def _run_train(args, out, ranks=1):
     import subprocess, sys
+    if ranks > 1 and sys.platform == "win32":
+        pytest.skip(NO_TORCHRUN)
     launcher = ["-m", "torch.distributed.run", *LOCAL_RENDEZVOUS, f"--nproc_per_node={ranks}"] if ranks > 1 else []
     done = subprocess.run([sys.executable, *launcher, "-m", "kev.train", *args, "--out", str(out)], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr[-3000:]
@@ -1419,6 +1448,8 @@ def test_fsdp2_ranks_train_what_one_process_trains(tiny_base, tmp_path):
     """Two gloo ranks under torchrun (FSDP2 over the layers, the head replicated) take the same first step as one process
     with the same records per step: the sharded gradient is the sum over ranks, not the mean."""
     import subprocess, sys
+    if sys.platform == "win32":
+        pytest.skip(NO_TORCHRUN)
     from safetensors.torch import load_file
     common = ["-m", "kev.train", "--base", str(tiny_base / "base"), "--data", str(tiny_base / "data.jsonl"), "--device", "cpu", "--batch", "2",
               "--lr", "1e-3", "--max_steps", "1", *FULL]
@@ -1566,7 +1597,7 @@ def test_pull_leaves_full_weights_and_resume_points_on_the_volume(tmp_path, monk
                              read_file_into_fileobj=lambda path, out: out.write(files[path]))
     monkeypatch.setattr(modal_app, "runs_volume", volume)
     modal_app.pull_volume("/s", tmp_path, weights=False)
-    local = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*") if p.is_file())
+    local = sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file())
     assert local == sorted(p for p in files if "resume/" not in p and not ("/checkpoint/model" in p and p.endswith(".safetensors")))
     assert (tmp_path / trial / "checkpoint/head.pt").read_bytes() == b"h" and "left 4 weight/resume file(s)" in capsys.readouterr().out
     assert all(modal_app.pulled(p, weights=True) for p in files)
@@ -1955,7 +1986,7 @@ class _FakeVolume:
 
     def commit(self):
         self.commits += 1
-        for p in self.root.rglob("*.json"): self.shared[str(p.relative_to(self.root))] = p.read_text(encoding="utf-8")
+        for p in self.root.rglob("*.json"): self.shared[p.relative_to(self.root).as_posix()] = p.read_text(encoding="utf-8")
 
 
 def _lease(tmp_path, shared, clock, nonce, others=()):

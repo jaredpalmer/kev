@@ -1,11 +1,13 @@
 import argparse
 import copy
-import fcntl
+import errno
 import hashlib
 import json
 import os
 import random
 import shutil
+import sys
+import time
 from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
@@ -15,6 +17,11 @@ from kev.contrastive import FAMILIES, generate
 from kev.data import ALL_REPOS, ALL_SOURCES, EVAL_ONLY, REPOS, SOURCES, TRAINABLE, TRANSFER_REPOS, TRANSFER_SOURCES, build, dataset_ref, materialize, source_seed
 from kev.model import (MAX_BRANCH, SERVE_MAX_BRANCH, SERVE_MAX_BRANCH_8K, SERVE_MAX_PACKED, SERVE_MAX_STATE, SERVE_MAX_STATE_8K, fits, load_tokenizer,
                        training_context)
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 
 SPLITS = ("train", "calibration", "development", "test")
 BASES = ("Qwen/Qwen2.5-0.5B", "Qwen/Qwen3-0.6B-Base")
@@ -90,9 +97,9 @@ class RemovedSuite(ValueError):
 
 
 def suite_key(path):
-    """'evals/...' for a suite path given relative, absolute or as a container saw it (/root/kev/evals/x); None if none."""
-    parts = Path(str(path)).parts
-    return str(Path(*parts[parts.index("evals"):])) if "evals" in parts else None
+    """'evals/...' for a suite path from either OS, relative, absolute or container-local; None if none."""
+    parts = Path(str(path).replace("\\", "/")).parts
+    return Path(*parts[parts.index("evals"):]).as_posix() if "evals" in parts else None   # "/" on every OS, like REMOVED_SUITES' keys
 
 
 def removed_suite(path):
@@ -151,13 +158,34 @@ def write_json(path, value, atomic=False):
 
 
 @contextmanager
-def file_lock(path):
-    """Hold an exclusive advisory lock on `path` (created if absent) for the block; a second holder waits. Local
-    orchestration only: one pull of a study (modal_app.pull_lock), one launch of an arm's reads (kev.rounds)."""
+def file_lock(path, wait=True):
+    """Hold an exclusive advisory lock on `path` (created if absent) for the block; a second holder waits, or with
+    wait=False gets BlockingIOError at once. Local orchestration only: one pull of a study (modal_app.pull_lock), one
+    launch of an arm's reads (kev.rounds), one research runner (kev.experiment.study_lock), one fetch of a missing
+    partition (fetch_partition). flock on POSIX; Windows has no fcntl, so there msvcrt locks the file's first byte (polled
+    while waiting) and unlocks it explicitly before closing the handle."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with Path(path).open("a", encoding=ENCODING) as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        yield
+        if sys.platform != "win32":
+            fcntl.flock(lock, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))   # held elsewhere with LOCK_NB: BlockingIOError
+            yield
+            return
+        lock.seek(0)
+        while True:
+            try:
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+                break
+            except OSError as e:
+                if e.errno != errno.EACCES:   # EACCES is another holder's lock on the byte; EBADF, EINVAL, ... are real errors
+                    raise
+                if not wait:
+                    raise BlockingIOError(errno.EWOULDBLOCK, f"{path} is locked by another holder") from None
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def read_jsonl(path):
@@ -222,22 +250,30 @@ def load_split(directory, split, allow_test=False):
 
 def fetch_partition(directory, filename):
     """Download one partition of a frozen suite from its Hub mirror into place: the manifest's own "mirror" if it names
-    one, else SUITES_DATASET@SUITES_REVISION. The caller verifies the sha256."""
+    one, else SUITES_DATASET@SUITES_REVISION. The caller verifies the sha256. Workers that miss the same partition at once
+    (torchrun ranks, parallel reads of one checkout) fetch it once: the first takes file_lock on .<filename>.lock beside it
+    while the others wait, then find it in place. The copy is written under a temporary name and renamed, so a reader that
+    checks without the lock sees no file or the whole file, never a partial one."""
     from huggingface_hub import hf_hub_download
     from huggingface_hub.errors import GatedRepoError, RepositoryNotFoundError
     directory = Path(directory).resolve()
     evals_root = next((p for p in directory.parents if p.name == "evals"), None)
     if evals_root is None:
         raise FileNotFoundError(f"{directory / filename} is missing and is not under an evals/ tree")
-    relative = directory.relative_to(evals_root) / filename
+    relative = (directory.relative_to(evals_root) / filename).as_posix()   # a path in the Hub repo: "/" on every OS
     mirror = read_manifest(directory).get("mirror")
     repo, revision = (mirror["dataset"], mirror["revision"]) if mirror else (SUITES_DATASET, SUITES_REVISION)   # a named mirror pins its own revision
-    try:
-        cached = hf_hub_download(repo, str(relative), repo_type="dataset", revision=revision)
-    except (RepositoryNotFoundError, GatedRepoError) as e:   # a private mirror answers "not found" to anyone without access
-        raise PermissionError(f"{relative} is only in {repo}, which is missing or private to this account; `hf auth login` "
-                              "(or HF_TOKEN) with access to it, or ask for it") from e
-    shutil.copyfile(cached, directory / filename)
+    target, partial = directory / filename, directory / f".{filename}.partial"
+    with file_lock(directory / f".{filename}.lock"):
+        if target.exists():   # another worker fetched it while this one waited
+            return
+        try:
+            cached = hf_hub_download(repo, relative, repo_type="dataset", revision=revision)
+        except (RepositoryNotFoundError, GatedRepoError) as e:   # a private mirror answers "not found" to anyone without access
+            raise PermissionError(f"{relative} is only in {repo}, which is missing or private to this account; `hf auth login` "
+                                  "(or HF_TOKEN) with access to it, or ask for it") from e
+        shutil.copyfile(cached, partial)
+        os.replace(partial, target)   # under the lock nobody else writes it, and on Windows nobody can have it open yet
     print(f"fetched {relative} from {repo}@{revision[:10]}", flush=True)
 
 
