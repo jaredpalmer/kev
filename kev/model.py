@@ -397,7 +397,8 @@ class DecisionModel(nn.Module):
     def probs(self, enc):
         """Probabilities per question. A record that runs as rows (every record on a hybrid backbone) takes the serving miss
         path: its state once, then the question rows from its cache. forward() keeps the row form, which re-runs the state
-        per question; the two agree to fp32 rounding (#77)."""
+        per question; the two agree to fp32 rounding (#77). On NPU the cache continuation is not usable (see
+        probs_and_prefix), so hybrid rows are recomputed."""
         if self.rows_form([enc]): return self.probs_and_prefix(enc)[0]
         return [F.softmax(z, -1).cpu() for z in self.forward(enc)]
 
@@ -431,6 +432,11 @@ class DecisionModel(nn.Module):
         costs a single forward pass, not two."""
         Ls = enc["seg"].count(0)
         if self.rows_form([enc]):
+            if str(self.device).startswith("npu"):
+                # transformers 5.5.4 continues a cached Gated DeltaNet state with recurrent_gated_delta_rule, a decode
+                # kernel. kev.npu_qwen35 patches the chunked prefill kernel, and that is the path the NPU numbers were
+                # measured on, so the rows are recomputed and nothing is cached.
+                return [F.softmax(z, -1).cpu() for z in self.forward(enc)], None
             # recurrent layers cannot be cropped back to the state (and an over-long packed pass is what the row form avoids),
             # so a miss here is a state pass (kept as the prefix) plus the branch rows
             Ls, cache, h_state = self.prefix(enc)
@@ -449,6 +455,8 @@ class DecisionModel(nn.Module):
         back to the state afterwards so it can be reused."""
         Ls, cache, h_state = prefix
         if enc["seg"].count(0) != Ls: raise ValueError("prefix does not match this record's state")
+        if str(self.device).startswith("npu") and self.rows_form([enc]):
+            return [F.softmax(z, -1).cpu() for z in self.forward(enc)]
         if self.rows_form([enc]):
             return self._branch_rows_from_prefix(enc, cache)
         ids = torch.tensor([enc["ids"][Ls:]], device=self.device); pos = torch.tensor([enc["pos"][Ls:]], device=self.device)

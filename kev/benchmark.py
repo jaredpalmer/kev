@@ -20,7 +20,7 @@ from kev.api import question_keys, with_date_facts
 from kev.checkpoint import LoadOptions
 from kev.contrastive import paired_flip
 from kev.data import api_request, load_records
-from kev.device import default_device
+from kev.device import default_device, select
 from kev.metrics import EPSILON, grouped_metrics, metrics, unknowable_report
 from kev.model import ROW_PASS_TOKENS, ContextOverflow
 from kev.predictors import LocalPredictor, RemotePredictor, RotationAveraged
@@ -177,13 +177,17 @@ def main():
     ap.add_argument("--suite", help="frozen suite directory (scores its development partition)")
     ap.add_argument("--data", help="your own labelled requests, one JSON object per line (kev.data.load_records); an alternative to --suite")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--device", choices=["cpu", "mps", "cuda"], default=default_device())
+    ap.add_argument("--device", default=default_device(), help="cpu, mps, cuda or an Ascend npu, with an optional index (npu:0)")
     ap.add_argument("--allow-test", action="store_true")
     ap.add_argument("--split", choices=["development", "calibration", "train"], default="development",
                     help="suite partition to score (train: teacher predictions for distillation; --allow-test reads the locked test instead)")
     ap.add_argument("--date_facts", action="store_true", help="apply kev.api.with_date_facts to every state before scoring (the opt-in serving preprocessor); reported in report.json")
     ap.add_argument("--rotations", type=int, default=1, help="average every Choice question over this many cyclic option rotations (kev.predictors.RotationAveraged); 1 = one order")
     a = ap.parse_args()
+    try:
+        a.device = select(a.device)
+    except ValueError as e:
+        ap.error(str(e))
     if bool(a.run) == bool(a.remote): ap.error("give exactly one of --run or --remote")
     if a.rotations < 1: ap.error("--rotations must be >= 1")
     if a.remote_concurrency < 1: ap.error("--remote-concurrency must be >= 1")

@@ -20,6 +20,7 @@ import importlib.util
 import json
 import os
 import re
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -114,9 +115,17 @@ class LoadOptions:
                  CUDA graphs, batched across requests (kev.cuda_graphs, DecisionModel.probs_batch). None = off, the eager
                  path every reported number uses; kev.serve turns it on for CUDA. Exact up to floating-point
                  reassociation, not bit for bit (the passes are padded to buckets).
-    fused        rewrite a merged hybrid backbone on CUDA with fused Triton kernels (kev.fused_qwen35; needs
-                 flash-linear-attention fused_qwen35.FLA_VERSION and refuses any other). None = off; kev.serve turns it on
-                 for CUDA when fused_available() (KEV_FUSED=0 to decline). Equal to the reference layers up to bf16 rounding.
+    fused        rewrite a merged hybrid backbone with fused kernels: on CUDA kev.fused_qwen35 (needs flash-linear-attention
+                 fused_qwen35.FLA_VERSION and refuses any other), on Ascend kev.npu_qwen35, which also replays its passes as
+                 captured graphs (npu_graphs). None = off; kev.serve turns it on for CUDA when fused_available() and always
+                 on NPU (KEV_FUSED=0 to decline). Equal to the reference layers up to bf16 rounding.
+    npu_kernels  on an Ascend device, run the Gated DeltaNet recurrence on vllm-ascend's kernels (kev.npu_qwen35.accelerate)
+                 instead of the pure-PyTorch fallback transformers uses where flash-linear-attention is absent. On by
+                 default, which is every NPU number reported; KEV_NPU_KERNELS=0 keeps the reference, ~3x slower. Equal to
+                 it up to bf16 rounding, so unlike `fused` this is not a serving-only path.
+    npu_graphs   whether a fused Ascend backbone replays each padded shape from a captured NPU graph (kev.npu_qwen35.Graphs).
+                 On by default, with `fused`; KEV_NPU_GRAPHS=0 enqueues every kernel instead, which a long-state workload
+                 wants (a graph's memory pool is never returned; docs/ascend-npu.md).
     """
     dtype: torch.dtype | None = None
     merge: bool = True
@@ -126,13 +135,15 @@ class LoadOptions:
     backend: str | None = None
     cuda_graphs: bool | None = None
     fused: bool | None = None
+    npu_kernels: bool = True
+    npu_graphs: bool = True
 
     BACKENDS = (None, "torch", "mlx", "auto")
 
     @classmethod
     def from_env(cls, env=os.environ):
         """KEV_DTYPE=bf16|fp16|fp32, KEV_MERGE=0, KEV_ATTN=sdpa|eager, KEV_LORA_SCALE, KEV_TEMPERATURE, KEV_BACKEND=torch|mlx|auto,
-        KEV_CUDA_GRAPHS=0|1, KEV_FUSED=0|1.
+        KEV_CUDA_GRAPHS=0|1, KEV_FUSED=0|1, KEV_NPU_KERNELS=0, KEV_NPU_GRAPHS=0.
         For command-line entry points only; library code passes an explicit LoadOptions. Explicit values that equal a
         library default are kept (fp32 as torch.float32, "torch" as a string) so a caller with its own default, like
         kev.serve, can tell "asked for it" from "did not say"."""
@@ -143,7 +154,8 @@ class LoadOptions:
                    lora_scale=float(env.get("KEV_LORA_SCALE", "1")),
                    temperature=float(env["KEV_TEMPERATURE"]) if env.get("KEV_TEMPERATURE") else None, backend=backend,
                    cuda_graphs={"0": False, "1": True}.get(env.get("KEV_CUDA_GRAPHS", "")),
-                   fused={"0": False, "1": True}.get(env.get("KEV_FUSED", "")))
+                   fused={"0": False, "1": True}.get(env.get("KEV_FUSED", "")),
+                   npu_kernels=env.get("KEV_NPU_KERNELS", "1") != "0", npu_graphs=env.get("KEV_NPU_GRAPHS", "1") != "0")
 
 
 def mlx_available():
@@ -260,14 +272,30 @@ class Checkpoint:
         return MLXDecisionModel(lm, pad_id(tok), head_dim=self.meta.head_dim)
 
     def _load_torch(self, tok, device, opts):
+        ascend = None
+        if str(device).startswith("npu") and opts.npu_kernels:
+            # Ascend has no flash-linear-attention, so transformers runs the Gated DeltaNet in a slow fp32 Python loop.
+            # Route it through vllm-ascend's kernels. enable_custom_op() must run before the backbone touches the NPU
+            # device, so prewarm here, before the model is built.
+            try:
+                from . import npu_qwen35
+                npu_qwen35.prewarm()
+                ascend = npu_qwen35
+            except Exception as e:
+                warnings.warn(f"kev.npu_qwen35 unavailable ({e}); the Gated DeltaNet runs the slow reference path")
         m, merged = self._full_torch(tok, device, opts) if self.full else self._adapted_torch(tok, device, opts)
-        serving = str(device).startswith("cuda") and m.hybrid
-        if opts.fused and serving and merged:   # fused projections need plain (merged or full) weights
-            from .fused_qwen35 import fuse
-            fuse(m.lm)
-        if opts.cuda_graphs and serving:
+        cuda = str(device).startswith("cuda")
+        if opts.fused and m.hybrid and merged:   # fused projections need plain (merged or full) weights
+            if ascend is not None:
+                ascend.fuse(m.lm, m.pad_id, graphs=opts.npu_graphs)
+            elif cuda:
+                from .fused_qwen35 import fuse
+                fuse(m.lm)
+        if opts.cuda_graphs and cuda and m.hybrid:
             from .cuda_graphs import CudaGraphs
             m.graphs = CudaGraphs(m.lm, m.pad_id)
+        if ascend is not None and m.hybrid:
+            ascend.accelerate(m.lm)
         return m
 
     SAVED_DTYPES = {"bf16": "bfloat16", "fp32": "float32"}   # head.pt weights_dtype -> the dtype save_pretrained writes to config.json
