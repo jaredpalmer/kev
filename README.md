@@ -70,7 +70,19 @@ Kev 1.0 trains nothing new. It fixes the checkpoints, cards, evaluation suites a
 
 The [Hugging Face Space](https://huggingface.co/spaces/jaredpalmer/kev) runs Kev-4B and Kev-0.8B, with nothing to install.
 
-### Run It Locally
+> [!WARNING]
+> PyPI name collision: `pip install kev` installs a **different package** — [K.E.V. ORM](https://pypi.org/project/kev/)
+(Brian Jinwright, 2016-2021), a key-value store ORM. This project is **not** published to PyPI.
+
+Install from source instead:
+
+```bash
+git clone https://github.com/jaredpalmer/kev.git && cd kev
+uv sync --extra serve
+```
+
+
+## Run It Locally
 
 You'll need Python 3.12 or 3.13 and [uv](https://docs.astral.sh/uv/). The repo's `.python-version` makes `uv sync` use 3.13; torch has no wheels for 3.14 yet.
 
