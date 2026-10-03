@@ -348,7 +348,7 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   option keys via `api.question_keys`, context via `model.fits`/`MAX_PACKED`, device via `kev.device`, ...); add a row when a new helper becomes canonical.
   It also asserts every published README/model-card number in `docs/claims.json` traces to a committed report (`scripts/verify_claims.py`).
 - API tests (server must be up): `KEV_BASE_URL=http://127.0.0.1:8009 uv run --extra serve python -m pytest tests/test_api.py -q`
-- CI (.github/workflows/ci.yml) runs the unit job above and a `playground` job: `npm ci && npm run lint && npx next typegen && npx tsc --noEmit -p .`.
+- CI (.github/workflows/ci.yml) runs the unit job above on ubuntu-latest and windows-latest and a `playground` job: `npm ci && npm run lint && npx next typegen && npx tsc --noEmit -p .`.
 
 ## Skills
 Repo skills (`.agents/skills`, tracked in git):

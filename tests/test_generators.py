@@ -15,6 +15,17 @@ def test_rendered_pairs_change_one_sentence_not_order():
         assert len(left) == len(right)
         assert sum(x != y for x, y in zip(left, right)) == 1
 
+def test_dates_render_like_the_frozen_suites_on_every_os():
+    """kev.contrastive wrote the frozen suites' dates with strftime("%B %-d, %Y"), which Windows rejects; the portable form
+    renders every day the same."""
+    import sys
+    from datetime import date, timedelta
+    from kev.contrastive import _day
+    assert [_day(date(2026, 3, 5)), _day(date(2026, 11, 28))] == ["March 5, 2026", "November 28, 2026"]
+    if sys.platform != "win32":
+        days = [date(2026, 1, 1) + timedelta(n) for n in range(365)]
+        assert [_day(d) for d in days] == [d.strftime("%B %-d, %Y") for d in days]
+
 def test_pair_metric_compares_semantics_not_indices():
     rows = [
         {"pair_id": "p", "sibling": "a", "keys": ["deny", "allow"], "label": 1, "p": [0, 1]},

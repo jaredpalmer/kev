@@ -25,7 +25,8 @@ PROGRAMS = ["the volunteer driver program", "the apprenticeship", "the rental ag
 
 
 def _day(d):
-    return d.strftime("%B %-d, %Y")
+    """The day as "March 5, 2026": strftime's "%-d" (no zero padding) is a glibc/BSD extension that Windows rejects."""
+    return f"{d:%B} {d.day}, {d:%Y}"
 
 
 def _need(facts, *keys):

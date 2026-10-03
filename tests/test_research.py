@@ -199,6 +199,85 @@ def test_trial_config_cannot_change_evaluator_or_read_test():
             validated_trial({"base": "model", **extra}, manifest)
 
 
+def test_study_lock_admits_one_runner_and_releases_on_error(tmp_path, monkeypatch):
+    """runs/.research.lock (kev.experiment.study_lock over kev.suite.file_lock: flock on POSIX, msvcrt on Windows). A study
+    that raised releases it, so another process takes it; while that runner holds it this one is refused, and once it
+    exits the lock is free again."""
+    import subprocess, sys
+    from kev import experiment
+    monkeypatch.setattr(experiment, "ROOT", tmp_path)
+    with pytest.raises(ValueError, match="study failed"):
+        with experiment.study_lock():
+            raise ValueError("study failed")
+    holder = ("import sys; from pathlib import Path; from kev import experiment; experiment.ROOT = Path(sys.argv[1])\n"
+              "with experiment.study_lock(): print('held', flush=True); sys.stdin.readline()")
+    runner = subprocess.Popen([sys.executable, "-c", holder, str(tmp_path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True, cwd=pathlib.Path(__file__).resolve().parents[1])
+    try:
+        output = []
+        for line in runner.stdout:   # stderr merged in, so import warnings can neither fill a pipe nor hide a traceback
+            output.append(line)
+            if line.strip() == "held": break
+        assert output and output[-1].strip() == "held", "".join(output)
+        with pytest.raises(RuntimeError, match="another research runner"):
+            with experiment.study_lock():
+                pass
+    finally:
+        runner.communicate("\n", timeout=60)
+    assert runner.returncode == 0
+    with experiment.study_lock():
+        pass
+
+
+def test_study_lock_raises_real_lock_file_errors_as_themselves(tmp_path, monkeypatch):
+    """Only contention means "another research runner": a lock file that cannot be opened (a directory: IsADirectoryError on
+    POSIX, PermissionError on Windows) or cannot be locked (ENOLCK) raises its own OSError."""
+    import errno, sys
+    from kev import experiment, suite
+    monkeypatch.setattr(experiment, "ROOT", tmp_path)
+    (tmp_path / "runs/.research.lock").mkdir(parents=True)
+    with pytest.raises(OSError):
+        with experiment.study_lock():
+            pass
+    (tmp_path / "runs/.research.lock").rmdir()
+    def no_locks(*args): raise OSError(errno.ENOLCK, "No locks available")
+    target = (suite.msvcrt, "locking") if sys.platform == "win32" else (suite.fcntl, "flock")
+    monkeypatch.setattr(*target, no_locks)
+    with pytest.raises(OSError) as raised:
+        with experiment.study_lock():
+            pass
+    assert raised.value.errno == errno.ENOLCK
+
+
+def test_file_lock_waits_for_its_holder(tmp_path):
+    """kev.suite.file_lock's default waits for the holder (a pull behind a pull; msvcrt polls on Windows) instead of failing."""
+    import threading
+    from kev.suite import file_lock
+    path, order = tmp_path / ".pull-s.lock", []
+    def second():
+        with file_lock(path):
+            order.append("second")
+    with file_lock(path):
+        waiter = threading.Thread(target=second); waiter.start(); waiter.join(0.3)
+        assert waiter.is_alive() and order == []
+        order.append("first")
+    waiter.join(10)
+    assert order == ["first", "second"]
+
+
+def test_source_hashes_are_keyed_by_posix_path(tmp_path, monkeypatch):
+    """A Windows launcher and the Linux container compare source_hashes(): keys are "kev/x.py" on every OS, values the sha256
+    of each file's bytes as they are (no newline translation); a missing file is left out."""
+    import hashlib
+    from kev import experiment
+    files = {"kev/a.py": b"A = 1\r\n", "kev/b.py": b"B = 2\n", "modal_app.py": b"app\n", "uv.lock": b"lock\n"}   # no pyproject.toml
+    for name, data in files.items():
+        (tmp_path / name).parent.mkdir(exist_ok=True); (tmp_path / name).write_bytes(data)
+    (tmp_path / "kev/notes.txt").write_bytes(b"not source")
+    monkeypatch.setattr(experiment, "ROOT", tmp_path)
+    assert experiment.source_hashes() == {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
+
+
 def test_batched_mask_matches_single_and_pads_are_invisible():
     from kev.model import branch_mask, branch_mask_batch
     a, b = [0, 0, 1, 1, 2], [0, 1, 1]
@@ -805,6 +884,28 @@ def test_private_suite_fetches_from_its_own_mirror(tmp_path, monkeypatch):
     monkeypatch.setattr("huggingface_hub.hf_hub_download", denied)
     with pytest.raises(PermissionError, match="kev-private-evals"):
         S.load_split(evals, "test", allow_test=True)
+
+def test_workers_that_miss_a_partition_together_fetch_it_once(tmp_path, monkeypatch):
+    """torchrun ranks (or parallel reads of one checkout) that all miss a partition: one downloads it under the partition's
+    file_lock while the others wait and then find it, and the copy appears whole (renamed into place), never partial."""
+    import hashlib, threading, time
+    from kev import suite as S
+    evals = tmp_path / "evals" / "x" / "decision-x"; evals.mkdir(parents=True)
+    payload = b'{"state": "s", "questions": {}, "_meta": {}}\n' * 1000
+    S.write_json(evals / "manifest.json", {"files": {"train.jsonl": {"sha256": hashlib.sha256(payload).hexdigest(), "records": 1000}}})
+    served = tmp_path / "served.jsonl"; served.write_bytes(payload)
+    calls, loaded, errors = [], [], []
+    def slow_download(repo, path, repo_type, revision):
+        calls.append(path); time.sleep(0.2); return str(served)
+    def worker():
+        try: loaded.append(len(S.load_split(evals, "train")))
+        except Exception as e: errors.append(e)
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", slow_download)
+    workers = [threading.Thread(target=worker) for _ in range(4)]
+    for w in workers: w.start()
+    for w in workers: w.join(60)
+    assert errors == [] and loaded == [1000] * 4 and calls == ["x/decision-x/train.jsonl"]
+    assert sorted(p.name for p in evals.iterdir()) == [".train.jsonl.lock", "manifest.json", "train.jsonl"]   # no partial copy left
 
 def test_remote_predictor_maps_system_one_answers_and_retries(monkeypatch):
     import io, json

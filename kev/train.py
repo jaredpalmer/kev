@@ -10,7 +10,7 @@ whole backbone instead (kev.full_ft: bf16 weights, fp32 masters; several GPUs th
 Batch size is small (variable-length records with custom masks) and gradients are accumulated over --accum micro-batches
 (per rank: a step sees accum x batch x world size records).
 """
-import argparse, contextlib, dataclasses, json, math, os, random, resource, shutil, sys, time
+import argparse, contextlib, dataclasses, json, math, os, random, shutil, sys, time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -520,6 +520,36 @@ def pinned_revision(a, manifest):
     return revision
 
 
+def peak_rss_bytes():
+    """training_metrics.json's peak_rss_bytes: this process's peak resident memory in bytes. getrusage's ru_maxrss counts
+    KiB on Linux and bytes on macOS; Windows has no `resource` module, so there it is the peak working set."""
+    if sys.platform == "win32":
+        return peak_working_set_bytes()
+    import resource
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)
+
+
+def peak_working_set_bytes(process=None):
+    """PeakWorkingSetSize (bytes) from K32GetProcessMemoryInfo for a Win32 process handle, this process's by default; a
+    failed call raises its Windows error rather than recording a number."""
+    import ctypes
+    from ctypes import wintypes
+
+    class Counters(ctypes.Structure):   # PROCESS_MEMORY_COUNTERS (psapi.h)
+        _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [(name, ctypes.c_size_t) for name in (
+            "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage",
+            "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage")]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)   # a private instance: these prototypes stay off ctypes.windll
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    query = kernel32.K32GetProcessMemoryInfo
+    query.argtypes, query.restype = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD], wintypes.BOOL
+    counters = Counters(cb=ctypes.sizeof(Counters))
+    if not query(kernel32.GetCurrentProcess() if process is None else process, ctypes.byref(counters), counters.cb):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return counters.PeakWorkingSetSize
+
+
 def main():
     a = parse_args()
     dev = a.device or default_device()
@@ -671,7 +701,7 @@ def main():
                "backbone_save_seconds": round(backbone_seconds, 1), "snapshots": snapshots.written if snapshots else [],   # snapshots: this attempt's (each snapshot.json has its own)
                "grad_norm": grad_norm_summary(grad_norms),
                "weights": meta.weights, "peak_device_bytes": peak_mem, "device": dev, "dtype": a.dtype, "batch": a.batch,
-               "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)})
+               "peak_rss_bytes": peak_rss_bytes()})
     print("saved", a.out, flush=True)
 
 
