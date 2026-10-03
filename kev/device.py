@@ -2,8 +2,26 @@
 import torch
 
 
+def _cuda_usable():
+    """Whether CUDA is not just reported but actually runnable.
+
+    torch.cuda.is_available() is True on ROCm wheels that ship no code objects
+    for the local GPU (e.g. gfx1151), where the first kernel then fails (issue
+    #170). Probe with one tiny matmul instead of trusting the flag.
+    """
+    if not torch.cuda.is_available():
+        return False
+    try:
+        with torch.no_grad():
+            probe = torch.zeros(8, 8, device="cuda", dtype=torch.float16)
+            (probe @ probe).cpu()
+        return True
+    except Exception:
+        return False
+
+
 def default_device():
-    return "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    return "cuda" if _cuda_usable() else "mps" if torch.backends.mps.is_available() else "cpu"
 
 
 def sync(device):
