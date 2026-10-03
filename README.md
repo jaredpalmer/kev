@@ -85,6 +85,13 @@ uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009
 
 This starts Kev-4B on your machine: CUDA or ROCm if you have a GPU, MLX on Apple Silicon. The first run downloads the adapter and the base model. `--run` also accepts a local checkpoint directory or a Hub revision like `jaredpalmer/kev-4b@qwen3`.
 
+Use `--device cpu` to skip accelerator discovery, or `--device cuda` / `--device mps` to require that accelerator.
+The default, `--device auto`, tests an allocation and matrix multiplication in a separate process before loading weights;
+if the probe fails, crashes, or exceeds 30 seconds, it warns and uses CPU. An explicitly requested accelerator fails
+instead of falling back. This checks basic runtime support, not every model kernel. CPU serving keeps the fp32 default;
+`KEV_DTYPE=bf16` reduces weight memory if needed. ROCm uses the eager serving path by default; the fused-kernel and graph
+defaults are enabled only on NVIDIA builds.
+
 In another terminal, send it a ticket:
 
 ```bash
