@@ -23,8 +23,9 @@ def none_diagnostics(rows):
     for variant in ("none_present", "none_absent"):
         subset = [r for r in rows if r["variant"] == variant]
         values = [r["p"][r["keys"].index("none_of_these")] for r in subset]
-        out[variant] = {"n": len(values), "mean_p_none": float(np.mean(values)),
-                        "p_none_above_half": float(np.mean(np.array(values) > .5))}
+        # No observations means an undefined diagnostic, not a measured zero.
+        out[variant] = {"n": len(values), "mean_p_none": float(np.mean(values)) if values else None,
+                        "p_none_above_half": float(np.mean(np.array(values) > .5)) if values else None}
     return out
 
 
