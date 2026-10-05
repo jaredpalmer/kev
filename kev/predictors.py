@@ -76,8 +76,10 @@ def kernel_environment(model, device):
         except PackageNotFoundError: return None
     packages = {name: installed(name) for name in KERNEL_PACKAGES}
     packages["torch"] = torch.__version__   # with its build tag (2.8.0+cu128 on the CUDA wheels), which the metadata version drops
+    npu = str(device).startswith("npu")
     env = {"packages": packages, "device": str(device),
-           "gpu": torch.cuda.get_device_name(torch.device(device)) if str(device).startswith("cuda") else None,
+           "gpu": torch.cuda.get_device_name(torch.device(device)) if str(device).startswith("cuda")
+           else torch.npu.get_device_name(str(device)) if npu else None,
            "backend": model.backend, "dtype": model.dtype, "triton_f32_default": os.environ.get("TRITON_F32_DEFAULT"),
            "attention": None, "deltanet": None}
     if model.backend != "torch": return env   # kev.mlx_model: mlx-lm's Metal kernels, named by the mlx / mlx-lm versions
@@ -87,6 +89,8 @@ def kernel_environment(model, device):
         module = sys.modules[type(layer).__module__]
         env["deltanet"] = {"forward": bound_implementation(getattr(layer.forward, "__func__", layer.forward)),
                            **{name: bound_implementation(getattr(module, name)) for name in DELTANET_KERNELS if hasattr(module, name)}}
+        if npu:   # kev.npu_qwen35.accelerate rebinds each layer's own chunk_gated_delta_rule, which the module names miss
+            env["deltanet"]["chunk_gated_delta_rule"] = bound_implementation(layer.chunk_gated_delta_rule)
     return env
 
 
