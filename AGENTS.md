@@ -356,7 +356,7 @@ Repo skills (`.agents/skills`, tracked in git):
 - `kev-pr-description`: how to write the PR title and body (the acdlite / sebmarkbage essay style, with a weak/strong pair from a real Kev PR). Read it before opening any PR.
 - `kev-modal-study`: launching, monitoring and pulling Modal studies, base probes, remote benchmarks and new-base smoke checks.
 - `thermonuclear-code-review`: the strict structural review (standards adapted from cursor-team-kit's thermo-nuclear review, the approval bar, and the table of canonical homes for shared rules).
-- `kev-knowledge`: how to search the knowledge graph of every earlier Devin session on this repo (`~/dev/kev-knowledge`, outside the repo; qmd collection `kev`: `qmd query "<question>" -c kev`) before re-deriving history, and how to refresh it after new sessions. Read it when asked what was tried, decided or measured before, or why a rule exists.
+- `kev-knowledge`: how to search the knowledge graph of every earlier Devin session on this repo (the private repo `jaredpalmer/kev-knowledge`: topic notes, session notes, timeline, PR back-links; refreshed nightly by a Devin Cloud automation from the Devin API) before re-deriving history. Read it when asked what was tried, decided or measured before, or why a rule exists.
 
 Installed from other repos by `npx skills add` and pinned in `skills-lock.json` (`deslop`, `unslop` from cursor/plugins,
 `grill-me` from mattpocock/skills); `.agents/skills/modal/` is gitignored and reinstalled with `uv run modal skills install`.
