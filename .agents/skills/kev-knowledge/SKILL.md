@@ -14,9 +14,10 @@ permissions:
 
 # Kev knowledge graph (qmd)
 
-Every Devin CLI session on this repo since 17 Sep 2026 is distilled into `~/dev/kev-knowledge`: hand-written topic
-notes (what we know), one note per session (what happened), a day-by-day timeline, PR and issue indexes with
-back-links, and the extracted transcripts. It is indexed by `qmd` as the collection `kev`. Use it instead of
+Every Devin session on this repo since 17 Sep 2026, CLI (`~/.local/share/devin/cli/sessions.db`) and Devin Cloud
+(app.devin.ai, via the v1 API), is distilled into `~/dev/kev-knowledge`: hand-written topic notes (what we know), one
+note per session (what happened), a day-by-day timeline, PR and issue indexes with back-links, and the extracted
+transcripts. CLI sessions keep their names (`warm-lute`); cloud sessions are `cloud-<12 hex>` and link to the app. It is indexed by `qmd` as the collection `kev`. Use it instead of
 re-deriving history from git or guessing why a rule exists. It lives outside the repo on purpose (transcripts are
 noisy and may hold private names); never copy its `raw/` or `digest/` text into the repo.
 
@@ -74,7 +75,8 @@ PLAN.md or the model card, and say which you used.
 
 ```sh
 cd ~/dev/kev-knowledge
-python3 tools/extract_sessions.py        # read-only over ~/.local/share/devin/cli/sessions.db
+python3 tools/extract_sessions.py        # CLI: read-only over ~/.local/share/devin/cli/sessions.db
+python3 tools/extract_cloud_sessions.py  # Cloud: needs DEVIN_API_KEY (apk_user_...) or ~/.config/kev-knowledge/devin_api_key
 python3 tools/build_graph.py             # exits non-zero naming any session that lacks a note
 qmd update && qmd embed -c kev && qmd embed -c kev-transcripts   # the second is slow (tens of minutes); optional
 ```
