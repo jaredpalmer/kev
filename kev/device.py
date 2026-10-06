@@ -2,8 +2,24 @@
 import torch
 
 
+def _cuda_usable():
+    """A tiny kernel on `cuda`, since `is_available()` can be True with no kernel that actually runs: a ROCm or CUDA
+    wheel can report the device and its name correctly while carrying no compiled code object for the local GPU
+    architecture (common on RDNA3.5 APUs, e.g. gfx1151; #170). This reduces but cannot close the risk: the same
+    mismatch can also crash the process outright (a SIGSEGV, never raised as a Python exception) rather than raising
+    cleanly, which no amount of try/except on this side can catch."""
+    try:
+        (torch.zeros(2, 2, device="cuda") @ torch.zeros(2, 2, device="cuda")).cpu()
+        torch.cuda.synchronize()
+        return True
+    except Exception as e:
+        print(f"cuda reported available but a smoke kernel failed ({e}); falling back to mps/cpu")
+        return False
+
+
 def default_device():
-    return "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    if torch.cuda.is_available() and _cuda_usable(): return "cuda"
+    return "mps" if torch.backends.mps.is_available() else "cpu"
 
 
 def sync(device):

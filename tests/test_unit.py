@@ -299,6 +299,30 @@ def test_prefix_cache_makes_room_before_the_batch():
             assert list(a.entries.items()) == list(b.entries.items()) and (a.hits, a.misses) == (b.hits, b.misses), step
 
 
+def test_default_device_falls_back_when_cuda_is_reported_but_not_usable(monkeypatch):
+    """kev.device.default_device: is_available() alone is not trusted. A wheel can report cuda available (correct
+    name, correct count) while having no compiled kernel for the local GPU architecture, which raises on first use
+    rather than on is_available() (#170, ROCm gfx1151). _cuda_usable's smoke kernel is the thing monkeypatched here,
+    not torch.cuda itself, so this runs on any machine, cuda or not."""
+    import kev.device as device
+    monkeypatch.setattr(device.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(device, "_cuda_usable", lambda: True)
+    assert device.default_device() == "cuda"
+    monkeypatch.setattr(device, "_cuda_usable", lambda: False)
+    assert device.default_device() in ("mps", "cpu")   # never cuda once the smoke kernel fails, whatever this machine has
+
+
+def test_cuda_usable_catches_a_failing_smoke_kernel(monkeypatch):
+    """The smoke kernel itself: a device claiming cuda-like matmul support that actually raises is caught, not
+    propagated (a true SIGSEGV from a missing code object cannot be caught in Python either way; this covers the
+    raising case, which is what the issue's manual repro actually hit: torch.AcceleratorError / HIP errors)."""
+    import kev.device as device
+
+    def boom(*a, **k): raise RuntimeError("HIP error: invalid device function")
+    monkeypatch.setattr(device.torch, "zeros", boom)
+    assert device._cuda_usable() is False
+
+
 def test_out_of_memory_drops_the_prefix_cache_and_retries_once():
     """kev.serve.Server._run: a pass out of device memory with states cached clears the cache and runs once more (#75: a
     full cache kept failing every later batch); a second failure fails the batch with the cache left empty, and an

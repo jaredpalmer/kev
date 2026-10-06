@@ -306,7 +306,9 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   `.to("cuda")` once at module scope; a restart reloads both models (~3 min). Check with `hf spaces logs jaredpalmer/kev` and the
   gradio_client `/decide` endpoint; the Space is also in the Kev collection and needs PRO to exist.
 - Serve: `uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009` (`--run` defaults to runs/kev and falls back to runs/smoke;
-  the playground proxies :8009)
+  the playground proxies :8009). `--device {cpu,mps,cuda}` overrides `kev.device.default_device`, which no longer trusts `torch.cuda.is_available()`
+  alone: it also runs a one-kernel smoke test (`kev.device._cuda_usable`) and falls back to mps/cpu with a printed warning if that raises, since a
+  ROCm/CUDA wheel can report a device it has no compiled kernel for (#170; a true SIGSEGV from that mismatch still cannot be caught in Python).
   - TypeSafe-compatible: `POST /v1/systemone`, `GET /v1/models` (model cards for `kev-latest` and `jev-latest`, plus device, dtype, temperature and prefix-cache stats), an `x-typesafe-request-id` header on every response, and bearer auth when `KEV_API_KEY` is set (unset = open server).
   - SDK: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8009", model="kev-latest")`
   - Admission (`kev.model.admit`, the one check kev.serve and the Space call, the same on torch and MLX): a state over `SERVE_MAX_STATE` tokens (65,536, `<state>` included) gets a 422
