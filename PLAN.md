@@ -3280,8 +3280,30 @@ Packed/rows/prefix use a separate **1e-3** bound: deterministic eager and math-S
 `0.000241607` probability drift (0.024 pp), so the former 1e-4 cross-shape assertion was not a chunking diagnostic.
 Default fused SDPA still has larger shape-dependent drift (the earlier diagnostic reached 0.047); neither the test
 backend nor the new tolerance changes the research read path, and this is not a serving-parity claim.
-The pre-follow-up unit suite passed 488 tests with 22 archived-artifact skips; all 14 targeted Gemma/chunking unit
-tests pass after the fix. CPU weight-backed and old/main-versus-branch tensor verification remain in progress.
+The final requested unit suite passes **501 tests**, with 21 archived-artifact skips. Sixteen targeted pool tests pass
+after sharing `temperature_pool` between arm and parent construction. CPU weight-backed checks pass eight tests;
+the generated eight-record Qwen smoke fixture fails the strict merge-parity test identically on main and this branch
+(max probability difference `2.6643e-5`, bound `1e-5`). This is recorded, not a green test or a relaxed bound.
+Old/main-versus-branch benchmark and training-tensor parity remain in progress on H200: the Modal image's installed
+fused Qwen3.5 kernels cannot score that hybrid checkpoint on CPU.
+
+**Blend short screen (2026-10-09), not the final round verdict.** All ten registered reads finished once. At pooled
+T **1.0968** (90% temperature interval [0.9772, 1.2030], 648 questions), against the parent's own pool T **1.3195**:
+
+| panel | accuracy delta, pp (paired 95% interval) | Brier delta | ECE candidate / parent |
+|---|---|---|---|
+| breadth, audited | +0.2 [−0.9, +1.3] | +0.007 | 0.0309 / 0.0103 |
+| tasksource-heldout, excluded families | −1.0 [−2.6, +0.5] | +0.008 | 0.0362 / 0.0432 |
+| Kev panel | −1.8 [−2.8, −0.7] | +0.019 | 0.0094 / 0.0146 |
+| hard | −4.2 [−6.2, −2.3] | +0.056 | 0.0216 / 0.0326 |
+| devtools, audited | −1.3 [−3.9, +1.4] | +0.003 | 0.0129 / 0.0386 |
+| documents | −0.5 [−2.3, +1.2] | +0.005 | 0.0115 / 0.0191 |
+| short state | +0.5 [−0.8, +1.8] | −0.002 | — |
+
+The blend fails both positive-gain primaries, the Kev lower-bound guard, breadth ECE, and the short-state
+confident-error upper bound (+0.0095 [0.0032, 0.0164], bar +0.01). Unknowable share is zero. No longdoc read is
+admitted for this arm. `runs/r31-readout/round31.json` is explicitly incomplete for `31b-cont`, whose H200:8 call
+remains queued with its continuation watcher alive; no continuation result or overall verdict is inferred.
 
 ## Record
 

@@ -1,0 +1,422 @@
+{
+  "round": 31,
+  "registered": "PLAN.md > Round 31 - two Gemma 4 31B IT follow-ups to round 30: one alpha-0.85 full/one-epoch-LoRA seed-0 blend with the full-weight head, and one additional full-weight pass from r30 final at lr 1e-6 (fresh optimizer and OneCycleLR, shuffle seed 1); final only. Parent is pinned Kev-27B v2. Round 24's audited criteria unchanged, split into short screening and mandatory longdoc development guard for the selected survivor. No confirmation tests, publishing or releases in this round. $500 hard cap including construction, training, reads, GPU checks and incremental storage; register before construction/training/reads.",
+  "drop_ids": [
+    "codereviewer/cls-test/13657",
+    "codereviewer/cls-test/19245"
+  ],
+  "arms": {
+    "31b-blend-w85": {
+      "trial": null,
+      "parent": "runs/release/kev-27b-r23",
+      "checkpoint": "/runs/r31-g31-blend/31b-k-w85/checkpoint",
+      "temperature": 1.096824979694626,
+      "parent_temperature": 1.319507910772894,
+      "panels": {
+        "breadth": {
+          "n": 2475,
+          "excluded": 600,
+          "acc": {
+            "candidate": 0.8375757575757575,
+            "parent": 0.8355555555555556,
+            "delta": 0.002020202020201922,
+            "ci95": [
+              -0.009450930781817315,
+              0.012816021280110728
+            ]
+          },
+          "ece": {
+            "candidate": 0.030852668632150422,
+            "parent": 0.010267125447757607,
+            "delta": 0.02058554318439285,
+            "ci95": [
+              0.0016924477536047955,
+              0.02815638374942044
+            ]
+          },
+          "brier": {
+            "candidate": 0.23008738299378506,
+            "parent": 0.22293048571324336,
+            "delta": 0.007156897280541807,
+            "ci95": [
+              -0.0035195249082361772,
+              0.01748487393082711
+            ]
+          }
+        },
+        "tasksource_heldout": {
+          "n": 1993,
+          "excluded": 795,
+          "acc": {
+            "candidate": 0.7797290516808831,
+            "parent": 0.789764174611139,
+            "delta": -0.01003512293025588,
+            "ci95": [
+              -0.02602100361028925,
+              0.005414055137581083
+            ]
+          },
+          "ece": {
+            "candidate": 0.03615211752869385,
+            "parent": 0.04323059162357837,
+            "delta": -0.00707847409488449,
+            "ci95": [
+              -0.025551652548300385,
+              0.015895873377336667
+            ]
+          },
+          "brier": {
+            "candidate": 0.3097079063091647,
+            "parent": 0.3016635032536226,
+            "delta": 0.008044403055542104,
+            "ci95": [
+              -0.003656006477006593,
+              0.020202284404856028
+            ]
+          }
+        },
+        "kev": {
+          "n": 3351,
+          "excluded": 380,
+          "acc": {
+            "candidate": 0.8692927484333035,
+            "parent": 0.8868994330050731,
+            "delta": -0.017606684571769615,
+            "ci95": [
+              -0.02791175088163054,
+              -0.006875882855909946
+            ]
+          },
+          "ece": {
+            "candidate": 0.009424738205866291,
+            "parent": 0.014572598803468909,
+            "delta": -0.005147860597602598,
+            "ci95": [
+              -0.014309801675380908,
+              0.007193922760462642
+            ]
+          },
+          "brier": {
+            "candidate": 0.18060069250715327,
+            "parent": 0.16122300812494353,
+            "delta": 0.019377684382209714,
+            "ci95": [
+              0.010478078996452972,
+              0.028861335578865135
+            ]
+          }
+        },
+        "short": {
+          "n": 1586,
+          "excluded": 220,
+          "acc": {
+            "candidate": 0.8997477931904161,
+            "parent": 0.894703656998739,
+            "delta": 0.0050441361916770955,
+            "ci95": [
+              -0.007566204287515754,
+              0.017654476670870167
+            ]
+          },
+          "brier": {
+            "candidate": 0.14948852823593978,
+            "parent": 0.15114346424610883,
+            "delta": -0.0016549360101690558,
+            "ci95": [
+              -0.014390885524644088,
+              0.009979478342049868
+            ]
+          },
+          "confident_error_rate": {
+            "candidate": 0.025851197982345524,
+            "parent": 0.01639344262295082,
+            "delta": 0.009457755359394703,
+            "ci95": [
+              0.003152585119798235,
+              0.016393442622950817
+            ]
+          }
+        },
+        "breadth_index": {
+          "n": 3075,
+          "acc": {
+            "candidate": 0.7613008130081301,
+            "parent": 0.7573983739837399,
+            "delta": 0.0039024390243902474,
+            "ci95": [
+              -0.007811236758901596,
+              0.015655863335237673
+            ]
+          },
+          "ece": {
+            "candidate": 0.03904081026093153,
+            "parent": 0.018802704564641923,
+            "delta": 0.02023810569628972,
+            "ci95": [
+              0.0029453415626151305,
+              0.029009234909013686
+            ]
+          },
+          "brier": {
+            "candidate": 0.31154831038291464,
+            "parent": 0.30416608480717294,
+            "delta": 0.007382225575741752,
+            "ci95": [
+              -0.0023053567478157123,
+              0.01691595043215343
+            ]
+          }
+        },
+        "tasksource_heldout_all_families": {
+          "n": 2788,
+          "acc": {
+            "candidate": 0.7144906743185079,
+            "parent": 0.7166427546628408,
+            "delta": -0.002152080344332896,
+            "ci95": [
+              -0.01585981533134553,
+              0.011748581689226592
+            ]
+          },
+          "ece": {
+            "candidate": 0.07339597715152435,
+            "parent": 0.053000875140933656,
+            "delta": 0.020395102010590693,
+            "ci95": [
+              0.0035178352224448308,
+              0.032706714520417735
+            ]
+          },
+          "brier": {
+            "candidate": 0.40017462821604216,
+            "parent": 0.39181792228634155,
+            "delta": 0.00835670592970067,
+            "ci95": [
+              -0.0027392027090129057,
+              0.01965313218763784
+            ]
+          }
+        },
+        "hard": {
+          "n": 1083,
+          "acc": {
+            "candidate": 0.8698060941828255,
+            "parent": 0.9122807017543859,
+            "delta": -0.04247460757156041,
+            "ci95": [
+              -0.061525404999794406,
+              -0.022679526542095502
+            ]
+          },
+          "ece": {
+            "candidate": 0.021625901009398086,
+            "parent": 0.03257980085109377,
+            "delta": -0.01095389984169554,
+            "ci95": [
+              -0.024438120656088535,
+              0.007066581684718786
+            ]
+          },
+          "brier": {
+            "candidate": 0.17668665028856054,
+            "parent": 0.12041179264743197,
+            "delta": 0.05627485764112859,
+            "ci95": [
+              0.0383545400180822,
+              0.07505606385204558
+            ]
+          }
+        },
+        "devtools": {
+          "n": 772,
+          "excluded": 300,
+          "acc": {
+            "candidate": 0.8031088082901554,
+            "parent": 0.8160621761658031,
+            "delta": -0.012953367875647714,
+            "ci95": [
+              -0.03871218127947251,
+              0.014286644345238148
+            ]
+          },
+          "ece": {
+            "candidate": 0.012931087814460578,
+            "parent": 0.03861292624883522,
+            "delta": -0.025681838434374563,
+            "ci95": [
+              -0.04204623750997979,
+              0.005799805442211321
+            ]
+          },
+          "brier": {
+            "candidate": 0.26316185540682213,
+            "parent": 0.25972186085663684,
+            "delta": 0.003439994550185288,
+            "ci95": [
+              -0.015808012838356936,
+              0.02162518878367338
+            ]
+          }
+        },
+        "docs": {
+          "n": 920,
+          "acc": {
+            "candidate": 0.9108695652173913,
+            "parent": 0.9163043478260869,
+            "delta": -0.005434782608695676,
+            "ci95": [
+              -0.02267818574514036,
+              0.012212478059259565
+            ]
+          },
+          "ece": {
+            "candidate": 0.01152777497803763,
+            "parent": 0.019136999308655814,
+            "delta": -0.007609224330618329,
+            "ci95": [
+              -0.022461170480853974,
+              0.011844836935160133
+            ]
+          },
+          "brier": {
+            "candidate": 0.12589601433507455,
+            "parent": 0.12041416155211357,
+            "delta": 0.005481852782960997,
+            "ci95": [
+              -0.01064332969144733,
+              0.021873278363138703
+            ]
+          }
+        },
+        "kev_without_hard": {
+          "n": 2268,
+          "excluded": 380,
+          "acc": {
+            "candidate": 0.8690476190476191,
+            "parent": 0.8747795414462081,
+            "delta": -0.0057319223985889955,
+            "ci95": [
+              -0.018517030375230187,
+              0.007029954228548204
+            ]
+          }
+        },
+        "semif": {
+          "n": 144,
+          "acc": {
+            "candidate": 0.9444444444444444,
+            "parent": 0.9652777777777778,
+            "delta": -0.02083333333333337,
+            "ci95": [
+              -0.0625,
+              0.01388888888888895
+            ]
+          },
+          "ece": {
+            "candidate": 0.058004371560585605,
+            "parent": 0.06049404605583404,
+            "delta": -0.0024896744952483396,
+            "ci95": [
+              -0.034918839919661146,
+              0.03490841961971337
+            ]
+          },
+          "brier": {
+            "candidate": 0.0930636480059967,
+            "parent": 0.06259279347363599,
+            "delta": 0.030470854532360717,
+            "ci95": [
+              -0.007137659711923912,
+              0.08269262917147856
+            ]
+          }
+        }
+      },
+      "missing": [],
+      "temperature_fit": {
+        "reads": [
+          "runs/r31-31b-blend-w85-r3cal",
+          "runs/r31-31b-blend-w85-v9"
+        ],
+        "sources": {
+          "runs/r31-31b-blend-w85-v9": [
+            "mmlu_pro"
+          ],
+          "runs/r31-31b-blend-w85-r3cal": [
+            "composition_holdout",
+            "emotion",
+            "legacy_holdout",
+            "mmlu",
+            "paws",
+            "qnli",
+            "sciq",
+            "tweet_offensive"
+          ]
+        },
+        "exclude_reads": [
+          "runs/r31-31b-blend-w85-transfer4"
+        ],
+        "questions": 648,
+        "excluded_questions": 0
+      },
+      "temperature_ci": {
+        "level": 0.9,
+        "samples": 2000,
+        "seed": 0,
+        "lower": 0.9771599684342458,
+        "upper": 1.2030250360821164,
+        "questions": 648,
+        "resampled": "(source, group) clusters within each source (kev.metrics.cluster_resamples)"
+      },
+      "temperature_source": {
+        "kind": "pool",
+        "reads": [
+          "runs/r31-31b-blend-w85-r3cal",
+          "runs/r31-31b-blend-w85-v9"
+        ],
+        "questions": 648
+      },
+      "parent_temperature_source": {
+        "kind": "pool",
+        "reads": [
+          "runs/r23-27b-k-w85-r3cal",
+          "runs/r23-27b-k-w85-v9"
+        ],
+        "questions": 648
+      },
+      "unknowable": {
+        "candidate": 0.0,
+        "parent": 0.0
+      },
+      "criteria": {
+        "1_breadth_lower_above_0": false,
+        "1_tasksource_heldout_lower_above_0": false,
+        "1_kev_lower_at_least_minus_1pp": false,
+        "2_short_acc_lower_at_least_minus_2pp": true,
+        "2_short_brier_upper_at_most_0.02": true,
+        "2_short_confident_errors_upper_at_most_1pp": false,
+        "2_unknowable_at_most_0.05": true,
+        "3_breadth_ece_at_most_parent_plus_0.01": false,
+        "3_kev_ece_at_most_parent_plus_0.01": true,
+        "3_tasksource_heldout_ece_at_most_parent_plus_0.01": true
+      },
+      "complete": true,
+      "passed": false
+    },
+    "31b-cont": {
+      "trial": "runs/r31-g31-cont/00-trial-0",
+      "parent": "runs/release/kev-27b-r23",
+      "missing": [
+        "candidate:runs/r31-g31-cont/00-trial-0/development/rows.json"
+      ],
+      "complete": false,
+      "passed": null
+    }
+  },
+  "ranking": {
+    "31b": []
+  },
+  "candidates": {
+    "31b": null
+  }
+}
