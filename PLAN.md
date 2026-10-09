@@ -3209,6 +3209,62 @@ Reading (two seeds agree on every sign). Against v1 a one-epoch LoRA on Gemma 4 
 
 So the base is competitive with v1 at LoRA strength, and the gap to v2 is the SFT data, not the base: the question for round 30 is whether v2's full-weight recipe closes it on Gemma.
 
+## Round 31 - Gemma blend and another full-weight pass (registered 2026-10-09)
+
+Jared approved the two-arm follow-up after round 30. Full-weight Gemma improved from 25% through the final checkpoint
+but remained below Kev-27B v2 on the Kev panel and hard-v1. This round asks whether interpolation or another pass
+closes that gap; it does not test new data, new architectures, or a Qwen continuation. The knowledge graph's
+`topics/full-weight-sft.md` records the round-23 blend as the positive precedent and rounds 25/26 as negative continued
+SFT precedents. Nothing is trained, constructed or read until this registration and its spec are committed.
+
+**Two candidates, fixed before results** (`experiments/rounds/r31.json`):
+
+- `31b-blend-w85`: the round-30 final full-weight backbone at `/runs/r30-g31-full/00-trial-0/checkpoint`, blended with
+  the one-epoch Gemma IT seed-0 LoRA at `/runs/gemma4-31b-it-2/00-trial-0/checkpoint`. Alpha 0.85 on full weights, 0.15
+  on the LoRA endpoint merged in fp32, rounded once to bf16; keep the full-weight pointer head. This is round 23's
+  winning blend setting, not a sweep selected on Gemma reads. Existing `scripts/interpolate_checkpoint.py` checks
+  base/revision, every tensor name/shape, and head compatibility; no new merging implementation. CPU construction:
+  `KEV_HF_SECRET=huggingface-secret uv run modal run --detach modal_app.py::interpolate --sft /runs/r30-g31-full/00-trial-0/checkpoint --toward /runs/gemma4-31b-it-2/00-trial-0/checkpoint --base google/gemma-4-31B-it --revision 842da3794eaa0b77d5f08bae87a17459d91ff475 --alphas 0.85 --prefix 31b-k --study r31-g31-blend --timeout 10800`.
+- `31b-cont`: warm-start the backbone and head from round 30's full-weight final and train one further pass over the
+  same `sft-v2-r26` training partition, at peak backbone lr **1e-6**. Fresh AdamW and OneCycleLR, not an exact resume or
+  the second half of a two-pass schedule; the completed trial deleted its optimizer resume point. Keep head lr 1e-4,
+  state 8192, bf16, batch 4 x accumulation 4, checkpointing and length-sort; shuffle/augmentation seed 1 so the repeat
+  is not the identical seed-0 order. Final only, no snapshot candidates. Plan `experiments/round31/full-cont-lr1e6.json`;
+  new immutable study `r31-g31-cont`, H200:8, 10800 s per attempt, up to the existing three-attempt ledger. Round 30's
+  measured 11,653 s wall time suggests a continuation attempt will be needed. The watcher must remain alive.
+
+**Read and decision rule.** Parent remains the latest released Kev-27B v2, pinned at `28be62e9c5ae0471bda2b7c636a55224b4f4b887`,
+served at the same registered round-24 temperature pool over its existing round-23 reads. Both new candidates get their
+own pool and one batched `::benchmarks` call each for breadth-v1, excluded tasksource-heldout-v1, hard-v1, devtools-v1,
+documents-v1, transfer-v4 development, transfer-v9 development, transfer-r3 calibration and the **already-spent**
+transfer-r3 test short-state guard, plus report-only SemIf. `--allow-test` is used only for that registered short-state
+guard, never advertised as fresh confirmation. No other test/locked partitions are read. Frozen eval bytes are unchanged.
+
+Round 24's audited criteria and ranking are unchanged, but reads are staged: all non-long criteria are the short
+screen; the selected survivor must also pass the two original CUAD criteria in `confirm.long`. The word "candidate"
+in the screen's automatic output means **screen survivor only**, not promotion or release. No survivors means stop
+without longdoc. If there is a survivor and its bounded read fits the remaining cap, launch its single longdoc-v1
+**development** read once with 28800 s (explicit `::benchmarks` command; `launch-reads` otherwise uses the screen's
+2700 s timeout). Existing parent longdoc rows are reused. If that read times out or cannot be admitted, its long guard
+is **unread/incomplete**, never passed. Agents/guardrails OOD are omitted, not silently claimed as read. A winner would
+still need separately registered confirmation and serving/long-input verification; this round publishes nothing.
+
+Accuracy, Brier and ECE are recorded on both sides, paired by record with `kev.metrics.paired_bootstrap` through
+`kev.rounds` (2,000 resamples, seed 0); the chance-corrected all-family breadth index and hard/devtools/docs are also
+reported. Same seven-family exclusion hash as round 30. No repeat of r30 candidate reads or new parent reads.
+
+**Budget, hard cap $500 including reads and GPU checks.** `kev.budget` admission bounds: training $370.50 (three 3 h
+attempts at $41.1664/h), CPU interpolation $4.21, twenty screen jobs at 2700 s on H200 $93.98, targeted GPU verification
+at most 3600 s $6.27: **$474.95**, leaving $25.05 for incremental storage and reserve. Actual training is expected
+to be much cheaper than all three full attempts. The selected survivor's eight-hour longdoc bound is $50.12; admit
+only if completed actual costs + outstanding job bounds + $50.12 + $10 reserve fit $500. Otherwise stop incomplete.
+Before launches use both the attempt/resource ledger (billing lag cannot authorize overspend) and the current Modal
+metered summary. Baseline returned on 2026-10-09: **$816.49091164**, cycle 2026-10; this provider figure is lower than
+the prior $863.67 report, so do not subtract the old report or claim the difference is spend refunded. Keep the new
+baseline and actual job durations to attribute this round, and stop new admissions at $490.
+
+No Hub writes, mirrors, published cards, README numbers, main commits or merge. Work stays on `base/gemma4` / PR #221.
+
 ## Record
 
 One line per round or named study. `rN.json` is `experiments/rounds/rN.json` on main (the rule as data; `python -m
