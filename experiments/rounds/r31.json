@@ -2,7 +2,15 @@
  "round": 31,
  "registered": "PLAN.md > Round 31 - two Gemma 4 31B IT follow-ups to round 30: one alpha-0.85 full/one-epoch-LoRA seed-0 blend with the full-weight head, and one additional full-weight pass from r30 final at lr 1e-6 (fresh optimizer and OneCycleLR, shuffle seed 1); final only. Parent is pinned Kev-27B v2. Round 24's audited criteria unchanged, split into short screening and mandatory longdoc development guard for the selected survivor. No confirmation tests, publishing or releases in this round. $500 hard cap including construction, training, reads, GPU checks and incremental storage; register before construction/training/reads.",
  "gpu": "H200",
- "app": "kev-r31",
+ "app": "kev-r31-cont-frozen",
+ "recovery": {
+  "failed_study": "r31-g31-cont",
+  "failed_call": "fc-01M4H36GVNHJQQ9BGXFGTJ1MVZ",
+  "failed_at": "2026-10-09T22:44:19Z",
+  "reason": "Source-hash guard refused the container before training or lease acquisition after the deployment changed while the call was queued. No trial directory, checkpoint, result or panel read was created.",
+  "replacement_study": "r31-g31-cont2",
+  "rule": "Same continuation candidate and exact unchanged plan; use a separate frozen deployment and never redeploy it while the study is queued or running. Preserve the failed call and its ledger; no completed reads are repeated."
+ },
  "construction": {
   "blend": {
    "sft": "/runs/r30-g31-full/00-trial-0/checkpoint",
@@ -22,12 +30,13 @@
   "construction_bound": 4.2072,
   "screen_reads_bound": 93.978,
   "gpu_checks_bound": 6.2652,
-  "screen_total_bound": 474.948,
+  "failed_start_reserve": 10,
+  "screen_total_bound": 484.948,
   "long_read_bound": 50.1216,
   "long_admission": "Only the selected short-screen survivor; launch with 28800 s timeout by the registered explicit benchmarks command, not the screen's 2700 s timeout. Admit only if completed actual cost plus outstanding bounds plus $50.1216 plus $10 storage/cancellation reserve is <= $500. Otherwise long guard unread, no promotion."
  },
  "studies": {
-  "r31-g31-cont": {
+  "r31-g31-cont2": {
    "plan": "experiments/round31/full-cont-lr1e6.json",
    "suite": "evals/sft-v2-r26",
    "transfer": "evals/v4/transfer-v4",
@@ -89,7 +98,7 @@
    "trained_on": ["evals/sft-v2-r26", "evals/v7/decision-v7"]
   },
   "31b-cont": {
-   "trial": "runs/r31-g31-cont/00-trial-0",
+   "trial": "runs/r31-g31-cont2/00-trial-0",
    "parent": "31b",
    "trained_on": ["evals/sft-v2-r26"]
   }

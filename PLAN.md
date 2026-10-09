@@ -3354,6 +3354,24 @@ confident-error upper bound (+0.0095 [0.0032, 0.0164], bar +0.01). Unknowable sh
 admitted for this arm. `runs/r31-readout/round31.json` is explicitly incomplete for `31b-cont`, whose H200:8 call
 remains queued with its continuation watcher alive; no continuation result or overall verdict is inferred.
 
+**Continuation launch failure and unchanged recovery (2026-10-09, registered before retry).** At 22:44 UTC the
+original call `fc-01M4H36GVNHJQQ9BGXFGTJ1MVZ` failed its source-hash guard before lease acquisition, model loading
+or training. I redeployed `kev-r31` during its three-hour queue; the late container no longer had the sources
+the launcher had hashed. No `/r31-g31-cont` directory exists on the runs volume, and there is no checkpoint, result,
+provenance or continuation panel read. The failed call and its spawn/watch ledgers are preserved. This is a launch
+failure, not negative model evidence; the watcher exited after recording the continuation as incomplete.
+
+Recover the **same** `31b-cont` candidate under the new immutable study `r31-g31-cont2`. The plan
+`experiments/round31/full-cont-lr1e6.json` is byte-for-byte unchanged: same round-30 initialization, training partition,
+Gemma revision, H200:8, seed 1, fresh optimizer, LR, batch/accumulation, state limit, augmentations and final-only output.
+The round still has exactly two candidates. Use the separate deployment `kev-r31-cont-frozen`; do not redeploy it
+while the recovery is queued or running. Do not disable the source guard. The spec records this operational amendment
+before launch; the failed original study is not an outstanding job. Add a **$10 failed-start reserve** to the original
+$474.948 screen bound, for a conservative **$484.948** total inside the unchanged $500 hard cap. Billing for the
+original app currently shows only $0.00169026 of CPU/memory costs and may lag, so it does not authorize overspending.
+Continue to count actual failed-start costs and all outstanding bounds at every later admission. No blend or parent
+read is repeated, and the continuation remains incomplete until the unchanged recovery produces evidence.
+
 ## Record
 
 One line per round or named study. `rN.json` is `experiments/rounds/rN.json` on main (the rule as data; `python -m
