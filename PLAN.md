@@ -3280,12 +3280,61 @@ Packed/rows/prefix use a separate **1e-3** bound: deterministic eager and math-S
 `0.000241607` probability drift (0.024 pp), so the former 1e-4 cross-shape assertion was not a chunking diagnostic.
 Default fused SDPA still has larger shape-dependent drift (the earlier diagnostic reached 0.047); neither the test
 backend nor the new tolerance changes the research read path, and this is not a serving-parity claim.
-The final requested unit suite passes **501 tests**, with 21 archived-artifact skips. Sixteen targeted pool tests pass
-after sharing `temperature_pool` between arm and parent construction. CPU weight-backed checks pass eight tests;
+The complete requested unit suite has **571 passed, 21 archived-artifact skips, 2 warnings in 733.07 s** after the
+pooled-parent fixes and integration of main's device-probing change (`fc4a17e`). Targeted conventions/pool checks
+passed 27 tests before the privacy guard and 30 afterward, including the canonical delimiter rule. CPU weight-backed
+checks pass eight tests;
 the generated eight-record Qwen smoke fixture fails the strict merge-parity test identically on main and this branch
 (max probability difference `2.6643e-5`, bound `1e-5`). This is recorded, not a green test or a relaxed bound.
-Old/main-versus-branch benchmark and training-tensor parity remain in progress on H200: the Modal image's installed
-fused Qwen3.5 kernels cannot score that hybrid checkpoint on CPU.
+H200 old/main-versus-branch verification gives byte-identical benchmark rows and identical scoring/report fields
+except wall-clock `latency_ms`; converter output also matches. Fixed-seed GPU training is **not bit-identical**:
+adapter/head maxima are `2.170235e-4` / `5.584210e-5`. A repeat of unchanged main differs by `2.164692e-4` /
+`2.244860e-5`, establishing baseline nondeterminism, not exact training parity. The synthetic smoke merge fixture
+also fails identically on both revisions on H200 (`2.8193e-5` against the unchanged `1e-5` bound). Its separate
+server-OOM tests pass on both revisions in fresh processes; the first whole-suite run failed its allocation-pressure
+precondition instead. The Modal image's installed fused Qwen3.5 kernels cannot score that hybrid checkpoint on CPU.
+
+Structural review found that pooled-parent reads bypassed the canonical template resolver. `parent_side` now uses
+`locations` before `temperature_pool`; a static/templated path regression covers this. Pooled parents require a registered
+pool, and absent parent fit rows leave comparisons incomplete instead of raising. These cases have regression coverage.
+The full unit rerun initially stalled in
+two-rank snapshot-process shutdown after writing its checkpoint. That same test passes in isolation (98.33 s) with
+`OMP_NUM_THREADS=1 MKL_NUM_THREADS=1`; the complete requested suite passed with those thread limits and no test exclusions
+(733.07 s). Historical readout replay used saved rows only: **134 passed, 1 skipped in 769.70 s**;
+247 expected archive files remain unavailable after restoration, so incomplete archive coverage is not a green replay
+or a reason to rerun historical panels.
+
+**Thermonuclear structural review (2026-10-09).** Against main, the implementation review found and corrected the
+templated pooled-parent path bypass (`kev/rounds.py:352`), the missing registered-pool invariant
+(`kev/rounds.py:416`), and the missing-fit exception (`kev/rounds.py:854`). These reuse `locations`,
+`temperature_pool`, and `Side` rather than introducing a second readout engine. In the model, the tokenizer-specific
+delimiter contract and escaping stay in `kev.model.delimiters`/`user_tokens` (`kev/model.py:90,113`);
+sliding/global masks and the inference-only SDPA adapter stay inside `DecisionModel`/the Transformers attention
+interface (`kev/model.py:287,410-425`), not in serving or training call sites. Foreign-base admission reuses
+`training_context`/`fits` (`kev/train.py:86-120`), leaving Qwen's admitted-base path intact. The implementation
+does not push a source file across 1,000 lines; `kev/rounds.py` and the affected tests were already over that
+threshold. No dramatically simpler implementation, new duplicated canonical rule, or unjustified special-case
+layer was found. **Structural approval bar met for the current implementation**, not a claim of bit-exact training,
+arbitrary release-parent provenance, serving parity under fused SDPA, or a complete round-31 verdict.
+
+The review also found a **private-artifact boundary leak**: ten committed `tasksource-heldout-v1` reports contained
+per-source breakdowns. These reports are removed from the branch's tracked tree and their directories ignored,
+while aggregate scores, calibration and paired readouts remain committed; the full report copies remain local,
+outside the Git index. `tests/test_conventions.py` now rejects any tracked report for this private suite with a
+nonempty `tasks` breakdown, including reports identified by the suite-manifest hash. A cleanup commit does not
+remove those files from existing branch history: a separate approved history rewrite would be needed to erase
+that already-pushed exposure. Do not claim that historical privacy is repaired.
+
+**App-scoped Modal spend, provisional.** Billing for the eleven identified round-31 apps (blend/read app, GPU and
+CPU verification, and main training-repeat control) totals **$5.92757282 as observed 2026-10-09 22:05 UTC**. This
+is a scoped billing-report snapshot, not the final round cost: the queued continuation has no GPU allocation yet,
+billing may lag and new benchmark apps must be added if it later runs. The registered $500 hard cap and conditional
+long-read admission still apply; workspace-wide metering alone must not be reported as this round's spend.
+
+Pooled-parent provenance limitation: the engine checks the registered pool against every candidate's training
+(`pool_training_problems`), but does not establish training-source separation for a release/blend parent lacking ordinary
+trial provenance. Kev-27B v2 reuses round 23's registered parent reads and temperature pool; this is not a claim that
+arbitrary pooled parents have a generic training-provenance audit.
 
 **Blend short screen (2026-10-09), not the final round verdict.** All ten registered reads finished once. At pooled
 T **1.0968** (90% temperature interval [0.9772, 1.2030], 648 questions), against the parent's own pool T **1.3195**:

@@ -23,6 +23,8 @@ RULES = [
      r"MLXDecisionModel\(|merge_lora\(", {"kev/checkpoint.py", "kev/mlx_model.py", "tests/test_mlx.py"}),
     ("option keys come from kev.api.question_keys",
      r"\[\s*\"false\"\s*,\s*\"true\"\s*\]|\[str\(i\) for i in range\(len\(", {"kev/api.py", "tests/test_unit.py"}),   # the unit test pins the contract
+    ("the tokenizer's delimiter set comes from kev.model.delimiters, never from indexing the Qwen SPECIAL set",
+     r"^DELIMITER_SETS\s*=|^def delimiters\(|convert_tokens_to_ids\(SPECIAL\[", {"kev/model.py", "tests/test_unit.py"}),
     ("the training context is kev.model.MAX_STATE/MAX_BRANCH/MAX_PACKED, lifted only through kev.model.training_context (kev.suite.CONTEXT in manifests), and kev.model.fits",
      r"(?<![\w.])(>|<=|>=|<)\s*2048\b|\b2048\s*(<|>)|max_(branch|state|packed)\"?\s*[=:]\s*\d{3,}", {"kev/model.py"}),
     ("the serving / long-state limits (SERVE_MAX_*, ROW_PASS_TOKENS, MAX_TRAIN_STATE) and the pre-64k aliases the frozen suites' builders "
@@ -83,6 +85,20 @@ def test_published_claims_trace_to_committed_evidence():
     from scripts.verify_claims import verify
 
     assert verify(ROOT) == []
+
+
+def test_tasksource_heldout_reports_keep_source_breakdowns_out_of_git():
+    import subprocess
+    from kev.suite import digest, read_json
+
+    suite_hash = digest(ROOT / "evals/tasksource-heldout-v1/manifest.json")
+    tracked = subprocess.run(["git", "ls-files", "runs/**/report.json"], cwd=ROOT,
+                             capture_output=True, text=True, check=True).stdout.splitlines()
+    for name in tracked:
+        report = read_json(ROOT / name)
+        if report.get("suite_sha256") == suite_hash or "-tsheld/" in name or "tasksource-heldout" in name:
+            if report.get("tasks"):
+                pytest.fail(f"{name} publishes private tasksource-heldout source breakdowns")
 
 
 @pytest.mark.parametrize("what,pattern,allowed", RULES, ids=[r[0][:60] for r in RULES])
