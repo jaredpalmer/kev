@@ -2502,3 +2502,79 @@ def test_release_date_skips_zeroed_mtimes_and_uses_utc(tmp_path, monkeypatch):
     assert ck.release_date() == "2026-09-29" and calls == [("jaredpalmer/kev-x", "v1.0")]
     ck.requested = "down/kev"
     assert ck.release_date() == "unknown"                                      # offline: the cached files' rule
+
+
+LEVELS_3 = ["low", "medium", "high"]   # jaredpalmer/kev#161's three urgency levels
+
+
+def _score_fake(fn):
+    """A predictor stand-in for scripts/score_presentation_checks.py: fn(criteria) -> (probabilities, logits) for
+    the one Score question, keyed the way LocalPredictor keys them (kev.api.question_keys: the level indices as
+    strings, in option order)."""
+    def predict(record):
+        qid, q = next(iter(record["questions"].items()))
+        p, z = fn(q["criteria"])
+        keys = [str(i) for i in range(len(q["criteria"]))]
+        return {"probabilities": {qid: dict(zip(keys, p))}, "logits": {qid: dict(zip(keys, z))}}
+    return predict
+
+
+def test_score_presentation_checks_slot_bias_and_text_driven_fakes():
+    """scripts/score_presentation_checks.py (#161): a fake that peaks at slot 0 wherever the texts sit pins the
+    first-slot rate at 1.0; a text-driven fake, whose winner permutes with the criteria, sits at exactly 1/K over
+    all K! orders with the per-slot rates even; the order sample is capped deterministically when K! overflows."""
+    from scripts.score_presentation_checks import first_slot_rate, level_orders
+
+    positional = _score_fake(lambda crit: ([0.7] + [0.15] * (len(crit) - 1), [1.0] + [0.0] * (len(crit) - 1)))
+    report = first_slot_rate(positional, LEVELS_3, ["s1", "s2"], level_orders(3, 120))
+    assert report["first_slot_rate"] == 1.0 and report["expected"] == 1 / 3 and report["n_decisions"] == 12
+
+    def by_text(crit):
+        win = crit.index("medium")
+        p = [0.0] * len(crit); p[win] = 0.9; p[(win + 1) % len(crit)] = 0.1
+        return p, [3.0 if i == win else 0.0 for i in range(len(crit))]
+
+    fair = _score_fake(by_text)
+    report = first_slot_rate(fair, LEVELS_3, ["s1", "s2", "s3"], level_orders(3, 120))
+    assert report["first_slot_rate"] == report["expected"] and report["per_slot_rates"] == [1 / 3] * 3
+    every = level_orders(3, 120)
+    assert len(every) == 6 and len({tuple(o) for o in every}) == 6
+    sample = level_orders(8, 10)
+    assert len(sample) == 10 and len({tuple(o) for o in sample}) == 10 and sample == level_orders(8, 10)
+
+
+def test_score_presentation_checks_identical_option_reads_logits_then_probabilities():
+    """scripts/score_presentation_checks.py (#161): the identical-option control reads logits when the predictor
+    reports them (the issue's numbers are logit-space) and falls back to probabilities; a flat head measures 0."""
+    from scripts.score_presentation_checks import identical_option_control
+
+    peaked = _score_fake(lambda crit: ([0.8, 0.1, 0.1], [1.0] + [0.0] * (len(crit) - 1)))
+    report = identical_option_control(peaked, "same", 3, ["s1"], [(0, 1, 2)])
+    assert report["space"] == "logits" and report["control"] == pytest.approx(1.0 - 1 / 3)
+    assert report["per_slot_means"] == [1.0, 0.0, 0.0]
+
+    class NoLogits:
+        def __call__(self, record):
+            qid, q = next(iter(record["questions"].items()))
+            k = len(q["criteria"])
+            return {"probabilities": {qid: {str(i): 1 / k for i in range(k)}}}
+
+    flat = identical_option_control(NoLogits(), "same", 3, ["s1"], [(0, 1, 2)])
+    assert flat["space"] == "probabilities" and flat["control"] == 0.0
+
+
+def test_score_presentation_checks_request_is_a_valid_serving_record():
+    """scripts/score_presentation_checks.py (#161): the requests it asks validate against the serving schema and
+    carry the label materialize needs (report-only: no accuracy is claimed from it); a predictor answering in
+    neither space is refused."""
+    from scripts.score_presentation_checks import first_slot_rate, score_request
+    from kev.api import SystemOneRequest
+    from kev.data import materialize
+
+    req = score_request("Ticket 1: the VPN drops every ten minutes.", LEVELS_3, label=2)
+    assert SystemOneRequest.model_validate(req)
+    rec = materialize(req)
+    assert rec["questions"][0]["label"] == 2 and rec["questions"][0]["qtype"] == "score"
+
+    with pytest.raises(ValueError):
+        first_slot_rate(lambda record: {}, LEVELS_3, ["s1"], [(0, 1, 2)])
