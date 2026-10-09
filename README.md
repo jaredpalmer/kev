@@ -82,6 +82,9 @@ uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009
 
 This starts Kev-4B on your machine: CUDA or ROCm if you have a GPU, MLX on Apple Silicon. The first run downloads the adapter and the base model. `--run` also accepts a local checkpoint directory or a Hub revision like `jaredpalmer/kev-4b@qwen3`.
 
+For an isolated NVIDIA environment with pinned fused DeltaNet kernels and a real
+kernel check before startup, see [Local Fused CUDA Serving](docs/local-cuda.md).
+
 In another terminal, send it a ticket:
 
 ```bash
