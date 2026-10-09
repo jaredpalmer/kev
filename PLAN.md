@@ -3306,7 +3306,7 @@ or a reason to rerun historical panels.
 
 **Thermonuclear structural review (2026-10-09).** Against main, the implementation review found and corrected the
 templated pooled-parent path bypass (`kev/rounds.py:352`), the missing registered-pool invariant
-(`kev/rounds.py:416`), and the missing-fit exception (`kev/rounds.py:854`). These reuse `locations`,
+(`kev/rounds.py:417`), and the missing-fit exception (`kev/rounds.py:860-862`). These reuse `locations`,
 `temperature_pool`, and `Side` rather than introducing a second readout engine. In the model, the tokenizer-specific
 delimiter contract and escaping stay in `kev.model.delimiters`/`user_tokens` (`kev/model.py:90,113`);
 sliding/global masks and the inference-only SDPA adapter stay inside `DecisionModel`/the Transformers attention
