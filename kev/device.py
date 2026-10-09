@@ -1,4 +1,5 @@
 """The accelerator this process uses: cuda, then mps, then cpu."""
+import os
 import subprocess
 import sys
 import warnings
@@ -7,6 +8,9 @@ from pathlib import Path
 import torch
 
 DEVICES = ("cpu", "cuda", "mps")
+# The child prints one line with this prefix. ROCm and other wheels write startup text to stdout around it;
+# a bare "cuda" line in that text is not a result.
+PROBE_PREFIX = "kev-device "
 
 
 def default_device():
@@ -25,10 +29,12 @@ def select(device="auto", *, dtype=torch.float32):
         return device
     try:
         result = subprocess.run([sys.executable, str(Path(__file__).resolve()), device, str(dtype).removeprefix("torch.")],
-                                capture_output=True, text=True, timeout=30, check=True)
-        resolved = result.stdout.strip()
+                                capture_output=True, text=True, errors="replace", timeout=30, check=True)
+        reported = [line[len(PROBE_PREFIX):].strip() for line in result.stdout.splitlines() if line.startswith(PROBE_PREFIX)]
+        resolved = reported[-1] if reported else ""
         if resolved not in DEVICES or device != "auto" and resolved != device:
-            raise ValueError(f"unexpected probe result {resolved!r}")
+            tail = next((line.strip() for line in reversed(result.stdout.splitlines()) if line.strip()), "")
+            raise ValueError(f"unexpected probe result {(resolved or tail)!r}")
         return resolved
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         detail = str(error)
@@ -79,4 +85,8 @@ def allocated_bytes(device):
 
 
 if __name__ == "__main__":
-    print(_probe(sys.argv[1], getattr(torch, sys.argv[2])))
+    # A native crash must not dump a core into the caller's directory (issue #170's failure did).
+    if os.name == "posix":
+        import resource
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    print(PROBE_PREFIX + _probe(sys.argv[1], getattr(torch, sys.argv[2])), flush=True)
