@@ -3160,7 +3160,7 @@ batch: launch only while (metered − baseline) + running bounds < $1,080 (10% r
 
 **Readout (2026-10-06, `uv run python -m kev.rounds readout experiments/rounds/r30.json` -> `runs/r30-readout.txt`).** No
 candidate. Every arm is below Kev-27B v2 on the Kev panel primary, so no guard can promote one. Paired against v2,
-record-clustered, pp (90% intervals):
+record-clustered, pp (95% intervals; corrected from the earlier 90% label, which applied only to temperature fits):
 
 | arm | Kev panel | breadth-v1 | breadth index | tasksource-heldout | hard-v1 | Kev without hard | short-state acc | SemIf (report) |
 |---|---|---|---|---|---|---|---|---|
@@ -3250,7 +3250,8 @@ is **unread/incomplete**, never passed. Agents/guardrails OOD are omitted, not s
 still need separately registered confirmation and serving/long-input verification; this round publishes nothing.
 
 Accuracy, Brier and ECE are recorded on both sides, paired by record with `kev.metrics.paired_bootstrap` through
-`kev.rounds` (2,000 resamples, seed 0); the chance-corrected all-family breadth index and hard/devtools/docs are also
+`kev.rounds` (2,000 resamples, seed 0, 95% paired percentile intervals; the temperature-fit interval is separately 90%);
+the chance-corrected all-family breadth index and hard/devtools/docs are also
 reported. Same seven-family exclusion hash as round 30. No repeat of r30 candidate reads or new parent reads.
 
 **Budget, hard cap $500 including reads and GPU checks.** `kev.budget` admission bounds: training $370.50 (three 3 h
@@ -3264,6 +3265,23 @@ the prior $863.67 report, so do not subtract the old report or claim the differe
 baseline and actual job durations to attribute this round, and stop new admissions at $490.
 
 No Hub writes, mirrors, published cards, README numbers, main commits or merge. Work stays on `base/gemma4` / PR #221.
+
+**Execution and verification (2026-10-09).** The blend finished in 828 s: 832 tensors, alpha 0.85, fp32 arithmetic,
+full-weight head retained. Its interpolation artifact pins both endpoints (full weights `98bd0ce6…`, merged LoRA
+`5f94f57b…`), the base revision, head hashes, formula and output weights `306779c1…`. The continuation is spawned
+with its attempt ledger and watcher intact, initially queued for H200:8.
+
+The inference review found a latent unequal-query/key-length bug: the chunker used bottom-right implicit causality,
+whereas Transformers' SDPA uses upper-left causality and trims excess keys. It now follows that reference and slices
+position bias alongside queries. Twelve direct regression cases cover unequal lengths, explicit masks and bias.
+Targeted H200 verification passes **15 tests**, including the two Gemma 12B implementations, Qwen rows, and those
+regressions. Chunked versus original SDPA on identical Gemma inputs is held to **1e-5** with the math backend.
+Packed/rows/prefix use a separate **1e-3** bound: deterministic eager and math-SDPA runs both showed the same
+`0.000241607` probability drift (0.024 pp), so the former 1e-4 cross-shape assertion was not a chunking diagnostic.
+Default fused SDPA still has larger shape-dependent drift (the earlier diagnostic reached 0.047); neither the test
+backend nor the new tolerance changes the research read path, and this is not a serving-parity claim.
+The pre-follow-up unit suite passed 488 tests with 22 archived-artifact skips; all 14 targeted Gemma/chunking unit
+tests pass after the fix. CPU weight-backed and old/main-versus-branch tensor verification remain in progress.
 
 ## Record
 

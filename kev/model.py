@@ -293,14 +293,19 @@ def chunked_sdpa(module, query, key, value, attention_mask, **kw):
     if module.training or b * h * q * kv <= ATTENTION_SCORES:
         return sdpa_attention_forward(module, query, key, value, attention_mask, **kw)
     causal = attention_mask is None and q > 1 and (kw.get("is_causal") if kw.get("is_causal") is not None else getattr(module, "is_causal", True))
+    bias = kw.pop("position_bias", None)
+    if causal and kv > q:
+        key, value, kv = key[:, :, :q], value[:, :, :q], q
+        if bias is not None: bias = bias[..., :q]
     c, out = max(1, ATTENTION_SCORES // (b * h * kv)), []
     for s in range(0, q, c):
         e = min(q, s + c)
-        if causal:   # the causal mask SDPA would apply, bottom-right aligned (queries are the last q of the kv positions)
-            m = (torch.arange(kv, device=query.device)[None, :] <= torch.arange(kv - q + s, kv - q + e, device=query.device)[:, None])[None, None]
+        if causal:
+            m = (torch.arange(kv, device=query.device)[None, :] <= torch.arange(s, e, device=query.device)[:, None])[None, None]
         else:
-            m = attention_mask if attention_mask is None or attention_mask.shape[-2] == 1 else attention_mask[:, :, s:e]
-        out.append(sdpa_attention_forward(module, query[:, :, s:e], key, value, m, **kw)[0])
+            m = attention_mask if attention_mask is None or attention_mask.shape[-2] == 1 else attention_mask[..., s:e, :]
+        chunk_bias = bias if bias is None or bias.shape[-2] == 1 else bias[..., s:e, :]
+        out.append(sdpa_attention_forward(module, query[:, :, s:e], key, value, m, position_bias=chunk_bias, **kw)[0])
     return torch.cat(out, 1), None
 
 

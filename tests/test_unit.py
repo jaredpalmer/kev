@@ -724,6 +724,23 @@ def test_chunked_sdpa_reproduces_one_attention_call(tiny_gemma, monkeypatch):
     for a, b in zip(one, chunked):
         assert (a - b).abs().max() < 1e-5, (a, b)
 
+
+@pytest.mark.parametrize("q,kv", [(19, 19), (7, 19), (19, 7), (1, 19)])
+@pytest.mark.parametrize("mask,bias", [(False, False), (True, False), (False, True)])
+def test_chunked_sdpa_matches_transformers_with_unequal_lengths(q, kv, mask, bias, monkeypatch):
+    from types import SimpleNamespace
+    from transformers.integrations.sdpa_attention import sdpa_attention_forward
+    from kev.model import chunked_sdpa
+    torch.manual_seed(0)
+    module = SimpleNamespace(training=False, is_causal=True, num_key_value_groups=2)
+    query, key, value = torch.randn(1, 2, q, 8), torch.randn(1, 1, kv, 8), torch.randn(1, 1, kv, 8)
+    attention_mask = torch.ones(q, kv, dtype=torch.bool).tril() if mask else None
+    kw = {"position_bias": torch.randn(1, 2, q, kv)} if bias else {}
+    expected = sdpa_attention_forward(module, query, key, value, attention_mask, **kw)[0]
+    monkeypatch.setattr("kev.model.ATTENTION_SCORES", 16)
+    actual = chunked_sdpa(module, query, key, value, attention_mask, **kw)[0]
+    torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-6)
+
 # --- full-weight training (kev.train --full_ft 1, kev.full_ft): a 2-layer Qwen3.5 with random weights, no downloads ----
 
 @pytest.fixture(scope="module")
