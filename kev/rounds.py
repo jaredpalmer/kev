@@ -323,6 +323,15 @@ def transfer_read(spec, arm):
     return a["transfer_read"] if "transfer_read" in a else spec.get("transfer_read")
 
 
+def temperature_pool(reads, registered):
+    return Pool(
+        [reads[r] for r in registered["reads"]],
+        {reads[r]: source for r, source in registered.get("sources", {}).items()},
+        [reads[r] for r in registered.get("exclude_reads", [])],
+        registered.get("ci"),
+    )
+
+
 def arm_side(spec, arm, root=ROOT, stage=None):
     """The arm's side. Its "transfer" rows and its temperature pool come from its rule-stage reads at every stage (the
     development reads it was selected on); a stage's candidate_reads locate the stage's own panels."""
@@ -335,7 +344,7 @@ def arm_side(spec, arm, root=ROOT, stage=None):
     pool, registered = None, spec.get("temperature")
     if registered:
         fit = {**development, **({TRANSFER: transfer} if transfer else {})}
-        pool = Pool([fit[r] for r in registered["reads"]], {fit[r]: s for r, s in registered.get("sources", {}).items()}, [fit[r] for r in registered.get("exclude_reads", [])], registered.get("ci"))
+        pool = temperature_pool(fit, registered)
     suite = trial_suite(spec, a["trial"], root) if a.get("trial") and not pool else None
     return Side(a.get("trial"), dirs, root, spec.get("drop_ids", ()), pool, a.get("checkpoint"), suite)
 
@@ -348,7 +357,7 @@ def parent_side(spec, arm, root=ROOT, stage=None):
     pool = None
     if p.get("pooled"):   # a parent without a trial (a blend, Kev-27B v2) is served as its round served it: on the round's pool, over its own reads
         registered, fit = spec["temperature"], {**p["reads"], TRANSFER: transfer}
-        pool = Pool([fit[r] for r in registered["reads"]], {fit[r]: s for r, s in registered.get("sources", {}).items()}, [fit[r] for r in registered.get("exclude_reads", [])], registered.get("ci"))
+        pool = temperature_pool(fit, registered)
     return Side(p.get("trial"), dirs, root, spec.get("drop_ids", ()), pool, suite=None if pool else trial_suite(spec, p["trial"], root), shipped=lambda: shipped_temperature(p, root))
 
 
