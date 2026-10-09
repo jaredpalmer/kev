@@ -28,7 +28,7 @@ import torch
 
 from kev.benchmark import evaluate_records
 from kev.checkpoint import LoadOptions
-from kev.device import DEVICES, empty_cache, select
+from kev.device import DEVICE_HELP, DEVICES, empty_cache, select
 from kev.full_ft import snapshot_fractions, too_many_snapshots
 from kev.metrics import fit_temperature, paired_bootstrap
 from kev.model import MAX_STATE, MAX_TRAIN_STATE
@@ -434,8 +434,7 @@ def main():
     ap.add_argument("--existing", nargs="*", default=[])
     ap.add_argument("--wait-pid", type=int)
     ap.add_argument("--device", choices=("auto", *DEVICES), default="auto",
-                    help="device for local trials; auto probes in a child process and falls back to cpu, cpu skips discovery "
-                         "(not used by --aggregate or --dry-run)")
+                    help="device for local trials; " + DEVICE_HELP + " (not used by --aggregate or --dry-run)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--aggregate", action="store_true", help="rank an existing study directory (e.g. after Modal trials)")
     ap.add_argument("--transfer", help="eval-only suite whose development partition is scored for every trial (out-of-domain check)")

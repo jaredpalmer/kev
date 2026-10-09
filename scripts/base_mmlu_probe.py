@@ -13,7 +13,7 @@ from pathlib import Path
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from kev.device import DEVICES, select
+from kev.device import DEVICE_HELP, DEVICES, select
 from kev.suite import load_split
 
 
@@ -23,7 +23,7 @@ def main():
     ap.add_argument("--suite", default="evals/v4/transfer-v4")
     ap.add_argument("--tasks", default="mmlu,sciq")
     ap.add_argument("--device", choices=("auto", *DEVICES), default="auto",
-                    help="auto probes in a child process (bf16, the precision this script loads on an accelerator) and falls back to cpu; cpu skips discovery")
+                    help=DEVICE_HELP + " (this script probes bf16, the precision it loads on an accelerator)")
     ap.add_argument("--out", help="write benchmark-compatible rows.json/report.json here (comparable with paired bootstraps)")
     ap.add_argument("--prompt", choices=["plain", "semif"], default="plain",
                     help="semif: SemIf's readout (github.com/TheoLeeCJ/SemIf core.direct_messages): chat template, system instruction, JSON {evidence, criterion, options} payload, letter logits; for instruct models")

@@ -14,7 +14,7 @@ import torch
 import torch.nn.functional as F
 from .checkpoint import Checkpoint, LoadOptions
 from .data import NONE_OPTIONS, build, augment, materialize, DISTRACTORS
-from .device import default_device, empty_cache, sync
+from .device import DEVICE_HELP, DEVICES, empty_cache, select, sync
 from .metrics import ece
 from .suite import write_json
 
@@ -187,9 +187,11 @@ def main():
     ap.add_argument("--n_per_source", type=int, default=150)
     ap.add_argument("--baseline", action="store_true", help="zero-shot letter-logit baseline from the base model")
     ap.add_argument("--baseline_instruct", default="", help="e.g. Qwen/Qwen2.5-0.5B-Instruct: chat-template letter-logit baseline")
+    ap.add_argument("--device", choices=("auto", *DEVICES), default="auto", help=DEVICE_HELP)
     ap.add_argument("--seed", type=int, default=1)
     a = ap.parse_args()
-    dev = default_device()
+    opts = LoadOptions.from_env()
+    dev = select(a.device) if opts.dtype is None else select(a.device, dtype=opts.dtype)
     rng = random.Random(a.seed)
     reqs = build(a.n_per_source, "test", a.seed)
     ck = Checkpoint(a.run)
@@ -199,7 +201,7 @@ def main():
     if a.baseline_instruct:
         out["baseline_zero_shot_instruct"] = baseline_letter_logits(a.baseline_instruct, reqs, dev, random.Random(a.seed), chat=True); print(json.dumps(out["baseline_zero_shot_instruct"], indent=1), flush=True)
     empty_cache(dev)
-    tok, model = ck.load(dev, LoadOptions.from_env())
+    tok, model = ck.load(dev, opts)
     for name, fn in [("accuracy_calibration", lambda: test_accuracy(tok, model, reqs, random.Random(a.seed))),
                      ("temperature_scaling", lambda: test_temperature(tok, model, reqs, random.Random(a.seed))),
                      ("permutation", lambda: test_permutation(tok, model, reqs[:150], rng)),

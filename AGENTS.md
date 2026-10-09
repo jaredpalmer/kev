@@ -385,7 +385,7 @@ runs / the endpoint / the volumes. Tests: `tests/test_skill_scripts.py`.
 - `kev/anchors.py`   frozen-base zero-shot distributions per training question, the target for `--anchor_w`
 - `kev/checkpoint.py` Checkpoint (resolve run dir or Hub id, `head.pt` schema = `Meta`, the LoRA-vs-full loader rule `full`/`shards`/`weights_sha256` (a full checkpoint loads in its head.pt `weights_dtype`, which must match config.json's `dtype`), load with `LoadOptions` -> torch `DecisionModel` or, with `backend="mlx"`/`"auto"`, `MLXDecisionModel`; `warm_start` for deltas)
 - `kev/mlx_model.py` Apple Silicon backend: mlx-lm Qwen3.5 backbone, LoRA merged in fp32 on the CPU stream (`merge_lora`) or a full-weight checkpoint loaded as saved (`load_full`), Kev's encoder/rows and the torch PointerHead unchanged; state prefix = mlx-lm prompt cache filled `PREFILL_CHUNK` tokens per pass, branches on a replicated copy
-- `kev/device.py`    default device and explicit selection (`select`, a child-process probe) / sync / empty_cache / allocated_bytes for cuda, mps, cpu
+- `kev/device.py`    default device and explicit selection (`select`, a child-process probe: CUDA/ROCm, then MPS, then CPU; `KEV_DEVICE_PROBE_TIMEOUT`, default 30s) / sync / empty_cache / allocated_bytes for cuda, mps, cpu
 - `kev/metrics.py`   pure-numpy scoring of benchmark rows: ECE, Brier, NLL, selective prediction (tie-aware coverage@error, AURC), temperature fit, out-of-fold CV calibration report (`cross_validated_temperature`), paired bootstrap
 - `kev/predictors.py` LocalPredictor (checkpoint), RemotePredictor (System One endpoint), JevPredictor (AI SDK worker)
 - `kev/benchmark.py` rows from predictions, summarize(), evaluate_records(), CLI

@@ -20,7 +20,7 @@ from kev.api import question_keys, with_date_facts
 from kev.checkpoint import LoadOptions
 from kev.contrastive import paired_flip
 from kev.data import api_request, load_records
-from kev.device import DEVICES, select
+from kev.device import DEVICE_HELP, DEVICES, select
 from kev.metrics import EPSILON, grouped_metrics, metrics, unknowable_report
 from kev.model import ROW_PASS_TOKENS, ContextOverflow
 from kev.predictors import LocalPredictor, RemotePredictor, RotationAveraged
@@ -178,8 +178,7 @@ def main():
     ap.add_argument("--data", help="your own labelled requests, one JSON object per line (kev.data.load_records); an alternative to --suite")
     ap.add_argument("--out", required=True)
     ap.add_argument("--device", choices=("auto", *DEVICES), default="auto",
-                    help="device for a local checkpoint; auto probes in a child process and falls back to cpu, "
-                         "cpu skips discovery (ignored with --remote)")
+                    help="device for a local checkpoint; " + DEVICE_HELP + " (ignored with --remote)")
     ap.add_argument("--allow-test", action="store_true")
     ap.add_argument("--split", choices=["development", "calibration", "train"], default="development",
                     help="suite partition to score (train: teacher predictions for distillation; --allow-test reads the locked test instead)")

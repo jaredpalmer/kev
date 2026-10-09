@@ -31,7 +31,7 @@ def test_explicit_cpu_never_discovers_accelerators(monkeypatch):
 def test_selection_uses_fresh_interpreter_and_requested_precision(monkeypatch, requested, resolved):
     def run(command, **kwargs):
         assert command == [sys.executable, str(Path(device.__file__).resolve()), requested, "bfloat16"]
-        assert kwargs == dict(capture_output=True, text=True, errors="replace", timeout=30, check=True)
+        assert kwargs == dict(capture_output=True, text=True, errors="replace", timeout=30.0, check=True)
         return SimpleNamespace(stdout=reported(resolved))
     monkeypatch.setattr(subprocess, "run", run)
     assert device.select(requested, dtype=torch.bfloat16) == resolved
@@ -238,14 +238,12 @@ def test_probe_child_disables_core_dumps(tmp_path, monkeypatch):
     if hard == 0:
         pytest.skip("core dumps already forbidden by the hard limit")
     report = tmp_path / "core.txt"
+    # Recorded at import time: the limit has to be in place before torch is imported, not only before the matmul.
     fake_torch = '''
-import contextlib, os, resource
-float32 = "float32"
-no_grad = contextlib.nullcontext
-def ones(*args, **kwargs):
-    with open(os.environ["CORE_REPORT"], "w", encoding="utf-8") as out:
-        out.write(str(resource.getrlimit(resource.RLIMIT_CORE)[0]))
-    raise SystemExit(0)
+import os, resource
+with open(os.environ["CORE_REPORT"], "w", encoding="utf-8") as out:
+    out.write(str(resource.getrlimit(resource.RLIMIT_CORE)[0]))
+raise SystemExit(0)
 '''
     (tmp_path / "torch.py").write_text(fake_torch, encoding="utf-8")
     monkeypatch.setenv("PYTHONPATH", str(tmp_path))
@@ -350,3 +348,175 @@ def test_base_mmlu_probe_help_does_not_probe(monkeypatch):
     with pytest.raises(SystemExit) as error:
         module.main()
     assert error.value.code == 0
+
+
+def test_auto_tries_mps_after_the_cuda_probe_fails(monkeypatch):
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command[-2])
+        assert kwargs["timeout"] == 30.0
+        if command[-2] == "auto":
+            raise subprocess.CalledProcessError(-11, "probe", stderr="HIP error: invalid device function")
+        return SimpleNamespace(stdout=reported("mps"))
+    monkeypatch.setattr(subprocess, "run", run)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        assert device.select() == "mps"
+    assert calls == ["auto", "mps"]
+
+
+def test_explicit_accelerator_does_not_fall_through(monkeypatch):
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command[-2])
+        raise subprocess.CalledProcessError(-11, "probe")
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.raises(RuntimeError, match="--device cpu"):
+        device.select("cuda")
+    assert calls == ["cuda"]
+
+
+def test_probe_timeout_is_configurable_and_cpu_ignores_a_bad_value(monkeypatch):
+    seen = []
+    def run(command, **kwargs):
+        seen.append(kwargs["timeout"])
+        return SimpleNamespace(stdout=reported("cpu"))
+    monkeypatch.setenv("KEV_DEVICE_PROBE_TIMEOUT", "12.5")
+    monkeypatch.setattr(subprocess, "run", run)
+    assert device.select() == "cpu" and seen == [12.5]
+    for raw in ("nope", "0", "-1"):
+        monkeypatch.setenv("KEV_DEVICE_PROBE_TIMEOUT", raw)
+        with pytest.raises(ValueError, match="KEV_DEVICE_PROBE_TIMEOUT"):
+            device.select("cuda")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("probe"))
+    assert device.select("cpu") == "cpu"
+
+
+def test_core_limit_is_set_before_torch_is_imported():
+    text = Path(device.__file__).read_text(encoding="utf-8")
+    assert text.index("resource.setrlimit") < text.index("import torch")
+
+
+def test_train_help_and_cpu_do_not_probe(tmp_path, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("probe"))
+    from kev import train
+    monkeypatch.setattr(sys, "argv", ["kev.train", "--help"])
+    with pytest.raises(SystemExit) as error:
+        train.main()
+    assert error.value.code == 0
+    monkeypatch.setattr(train, "load_tokenizer", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop")))
+    monkeypatch.setattr(sys, "argv", ["kev.train", "--device", "cpu", "--out", str(tmp_path / "run")])
+    with pytest.raises(RuntimeError, match="stop"):
+        train.main()
+
+
+def test_train_explicit_cuda_fails_closed_before_loading(tmp_path, monkeypatch):
+    def crash(*args, **kwargs):
+        raise subprocess.CalledProcessError(-11, "probe")
+    monkeypatch.setattr(subprocess, "run", crash)
+    from kev import train
+    monkeypatch.setattr(train, "load_tokenizer", lambda *a, **k: pytest.fail("loaded"))
+    monkeypatch.setattr(sys, "argv", ["kev.train", "--device", "cuda", "--out", str(tmp_path / "run")])
+    with pytest.raises(RuntimeError, match="--device cpu"):
+        train.main()
+
+
+@pytest.mark.parametrize("extra,precision", [(("--weights_dtype", "bf16"), "bfloat16"), (("--dtype", "bf16"), "bfloat16"), ((), "float32")])
+def test_train_probes_the_dtype_it_will_run(tmp_path, monkeypatch, extra, precision):
+    seen = []
+    def run(command, **kwargs):
+        seen.append(command[-2:])
+        return SimpleNamespace(stdout=reported("cuda"))
+    monkeypatch.setattr(subprocess, "run", run)
+    from kev import train
+    monkeypatch.setattr(train, "load_tokenizer", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop")))
+    monkeypatch.setattr(sys, "argv", ["kev.train", "--device", "cuda", *extra, "--out", str(tmp_path / "run")])
+    with pytest.raises(RuntimeError, match="stop"):
+        train.main()
+    assert seen == [["cuda", precision]]
+
+
+def test_evaluate_help_and_cpu_do_not_probe(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("probe"))
+    from kev import evaluate
+    monkeypatch.setattr(sys, "argv", ["kev.evaluate", "--help"])
+    with pytest.raises(SystemExit) as error:
+        evaluate.main()
+    assert error.value.code == 0
+    monkeypatch.setattr(evaluate, "build", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop")))
+    monkeypatch.setattr(sys, "argv", ["kev.evaluate", "--device", "cpu", "--run", "fixture"])
+    with pytest.raises(RuntimeError, match="stop"):
+        evaluate.main()
+
+
+def test_evaluate_explicit_cuda_fails_closed_and_probes_bf16(monkeypatch):
+    calls = []
+    def crash(command, **kwargs):
+        calls.append(command[-2:])
+        raise subprocess.CalledProcessError(-11, "probe")
+    monkeypatch.setenv("KEV_DTYPE", "bf16")
+    monkeypatch.setattr(subprocess, "run", crash)
+    from kev import evaluate
+    monkeypatch.setattr(evaluate, "build", lambda *a, **k: pytest.fail("loaded"))
+    monkeypatch.setattr(sys, "argv", ["kev.evaluate", "--device", "cuda"])
+    with pytest.raises(RuntimeError, match="--device cpu"):
+        evaluate.main()
+    assert calls == [["cuda", "bfloat16"]]
+
+
+@pytest.mark.parametrize("requested", [None, "mps"])
+def test_serve_mlx_skips_a_failing_torch_mps_probe(startup, monkeypatch, requested):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(serve, "mlx_available", lambda: True)
+    serve.Checkpoint.hybrid_base = lambda self: True
+    if requested is not None:
+        sys.argv += ["--device", requested]
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("probe"))
+    serve.main()
+    assert startup[0][0] == "mps"
+    assert startup[0][1].backend == "auto"
+    assert startup[0][1].dtype == torch.bfloat16
+
+
+def test_serve_torch_backend_on_apple_silicon_still_probes(startup, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(serve, "mlx_available", lambda: True)
+    serve.Checkpoint.hybrid_base = lambda self: True
+    monkeypatch.setenv("KEV_BACKEND", "torch")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(subprocess.CalledProcessError(-11, "probe")))
+    with pytest.warns(RuntimeWarning, match="Falling back to CPU"):
+        serve.main()
+    assert startup[0][0] == "cpu"
+
+
+def test_serve_fp32_and_attention_only_still_probe_on_apple_silicon(startup, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(serve, "mlx_available", lambda: True)
+    seen = []
+    def run(command, **kwargs):
+        seen.append(command[-2:])
+        return SimpleNamespace(stdout=reported("mps"))
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setenv("KEV_DTYPE", "fp32")
+    serve.Checkpoint.hybrid_base = lambda self: True
+    serve.main()
+    assert seen == [["auto", "float32"]] and startup[0][1].dtype == torch.float32
+    seen.clear()
+    monkeypatch.delenv("KEV_DTYPE")
+    serve.Checkpoint.hybrid_base = lambda self: False
+    serve.main()
+    assert seen == [["auto", "bfloat16"]] and startup[-2][0] == "mps" and startup[-2][1].dtype == torch.bfloat16
+
+
+def test_serve_cuda_on_apple_silicon_does_not_switch_to_mlx(startup, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(serve, "mlx_available", lambda: True)
+    serve.Checkpoint.hybrid_base = lambda self: True
+    sys.argv += ["--device", "cuda"]
+    seen = []
+    def run(command, **kwargs):
+        seen.append(command[-2])
+        return SimpleNamespace(stdout=reported("cuda"))
+    monkeypatch.setattr(subprocess, "run", run)
+    serve.main()
+    assert seen == ["cuda"] and startup[0][0] == "cuda"

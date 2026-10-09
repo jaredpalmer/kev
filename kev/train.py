@@ -18,7 +18,7 @@ import torch
 import torch.nn.functional as F
 from . import full_ft
 from .checkpoint import Checkpoint, Meta, write_meta
-from .device import allocated_bytes, default_device, empty_cache, sync
+from .device import DEVICE_HELP, DEVICES, allocated_bytes, empty_cache, select, sync
 from .data import EVAL_ONLY, build, augment, load_records, materialize, none_pair, source_seed
 from .suite import SYNTHETIC_SOURCES, digest, load_split, read_json, read_manifest, validate_training, write_json
 from .model import MAX_STATE, MAX_TRAIN_STATE, DecisionModel, fits, load_tokenizer, rows_of, training_context, user_tokens
@@ -386,7 +386,7 @@ def parse_args():
     ap.add_argument("--focal_gamma", type=float, default=0.0, help="hard-label CE multiplier (1-p_y)^gamma; 0 is ordinary CE")
     ap.add_argument("--suite", help="frozen suite directory; train only on its training partition")
     ap.add_argument("--train_sources", default="", help="comma-separated subset of the suite's trainable sources (ablations); default all")
-    ap.add_argument("--device", choices=["cpu", "mps", "cuda"], default=None)
+    ap.add_argument("--device", choices=("auto", *DEVICES), default="auto", help=DEVICE_HELP)
     ap.add_argument("--batch", type=int, default=1, help="records per forward pass (padded batch); optimizer step every --accum micro-batches")
     ap.add_argument("--dtype", choices=["fp32", "bf16"], default="fp32", help="bf16 = autocast forward with fp32 master weights (CUDA only)")
     ap.add_argument("--weights_dtype", choices=["fp32", "bf16"], default="fp32", help="dtype of the frozen backbone weights. bf16 halves memory and is required by the fused MoE experts "
@@ -522,7 +522,8 @@ def pinned_revision(a, manifest):
 
 def main():
     a = parse_args()
-    dev = a.device or default_device()
+    # bf16 weights or autocast hit the accelerator in that dtype (the ROCm crash was the first bf16 kernel).
+    dev = select(a.device, dtype=torch.bfloat16 if a.weights_dtype == "bf16" or a.dtype == "bf16" else torch.float32)
     rank, world = full_ft.init_distributed(dev) if a.full_ft else (0, 1)   # torchrun: each rank's "cuda" is its own GPU
     out_dir = Path(a.out)
     if rank: sys.stdout = open(os.devnull, "w", encoding="utf-8")   # one log: rank 0's (errors still reach stderr)
