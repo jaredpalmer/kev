@@ -8,8 +8,8 @@ under several option orders) and POST /v1/systemone/separate (each question in i
 comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS / KEV_PREFIX_MAX_TOKENS size the state-prefix cache; KEV_DATE_FACTS=1 opts into the
 date preprocessing (api.with_date_facts). A state over kev.model.SERVE_MAX_STATE tokens is refused with a 422 (kev.model.admit);
 KEV_TRUNCATE_STATES=1 reads its first SERVE_MAX_STATE tokens instead, and then every response says whether it did. Backend
-and precision follow LoadOptions (KEV_BACKEND, KEV_DTYPE, ...): on Apple Silicon the hybrid Qwen3.5 checkpoints run on MLX
-by default, elsewhere on torch in bf16.
+and precision follow LoadOptions (KEV_BACKEND, KEV_DTYPE, ...): on Apple Silicon a hybrid checkpoint runs on MLX
+by default, without a torch MPS probe, elsewhere on torch in bf16.
 """
 import argparse, asyncio, atexit, hmac, os, queue, random, sys, threading, time, traceback, uuid
 from concurrent.futures import Future
@@ -20,8 +20,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
-from .checkpoint import Checkpoint, LoadOptions, fused_available, is_hub_id
-from .device import default_device, empty_cache, out_of_memory, sync
+from .checkpoint import Checkpoint, LoadOptions, fused_available, is_hub_id, mlx_available
+from .device import DEVICE_HELP, DEVICES, empty_cache, out_of_memory, select, sync
 from .model import SERVE_MAX_STATE, ContextOverflow, admit
 
 PREFIX_CACHE_SIZE = int(os.environ.get("KEV_PREFIX_CACHE", "4"))          # states kept (KV + DeltaNet states; attention-only backbones also the state's hidden states); 0 disables
@@ -312,24 +312,39 @@ def models():
     return {"models": [{"name": name, **card} for name in MODEL_NAMES]}
 
 
+def _serving_device(requested, opts, run):
+    """Device and checkpoint for this process. A hybrid checkpoint on Apple Silicon with the MLX backend does not consult
+    the torch MPS probe. Everywhere else the probe runs before the checkpoint is opened, so a driver crash stays in the child."""
+    probe_dtype = opts.dtype or torch.bfloat16
+    mlx_candidate = (sys.platform == "darwin" and requested in ("auto", "mps") and opts.backend in ("auto", "mlx")
+                     and opts.dtype is not torch.float32)
+    if mlx_candidate:
+        ck = Checkpoint(run)
+        if mlx_available() and ck.hybrid_base():
+            return "mps", ck
+        return select(requested, dtype=probe_dtype), ck
+    return select(requested, dtype=probe_dtype), Checkpoint(run)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", default="runs/kev")
     ap.add_argument("--fallback", default="runs/smoke")
     ap.add_argument("--host", default="127.0.0.1", help="interface to bind; 0.0.0.0 to serve beyond this machine (a container, a VM behind a proxy)")
     ap.add_argument("--port", type=int, default=8008)
+    ap.add_argument("--device", choices=("auto", *DEVICES), default="auto", help=DEVICE_HELP)
     a = ap.parse_args()
     run = a.run if is_hub_id(a.run) or os.path.exists(f"{a.run}/head.pt") else a.fallback
     if run != a.run: print(f"{a.run} not found, falling back to {run}")
-    dev = default_device()
     opts = LoadOptions.from_env()
+    if opts.backend is None: opts = replace(opts, backend="auto")   # serving default: MLX for the hybrid Qwen3.5 checkpoints on Apple Silicon (LoadOptions.backend); KEV_BACKEND=torch to decline
+    dev, ck = _serving_device(a.device, opts, run)
     if dev == "mps" and opts.attn is None: opts = replace(opts, attn="sdpa")   # serving default on Apple GPUs (parity measured)
     if dev != "cpu" and opts.dtype is None: opts = replace(opts, dtype=torch.bfloat16)   # serving default: 2-4.5x faster than fp32 on an L4, same answers (LoadOptions.dtype); KEV_DTYPE=fp32 for the exact path
-    if dev == "cuda" and opts.cuda_graphs is None: opts = replace(opts, cuda_graphs=True)   # serving default: a pass is ~2,000 kernel launches, so replaying graphs cuts warm latency several-fold (kev.cuda_graphs); KEV_CUDA_GRAPHS=0 to decline
-    fused_default = dev == "cuda" and opts.fused is None
+    cuda_optimizations = dev == "cuda" and torch.version.hip is None   # these serving paths are measured on NVIDIA
+    if cuda_optimizations and opts.cuda_graphs is None: opts = replace(opts, cuda_graphs=True)   # serving default: a pass is ~2,000 kernel launches, so replaying graphs cuts warm latency several-fold (kev.cuda_graphs); KEV_CUDA_GRAPHS=0 to decline
+    fused_default = cuda_optimizations and opts.fused is None
     if fused_default: opts = replace(opts, fused=fused_available())   # serving default: fused Qwen3.5 kernels, ~1/3 less GPU time per batch (kev.fused_qwen35), when fla is installed; KEV_FUSED=0 to decline, KEV_FUSED=1 to insist
-    if opts.backend is None: opts = replace(opts, backend="auto")   # serving default: MLX for the hybrid Qwen3.5 checkpoints on Apple Silicon (LoadOptions.backend); KEV_BACKEND=torch to decline
-    ck = Checkpoint(run)
     tok, model = ck.load(dev, opts)
     if fused_default and not opts.fused and model.hybrid: print("fused Qwen3.5 kernels off: install the flash-linear-attention version kev/fused_qwen35.py pins (FLA_VERSION) to turn them on")
     app.state.server = Server(ck, tok, model, dev)

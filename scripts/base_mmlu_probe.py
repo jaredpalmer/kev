@@ -13,7 +13,7 @@ from pathlib import Path
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from kev.device import default_device
+from kev.device import DEVICE_HELP, DEVICES, select
 from kev.suite import load_split
 
 
@@ -22,7 +22,8 @@ def main():
     ap.add_argument("--base", default="Qwen/Qwen3-4B-Base")
     ap.add_argument("--suite", default="evals/v4/transfer-v4")
     ap.add_argument("--tasks", default="mmlu,sciq")
-    ap.add_argument("--device", default=default_device())
+    ap.add_argument("--device", choices=("auto", *DEVICES), default="auto",
+                    help=DEVICE_HELP + " (this script probes bf16, the precision it loads on an accelerator)")
     ap.add_argument("--out", help="write benchmark-compatible rows.json/report.json here (comparable with paired bootstraps)")
     ap.add_argument("--prompt", choices=["plain", "semif"], default="plain",
                     help="semif: SemIf's readout (github.com/TheoLeeCJ/SemIf core.direct_messages): chat template, system instruction, JSON {evidence, criterion, options} payload, letter logits; for instruct models")
@@ -32,6 +33,7 @@ def main():
     ap.add_argument("--adapter", default=None, help="diagnostic: merge this Kev LoRA checkpoint into the base, then read letter logits through the base lm_head. "
                                                    "Separates 'the adapted backbone forgot X' from 'the pointer readout cannot express X'.")
     a = ap.parse_args()
+    a.device = select(a.device, dtype=torch.bfloat16)
     tok = AutoTokenizer.from_pretrained(a.base, revision=a.revision)
     dtype = torch.bfloat16 if a.device != "cpu" else torch.float32
     model = AutoModelForCausalLM.from_pretrained(a.base, dtype=dtype, revision=a.revision).to(a.device).eval()

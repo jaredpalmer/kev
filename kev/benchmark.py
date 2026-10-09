@@ -20,7 +20,7 @@ from kev.api import question_keys, with_date_facts
 from kev.checkpoint import LoadOptions
 from kev.contrastive import paired_flip
 from kev.data import api_request, load_records
-from kev.device import default_device
+from kev.device import DEVICE_HELP, DEVICES, select
 from kev.metrics import EPSILON, grouped_metrics, metrics, unknowable_report
 from kev.model import ROW_PASS_TOKENS, ContextOverflow
 from kev.predictors import LocalPredictor, RemotePredictor, RotationAveraged
@@ -177,7 +177,8 @@ def main():
     ap.add_argument("--suite", help="frozen suite directory (scores its development partition)")
     ap.add_argument("--data", help="your own labelled requests, one JSON object per line (kev.data.load_records); an alternative to --suite")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--device", choices=["cpu", "mps", "cuda"], default=default_device())
+    ap.add_argument("--device", choices=("auto", *DEVICES), default="auto",
+                    help="device for a local checkpoint; " + DEVICE_HELP + " (ignored with --remote)")
     ap.add_argument("--allow-test", action="store_true")
     ap.add_argument("--split", choices=["development", "calibration", "train"], default="development",
                     help="suite partition to score (train: teacher predictions for distillation; --allow-test reads the locked test instead)")
@@ -188,6 +189,10 @@ def main():
     if a.rotations < 1: ap.error("--rotations must be >= 1")
     if a.remote_concurrency < 1: ap.error("--remote-concurrency must be >= 1")
     if bool(a.suite) == bool(a.data): ap.error("give exactly one of --suite or --data")
+    if not a.remote:
+        opts = LoadOptions.from_env()
+        # None is the fp32 scoring path (LoadOptions.dtype). Probe the precision the checkpoint will actually run in.
+        a.device = select(a.device) if opts.dtype is None else select(a.device, dtype=opts.dtype)
     if a.data:
         records, heldout, split, source_hash = load_records(a.data), [], "custom", digest(Path(a.data))
         context, skip_overlong = CONTEXT, True
@@ -199,7 +204,7 @@ def main():
         context, skip_overlong = manifest.get("context", CONTEXT), bool(manifest.get("eval_only"))
     if a.date_facts:
         records = [{**r, "state": with_date_facts(r["state"])} for r in records]
-    predictor = RemotePredictor(a.remote, a.remote_model, os.environ.get("KEV_REMOTE_API_KEY", "local"), concurrency=a.remote_concurrency) if a.remote else LocalPredictor(a.run, a.device, LoadOptions.from_env(), context=context)
+    predictor = RemotePredictor(a.remote, a.remote_model, os.environ.get("KEV_REMOTE_API_KEY", "local"), concurrency=a.remote_concurrency) if a.remote else LocalPredictor(a.run, a.device, opts, context=context)
     scorer = RotationAveraged(predictor, a.rotations) if a.rotations > 1 else predictor
     report, _ = evaluate_records(records, scorer, a.out, heldout_sources=tuple(heldout), skip_overlong=skip_overlong)
     report.update(suite_sha256=source_hash, data=a.data, date_facts=a.date_facts, rotations=a.rotations, run=a.run or a.remote, split=split,

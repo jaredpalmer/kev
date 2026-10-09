@@ -72,6 +72,9 @@ The [Hugging Face Space](https://huggingface.co/spaces/jaredpalmer/kev) runs Kev
 
 ### Run It Locally
 
+> [!WARNING]
+> PyPI name collision: `pip install kev` installs a **different package** — [K.E.V. ORM](https://pypi.org/project/kev/) (Brian Jinwright, 2016-2021). This project is **not** published to PyPI. Install from source as below.
+
 You'll need Python 3.12 or 3.13 and [uv](https://docs.astral.sh/uv/). The repo's `.python-version` makes `uv sync` use 3.13; torch has no wheels for 3.14 yet.
 
 ```bash
@@ -81,6 +84,19 @@ uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009
 ```
 
 This starts Kev-4B on your machine: CUDA or ROCm if you have a GPU, MLX on Apple Silicon. The first run downloads the adapter and the base model. `--run` also accepts a local checkpoint directory or a Hub revision like `jaredpalmer/kev-4b@qwen3`.
+
+Use `--device cpu` to skip accelerator discovery, or `--device cuda` / `--device mps` to require that accelerator.
+The default, `--device auto`, tests an allocation and matrix multiplication in a separate process before loading weights.
+It tries CUDA (including ROCm) first; if that probe fails, crashes, or times out, it tries MPS, and only then warns and uses CPU.
+An explicitly requested accelerator fails instead of falling back. `kev.train` and `kev.evaluate` take the same `--device` flag
+(`--device cuda` there is probed the same way, and the run stops if the probe fails). `KEV_DEVICE_PROBE_TIMEOUT` is the limit
+for each probe, in seconds (default 30), so a dead CUDA init followed by an MPS attempt can take twice that.
+This checks basic runtime support, not every model kernel.
+
+On Apple Silicon, serving a hybrid checkpoint with the default backend uses MLX and does not run the torch MPS probe.
+`KEV_BACKEND=torch` or `KEV_DTYPE=fp32` still probes torch.
+CPU serving keeps the fp32 default; `KEV_DTYPE=bf16` reduces weight memory if needed. ROCm uses the eager serving path by default;
+the fused-kernel and graph defaults are enabled only on NVIDIA builds.
 
 In another terminal, send it a ticket:
 
@@ -188,6 +204,8 @@ uv run python -m kev.train --data train.jsonl --base Qwen/Qwen3.5-4B-Base --init
 uv run python -m kev.benchmark --run runs/mine --data heldout.jsonl --out runs/mine-eval
 uv run --extra serve python -m kev.serve --run runs/mine --port 8009
 ```
+
+`--device cuda` is checked with the same child-process probe before any weights load, and training stops if that check fails. `--device cpu` skips it. `--device auto` tries CUDA, then MPS, then CPU.
 
 `--init_from` loads the adapter and pointer head from the released model before training, so you keep what Kev already knows and add your domain on top. Starting from the base model instead throws that away: in one user's test on 836 support-tool decisions, a fine-tune from the base scored 0.33 on Kev's own evaluation set, against 0.84 for the released model; the same data with `--init_from` kept 0.83 there and reached 0.88 on the new domain. Use a smaller learning rate than the from-scratch recipe (`2e-5` is a good start), and pick `--base` to match the checkpoint you start from; the trainer checks that the base, revision, LoRA rank and head size agree before it loads anything.
 
