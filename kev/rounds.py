@@ -16,7 +16,7 @@ encodes.
     uv run python -m kev.rounds confirm       experiments/rounds/r18.json --stage tests [--arm a]   # -> runs/r18-verdict/<size>-<stage>.json
 
 Every comparison is served-vs-served: each side's rows are served at the temperature fitted on its own trial's
-development rows (`kev.metrics.served`), or, for the arms of a round that registers a `temperature` pool, on that pool;
+development rows (`kev.metrics.served`), or, for arms and `pooled` parents, on the registered `temperature` pool;
 unknowable records are scored only by `unknowable_report`, and every delta is `kev.metrics.paired_bootstrap` (2,000
 resamples, seed 0, micro), the registered read since round 5.
 
@@ -41,8 +41,8 @@ Spec (paths are relative to the repo root; templates take {round}, {arm}, {size}
     arm_reads template of an arm's read directory (default "runs/r{round}-{arm}-{tag}")
     transfer_read  a read tag (round level, or per arm, which wins; null = the trial's own) whose rows are an arm's "transfer"
                                       rows instead of its trial's in-trial transfer read (a checkpoint without a trial has none)
-    temperature {reads: [tags], sources?: {tag: [source]}, exclude_reads?: [tags]}   every ARM (parents keep their trial's
-                                      development rows) is served at the temperature fitted, as everywhere (kev.metrics.served),
+    temperature {reads: [tags], sources?: {tag: [source]}, exclude_reads?: [tags]}   every arm and pooled parent (other parents
+                                      keep their trial's development rows) is served at the temperature fitted (kev.metrics.served),
                                       on the knowable rows of `reads` pooled (a read listed in `sources` gives only those
                                       sources' rows), minus every record whose id is in the `exclude_reads` rows; the arm's own
                                       rule-stage reads are used at every stage; no pooled tag may sit in a panel that a
@@ -171,7 +171,7 @@ def pooled_temperature_ci(pool, root=ROOT):
 
 class Side:
     """One checkpoint of a comparison: its trial, where each read tag's rows live and its served temperature (fitted on
-    the trial's development rows, or on `pool` when the round registers one for its arms)."""
+    the trial's development rows, or on `pool` for an arm or pooled parent)."""
 
     def __init__(self, trial, dirs, root=ROOT, drop=(), pool=None, checkpoint=None, suite=None, shipped=None):
         self.trial, self.dirs, self.root, self.drop, self.pool, self.checkpoint = trial, dirs, Path(root), set(drop), pool, checkpoint
@@ -351,13 +351,13 @@ def arm_side(spec, arm, root=ROOT, stage=None):
 
 def parent_side(spec, arm, root=ROOT, stage=None):
     p = spec["parents"][spec["arms"][arm]["parent"]]
+    development = locations(p["reads"], spec, arm=arm, size=size_of(arm))
     where = (spec["confirm"][stage].get("parent_reads") if stage else None) or p["reads"]
-    transfer = p["reads"][p["transfer_read"]] if p.get("transfer_read") else f"{p['trial']}/transfer"
+    transfer = development[p["transfer_read"]] if p.get("transfer_read") else f"{p['trial']}/transfer"
     dirs = {**locations(where, spec, arm=arm, size=size_of(arm)), TRANSFER: transfer}
     pool = None
     if p.get("pooled"):   # a parent without a trial (a blend, Kev-27B v2) is served as its round served it: on the round's pool, over its own reads
-        registered, fit = spec["temperature"], {**p["reads"], TRANSFER: transfer}
-        pool = temperature_pool(fit, registered)
+        pool = temperature_pool({**development, TRANSFER: transfer}, spec["temperature"])
     return Side(p.get("trial"), dirs, root, spec.get("drop_ids", ()), pool, suite=None if pool else trial_suite(spec, p["trial"], root), shipped=lambda: shipped_temperature(p, root))
 
 
@@ -414,6 +414,8 @@ def validate(spec, root=ROOT, rows=True, plans=True, partitions=False):
             if not str(a.get("checkpoint", "")).startswith("/runs/"): problems.append(f"arm {name}: an arm without a trial needs a checkpoint on the runs volume (/runs/...)")
             if not spec.get("temperature"): problems.append(f"arm {name}: no trial, so no development rows to fit its temperature on; register a `temperature` pool")
             if reads_transfer and tag is None: problems.append(f"arm {name}: no trial, so no in-trial transfer read; give it a transfer_read")
+    missing_parent_pools = {name for name, parent in spec["parents"].items() if parent.get("pooled") and not spec.get("temperature")}
+    problems += [f"parent {name}: pooled parent needs a `temperature` pool" for name in sorted(missing_parent_pools)]
     problems += pool_problems(spec, stages)
     conflicts, unknown_training = pool_training_problems(spec, root)
     problems += conflicts + pool_required_problems(spec)
@@ -447,7 +449,11 @@ def validate(spec, root=ROOT, rows=True, plans=True, partitions=False):
         for pname, p in spec["parents"].items():
             if not p.get("pooled") and not (root / p["trial"] / "development/rows.json").exists(): absent(f"parent {pname}: {p['trial']}/development/rows.json not in this checkout")
         for arm in spec["arms"]:
+            if spec["arms"][arm]["parent"] in missing_parent_pools: continue
             side = parent_side(spec, arm, root)
+            if side.pool:
+                for directory in side.absent_fit():
+                    absent(f"arm {arm}: parent temperature read {directory} not in this checkout")
             required = {t for panel in spec["rule"]["panels"].values() if not panel.get("optional") for t in panel["reads"]}   # an optional panel's reads may be absent
             for tag in sorted(required - {spec["rule"].get("unknowable")}):   # the parent's unknowable read is reported, not required
                 if not side.has(tag): absent(f"arm {arm}: parent read {tag} not in this checkout ({side.dirs.get(tag, 'no location')})")
@@ -848,16 +854,17 @@ def compare(candidate, parent, rule, lengths=None):
     """Every panel, the unknowable share and every criterion of one candidate against its parent. Panels whose reads are
     missing on either side are listed under "missing" and their criteria are None; `passed` needs every criterion. A
     candidate served at a pooled temperature records the fit (`temperature_fit`); every candidate records where its
-    temperature came from (`temperature_source`); one whose pool rows are missing is reported incomplete with nothing
+    temperature came from (`temperature_source`); if either temperature's fit rows are missing, it is incomplete with nothing
     computed. lengths(panel) -> {record id: state tokens} serves by_length panels whose rows record no state_tokens."""
     out = {"trial": candidate.trial, "parent": parent.trial, **({"checkpoint": candidate.checkpoint} if candidate.checkpoint else {})}
-    if absent := [f"candidate:{d}" for d in candidate.absent_fit()]:
+    if absent := ([f"candidate:{d}" for d in candidate.absent_fit()] +
+                  [f"parent:{d}" for d in parent.absent_fit()]):
         return {**out, "temperature": None, "missing": absent, "complete": False, "passed": None}
     out.update(temperature=candidate.t, parent_temperature=parent.t, panels={}, missing=[])
     if candidate.fit: out["temperature_fit"] = candidate.fit
     if candidate.pool and candidate.pool.ci: out["temperature_ci"] = pooled_temperature_ci(candidate.pool, candidate.root)
     out["temperature_source"] = candidate.temperature_source()
-    out["parent_temperature_source"] = parent.temperature_source()   # parents are served at their trial's development rows; `shipped` is head.pt's T
+    out["parent_temperature_source"] = parent.temperature_source()
     for name, spec in rule["panels"].items():
         absent = [f"{who}:{side.dirs[t] if t in side.dirs else t}" for who, side in (("candidate", candidate), ("parent", parent)) for t in spec["reads"] if not side.has(t)]
         if isinstance(spec.get("exclude_file"), dict) and not exclude_file_path(spec["exclude_file"], candidate.root).exists():
@@ -1016,14 +1023,16 @@ def checkpoint_of(entry):
 
 def side_reads(spec, arm, rule, who, side, stage=None):
     """[(read tag, directory)] a side needs for a stage, by tag: the rule's reads; "transfer" as the arm's transfer_read (a
-    trial's in-trial transfer read is never launched); and, for an arm at the rule stage, its temperature pool."""
+    trial's in-trial transfer read is never launched); and, at the rule stage, an arm's or pooled parent's temperature pool."""
     tags = rule_tags(rule)
-    if who == "candidate" and stage is None and spec.get("temperature"):
+    if stage is None and spec.get("temperature") and (who == "candidate" or side.pool):
         tags |= {*spec["temperature"]["reads"], *spec["temperature"].get("exclude_reads", [])}
+    external_transfer = (transfer_read(spec, arm) if who == "candidate" else
+                         spec["parents"][spec["arms"][arm]["parent"]].get("transfer_read"))
     reads = {}
     for tag in tags:
         if tag != TRANSFER: reads.setdefault(side.dirs[tag], tag)
-        elif who == "candidate" and transfer_read(spec, arm): reads.setdefault(side.dirs[tag], transfer_read(spec, arm))
+        elif external_transfer: reads.setdefault(side.dirs[tag], external_transfer)
     return sorted((read, d) for d, read in reads.items())
 
 
