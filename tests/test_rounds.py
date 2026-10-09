@@ -36,6 +36,20 @@ SPECS = sorted((ROOT / "experiments/rounds").glob("r*.json"), key=lambda p: int(
 
 # --- spec validation -------------------------------------------------------------------------------------------------
 
+@pytest.mark.parametrize("path", [
+    "evals/v7/decision-v7",
+    r"evals\v7\decision-v7",
+    "/root/kev/evals/v7/decision-v7",
+    r"C:\checkout\evals\v7\decision-v7",
+    r"\\server\share\checkout\evals\v7\decision-v7",
+    Path("evals") / "v7" / "decision-v7",
+])
+def test_suite_identity_survives_cross_os_provenance(path):
+    from kev.suite import suite_key
+    assert suite_key(path) == "evals/v7/decision-v7"
+    assert rounds.suite_dir(path) == "evals/v7/decision-v7"
+
+
 @pytest.mark.parametrize("path", SPECS, ids=lambda p: p.stem)
 def test_every_round_spec_is_well_formed(path):
     spec = rounds.load(path)
@@ -49,7 +63,8 @@ def test_a_removed_suite_is_refused_with_its_reason():
     from kev.suite import REMOVED_SUITES, RemovedSuite, load_split, read_manifest, removed_suite
     assert REMOVED_SUITES["evals/external/scienthoon-v1"]["last_round"] == 22
     assert not (ROOT / "evals/external/scienthoon-v1").exists()
-    for path in ("evals/external/scienthoon-v1", ROOT / "evals/external/scienthoon-v1", "/root/kev/evals/external/scienthoon-v1/"):
+    for path in ("evals/external/scienthoon-v1", ROOT / "evals/external/scienthoon-v1", "/root/kev/evals/external/scienthoon-v1/",
+                 r"C:\checkout\evals\external\scienthoon-v1"):
         with pytest.raises(RemovedSuite, match="removed on 2026-09-27: unsound as a gate.*priority"):
             load_split(path, "development")
         with pytest.raises(RemovedSuite, match="removed on 2026-09-27"):
@@ -1082,9 +1097,16 @@ def test_a_data_file_outside_evals_cannot_be_checked(tmp_path):
     assert any("arm x-trained: cannot list the sources of data /data/mine.jsonl (outside evals/)" in p for p in problems) and archived == []
     problems, archived = rounds.validate({**spec, "archive": "tag"}, tmp_path, rows=False, plans=False)
     assert problems == [] and any("data /data/mine.jsonl (outside evals/)" in a for a in archived)
-    _trained_on(tmp_path, "runs/s/00-trial-0", "evals/v7/decision-v7", data="evals/round6/b1v2/train.jsonl")   # inside evals/: its suite counts
-    training = rounds.trial_training(spec, "runs/s/00-trial-0", tmp_path)
-    assert "evals/round6/b1v2" in training.suites and training.unlisted == ()
+    for data in ("evals/round6/b1v2/train.jsonl", r"C:\checkout\evals\round6\b1v2\train.jsonl"):
+        _trained_on(tmp_path, "runs/s/00-trial-0", "evals/v7/decision-v7", data=data)   # inside evals/: its suite counts
+        training = rounds.trial_training(spec, "runs/s/00-trial-0", tmp_path)
+        assert "evals/round6/b1v2" in training.suites and training.unlisted == ()
+
+
+def test_calibration_rows_keep_native_drive_and_source_allowlist(tmp_path):
+    from scripts.calibrate_checkpoint import _reads
+    for path in (str(tmp_path / "rows.json"), "runs/read/rows.json"):
+        assert _reads([path, f"{path}:one,two"]) == [(path, None), (path, ["one", "two"])]
 
 
 def test_a_sources_allowlist_typo_is_a_problem(tmp_path):

@@ -30,7 +30,7 @@ KEV_TEMPERATURE=1.0 restores raw logits at load time. Rows saved at a temperatur
 (kev.metrics.raw_row), so served reads can be pooled. Every temperature shipped before round 20 was fitted on the
 checkpoint's own decision-v7 (or suite) development rows, which this script now refuses without --allow-in-distribution.
 """
-import argparse, sys
+import argparse, os, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -41,8 +41,14 @@ from kev.suite import read_json  # noqa: E402
 
 
 def _reads(rows):
-    """--rows values (`path` or `path:source,...`) as kev.rounds.select_rows reads: (path, sources or None)."""
-    return [(path, sources.split(",") if sources else None) for path, _, sources in (r.partition(":") for r in rows)]
+    """--rows values (`path` or `path:source,...`) as kev.rounds.select_rows reads: (path, sources or None). A Windows drive
+    (C:\\...) is part of the path; only a colon after it starts the sources."""
+    out = []
+    for r in rows:
+        drive, rest = os.path.splitdrive(r)   # always "" on POSIX
+        path, _, sources = rest.partition(":")
+        out.append((drive + path, sources.split(",") if sources else None))
+    return out
 
 
 def fit_rows(rows, exclude=()):

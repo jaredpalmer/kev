@@ -11,7 +11,6 @@ Two execution modes share one code path:
 """
 import argparse
 import copy
-import fcntl
 import gc
 import json
 import os
@@ -21,7 +20,7 @@ import shutil
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 import torch
@@ -33,7 +32,7 @@ from kev.full_ft import snapshot_fractions, too_many_snapshots
 from kev.metrics import fit_temperature, paired_bootstrap
 from kev.model import MAX_STATE, MAX_TRAIN_STATE
 from kev.predictors import LocalPredictor
-from kev.suite import CONTEXT, ENCODING, digest, load_split, read_json, read_manifest, record_digest, validate_training, write_json
+from kev.suite import CONTEXT, ENCODING, digest, file_lock, load_split, read_json, read_manifest, record_digest, validate_training, write_json
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULTS = {"epochs": 1, "seed": 0, "lr": 0.0002, "lora": 16, "accum": 8, "batch": 1,
@@ -133,8 +132,9 @@ EVALUATOR_FILES = {f"kev/{n}" for n in ("model.py", "benchmark.py", "data.py", "
 
 
 def source_hashes():
+    """{"kev/x.py": sha256, ...}: keys in POSIX form on every OS, so a Windows launcher's hashes equal a Linux container's."""
     paths = list((ROOT / "kev").glob("*.py")) + [ROOT / name for name in ("uv.lock", "pyproject.toml", "modal_app.py")]
-    return {str(path.relative_to(ROOT)): digest(path) for path in sorted(paths) if path.exists()}
+    return {path.relative_to(ROOT).as_posix(): digest(path) for path in sorted(paths) if path.exists()}
 
 
 def git_commit():
@@ -149,10 +149,11 @@ def git_commit():
 
 @contextmanager
 def study_lock():
-    (ROOT / "runs").mkdir(exist_ok=True)
-    with (ROOT / "runs/.research.lock").open("a") as lock:
+    """runs/.research.lock for the whole study (kev.suite.file_lock); a second runner fails at once instead of waiting.
+    Only contention becomes the RuntimeError: an error opening or locking the file propagates as itself."""
+    with ExitStack() as held:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            held.enter_context(file_lock(ROOT / "runs/.research.lock", wait=False))
         except BlockingIOError:
             raise RuntimeError("another research runner owns the GPU queue") from None
         yield

@@ -532,7 +532,7 @@ def _suites():
     """({manifest sha256: suite dir}, {directory name: [suite dirs]}) of every suite in this checkout."""
     by_digest, by_name = {}, {}
     for m in sorted((ROOT / "evals").rglob("manifest.json")):
-        d = str(m.parent.relative_to(ROOT))
+        d = m.parent.relative_to(ROOT).as_posix()   # the form suite_dir returns, on every OS
         by_digest[digest(m)] = d
         by_name.setdefault(m.parent.name, []).append(d)
     return by_digest, by_name
@@ -572,7 +572,8 @@ def training_data(suites, data=None):
     `inputs.components`: documents-v1-train -> evals/documents-v1, hard-v1-extra-train -> evals/hard-v1). A `data` file
     counts through its directory's suite; one outside evals/ (a `kev.train --data` run) cannot be checked, so it is
     `unlisted` like any training this checkout cannot place, never silently dropped."""
-    data_dir = suite_dir(Path(data).parent) if data else None
+    data_key = suite_dir(data) if data else None
+    data_dir = Path(data_key).parent.as_posix() if data_key else None
     seen, sources, unlisted, todo = set(), set(), [] if data_dir or not data else [f"data {data} (outside evals/)"], [d for d in (*suites, data_dir) if d]
     while todo:
         d = todo.pop(0)
