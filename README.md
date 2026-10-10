@@ -373,6 +373,8 @@ The evaluation data under `evals/` is frozen: dataset versions and file checksum
 | `transfer-v4` | 764 records from datasets and policy and rule types Kev never trained on: QNLI, SciQ, PAWS, MMLU, Emotion, TweetEval, held-out policies and rules ("new sources") |
 | `transfer-v9` | `transfer-v4` plus 10-way MMLU-Pro, records buried in unrelated text, and "unknowable" records whose deciding evidence was removed |
 
+Independent cross-check: Kev is measured on JevBench (Benchmark Heaven, not affiliated with TypeSafe), which compares Jev-class models and hosted decision APIs with evaluation scope disclosed for each cohort; leaderboard: https://benchmarkheaven.com/jev-models
+
 ```bash
 uv run python -m kev.benchmark --run jaredpalmer/kev-4b --suite evals/v4/transfer-v4 --out runs/my-eval      # new sources
 uv run python -m kev.benchmark --run jaredpalmer/kev-4b --suite evals/v9/transfer-v9 --out runs/my-eval-v9   # + MMLU-Pro, buried states, unknowable items
