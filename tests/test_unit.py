@@ -1777,6 +1777,58 @@ def test_resume_writer_keeps_a_later_point_being_written(tmp_path):
     assert sorted(p.name for p in tmp_path.glob("step-*")) == ["step-0000005", "step-0000009"] and read_json(tmp_path / LATEST)["dir"] == "step-0000005"
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_background_resume_freezes_position_and_replays_exact_weights(tmp_path, monkeypatch, dtype):
+    import threading
+    from kev.full_ft import MasterAdamW, ResumeWriter, load_resume
+
+    def optimizer():
+        p = torch.nn.Parameter(torch.tensor([0.125, -0.25], dtype=dtype))
+        opt = MasterAdamW([p], lr=0.01, weight_decay=0.01, offload=False)
+        sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=0.01, total_steps=12, pct_start=0.25)
+        return p, opt, sched
+
+    def advance(p, opt, sched, i):
+        p.grad = torch.full_like(p, 0.1 + i * 0.01)
+        opt.step(); sched.step(); opt.zero_grad()
+
+    p, opt, sched = optimizer()
+    for i in range(3): advance(p, opt, sched, i)
+    position = {"world": 1, "step": 3, "epoch": 0, "microbatch": 3, "args": {},
+                "grad_norms": [[1.0] * 3], "step_seconds": [0.1] * 3}
+    entered, release = threading.Event(), threading.Event()
+    writer = ResumeWriter(tmp_path, background=True)
+    write = writer._write
+
+    def delayed_write(*args):
+        entered.set()
+        if not release.wait(10):
+            raise TimeoutError("test did not release the background writer")
+        write(*args)
+
+    monkeypatch.setattr(writer, "_write", delayed_write)
+    writer.save(3, opt, sched, position)
+    try:
+        assert entered.wait(10)
+        for i in range(3, 10):
+            advance(p, opt, sched, i)
+            position["grad_norms"][0].append(2.0)
+            position["step_seconds"].append(0.2)
+    finally:
+        release.set()
+        writer.wait()
+    for i in range(10, 12): advance(p, opt, sched, i)
+
+    resumed_p, resumed_opt, resumed_sched = optimizer()
+    restored = load_resume(tmp_path, resumed_opt, resumed_sched, {})
+    assert restored["step"] == resumed_sched.last_epoch == resumed_opt.state[resumed_p]["step"].item() == 3
+    assert restored["microbatch"] == 3
+    for i in range(restored["step"], 12): advance(resumed_p, resumed_opt, resumed_sched, i)
+    assert torch.equal(p, resumed_p) and sched.state_dict() == resumed_sched.state_dict()
+    assert all(torch.equal(v, resumed_opt.state[resumed_p][k]) for k, v in opt.state[p].items())
+    assert restored["grad_norms"] == [[1.0] * 3] and restored["step_seconds"] == [0.1] * 3
+
+
 def _parse_train(monkeypatch, *args):
     import sys
     from kev import train

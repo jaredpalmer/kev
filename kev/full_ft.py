@@ -259,6 +259,7 @@ class ResumeWriter:
             state = {"groups": state["groups"], "state": [{k: next(copies) for k in s} for s in state["state"]]}
         rng = {"torch": torch.get_rng_state(), "cuda": torch.cuda.get_rng_state() if torch.cuda.is_initialized() else None}
         payload = {"optimizer": state, "scheduler": copy.deepcopy(sched.state_dict()), "rng": rng}
+        position = copy.deepcopy(position)
         if self.background:
             self.thread = threading.Thread(target=self._write, args=(step, payload, position, after), daemon=True); self.thread.start()
         else:
