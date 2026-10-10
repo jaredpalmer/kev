@@ -14,6 +14,11 @@ probabilities out), so a checkpoint (LocalPredictor) and an endpoint (RemotePred
   (LocalPredictor does, at the temperature it loads — pass --raw-logits for temperature 1.0, what #161 calls
   "raw"; the issue's numbers are logit-space), else in probabilities.
 
+One caveat the numbers need: Score levels are an ordered scale, so reordering them changes how the question reads as
+well as where the answer sits — that is why --rotations leaves Score alone. A high first-slot rate therefore mixes
+position bias with order-as-meaning, and only the identical-option control, where the texts are interchangeable,
+isolates position. Read the two together, and not the rate as pure bias. The report repeats this next to the numbers.
+
 Report-only on purpose: #98 declined to grow kev.benchmark's modes, so this never touches it. It writes one
 JSON report (--out) and prints the same numbers. It is not a gate: it names what a checkpoint or endpoint does,
 not what to ship.
@@ -27,6 +32,11 @@ import sys
 
 QID = "score_q"
 INSTRUCTIONS = "Answer the question using the scale defined by the levels."
+ORDERED_SCALE_CAVEAT = (
+    "Score levels are an ordered scale: reordering them changes how the question reads, not only where the answer "
+    "sits, so the first-slot rate mixes position bias with order-as-meaning (why --rotations leaves Score alone). "
+    "Only the identical-option control, whose texts are interchangeable, isolates position. Read the two together "
+    "and not the rate as pure bias.")
 DEFAULT_LEVEL_TEXTS = "low,medium,high"
 DEFAULT_STATES = (
     "Ticket {i}: the customer cannot sign in and a deadline is tomorrow morning.",
@@ -131,7 +141,8 @@ def measure(predictor, level_texts, states=None, data=None, orders_max=120):
     identical = level_orders(k, math.factorial(k))
     return {"levels": level_texts, "n_states": len(states),
             "first_slot": first_slot_rate(predictor, level_texts, states, orders),
-            "identical_option": identical_option_control(predictor, level_texts[0], k, states, identical)}
+            "identical_option": identical_option_control(predictor, level_texts[0], k, states, identical),
+            "caveat": ORDERED_SCALE_CAVEAT}
 
 
 def build_predictor(args):

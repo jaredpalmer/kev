@@ -2578,3 +2578,21 @@ def test_score_presentation_checks_request_is_a_valid_serving_record():
 
     with pytest.raises(ValueError):
         first_slot_rate(lambda record: {}, LEVELS_3, ["s1"], [(0, 1, 2)])
+
+
+def test_score_presentation_checks_report_carries_the_ordered_scale_caveat():
+    """scripts/score_presentation_checks.py (#161): the report says, next to the numbers, that Score levels are an
+    ordered scale — so a high first-slot rate mixes position bias with order-as-meaning and is not read as pure
+    bias on its own (jaredpalmer's review)."""
+    from scripts.score_presentation_checks import ORDERED_SCALE_CAVEAT, measure
+
+    def by_text(crit):
+        win = crit.index("medium") if "medium" in crit else 0   # the identical-option control repeats one text
+        p = [0.0] * len(crit); p[win] = 0.9; p[(win + 1) % len(crit)] = 0.1
+        return p, [3.0 if i == win else 0.0 for i in range(len(crit))]
+
+    report = measure(_score_fake(by_text), LEVELS_3, states=["s1", "s2"])
+    assert report["caveat"] == ORDERED_SCALE_CAVEAT
+    assert "ordered scale" in report["caveat"] and "identical-option" in report["caveat"]
+    assert "pure bias" in report["caveat"]
+    assert {"first_slot", "identical_option", "caveat"} <= set(report)   # it rides in the JSON report itself
