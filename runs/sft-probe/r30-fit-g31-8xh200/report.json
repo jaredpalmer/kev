@@ -1,0 +1,238 @@
+{
+  "gpu": "H200:8",
+  "base": "google/gemma-4-31B-it",
+  "revision": "842da3794eaa0b77d5f08bae87a17459d91ff475",
+  "train_args": "--batch 8 --accum 2 --lr 2e-6 --head_lr 1e-4 --checkpointing 1 --length_sort 1 --max_state 8192",
+  "fallbacks": "--batch 4 --accum 4;--batch 2 --accum 8",
+  "questions": 3,
+  "warmup": 3,
+  "usd_per_hour": 41.17,
+  "lengths": [
+    {
+      "state_tokens": 2048,
+      "records": 128,
+      "record_tokens_mean": 2181.3359375,
+      "row_tokens_mean": 6277.3359375,
+      "questions_mean": 3,
+      "status": "ok",
+      "attempts": [
+        {
+          "extra": "",
+          "return_code": 0,
+          "seconds": 167,
+          "peak_nvidia_smi_gb": 98.0,
+          "peak_nvidia_smi_gb_per_gpu": [
+            96.5,
+            98.0,
+            96.6,
+            96.7,
+            96.4,
+            96.0,
+            96.4,
+            95.9
+          ],
+          "peak_host_gb": 86.1,
+          "out_of_memory": false,
+          "training_metrics": {
+            "wall_seconds": 34.78163552284241,
+            "records_seen": 128,
+            "requested_records": 128,
+            "truncated_records": 0,
+            "rejected_records": 0,
+            "optimizer_steps": 1,
+            "forward_tokens": 279595,
+            "step_seconds": [
+              34.781
+            ],
+            "optimizer_seconds": 0.8074932098388672,
+            "resume_seconds": [],
+            "resume_write_seconds": [],
+            "world_size": 8,
+            "backbone_save_seconds": 54.2,
+            "snapshots": [],
+            "grad_norm": [
+              {
+                "epoch": 0,
+                "steps": 1,
+                "mean": 8789.296875,
+                "max": 8789.296875,
+                "clipped_steps": 1
+              }
+            ],
+            "weights": "full",
+            "peak_device_bytes": 95228253696,
+            "device": "cuda",
+            "dtype": "bf16",
+            "batch": 8,
+            "peak_rss_bytes": 68393627648
+          },
+          "fixed_overhead_seconds": 132,
+          "seconds_per_step": 34.781,
+          "records_per_step": 128.0,
+          "seconds_per_record": 0.2717265625,
+          "record_tokens_per_second": 8027.687530548288,
+          "row_tokens_per_second": 23101.664701992468,
+          "peak_allocated_gb_rank0": 95.2,
+          "peak_host_rss_gb_rank0": 68.4
+        }
+      ]
+    },
+    {
+      "state_tokens": 4096,
+      "records": 128,
+      "record_tokens_mean": 4218.5859375,
+      "row_tokens_mean": 12410.5859375,
+      "questions_mean": 3,
+      "status": "ok",
+      "attempts": [
+        {
+          "extra": "",
+          "return_code": 0,
+          "seconds": 183,
+          "peak_nvidia_smi_gb": 122.7,
+          "peak_nvidia_smi_gb_per_gpu": [
+            121.5,
+            121.5,
+            122.7,
+            121.2,
+            121.2,
+            121.4,
+            121.0,
+            121.1
+          ],
+          "peak_host_gb": 86.2,
+          "out_of_memory": false,
+          "training_metrics": {
+            "wall_seconds": 78.40328359603882,
+            "records_seen": 128,
+            "requested_records": 128,
+            "truncated_records": 0,
+            "rejected_records": 0,
+            "optimizer_steps": 1,
+            "forward_tokens": 540375,
+            "step_seconds": [
+              78.403
+            ],
+            "optimizer_seconds": 1.7156569957733154,
+            "resume_seconds": [],
+            "resume_write_seconds": [],
+            "world_size": 8,
+            "backbone_save_seconds": 54.6,
+            "snapshots": [],
+            "grad_norm": [
+              {
+                "epoch": 0,
+                "steps": 1,
+                "mean": 16808.082031,
+                "max": 16808.082031,
+                "clipped_steps": 1
+              }
+            ],
+            "weights": "full",
+            "peak_device_bytes": 121446269440,
+            "device": "cuda",
+            "dtype": "bf16",
+            "batch": 8,
+            "peak_rss_bytes": 68417437696
+          },
+          "fixed_overhead_seconds": 105,
+          "seconds_per_step": 78.403,
+          "records_per_step": 128.0,
+          "seconds_per_record": 0.6125234375,
+          "record_tokens_per_second": 6887.223703174623,
+          "row_tokens_per_second": 20261.40581355305,
+          "peak_allocated_gb_rank0": 121.4,
+          "peak_host_rss_gb_rank0": 68.4
+        }
+      ]
+    },
+    {
+      "state_tokens": 8192,
+      "records": 128,
+      "record_tokens_mean": 8318.9921875,
+      "row_tokens_mean": 24702.9921875,
+      "questions_mean": 3,
+      "status": "ok with --batch 4 --accum 4",
+      "attempts": [
+        {
+          "extra": "",
+          "return_code": 1,
+          "seconds": 74,
+          "peak_nvidia_smi_gb": 139.8,
+          "peak_nvidia_smi_gb_per_gpu": [
+            138.9,
+            139.0,
+            138.3,
+            139.4,
+            139.2,
+            139.8,
+            139.6,
+            139.7
+          ],
+          "peak_host_gb": 76.4,
+          "out_of_memory": true,
+          "log_tail": "ting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)\nW1005 21:54:13.431000 1295 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 1315 closing signal SIGTERM\nW1005 21:54:13.432000 1295 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 1316 closing signal SIGTERM\nW1005 21:54:13.433000 1295 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 1317 closing signal SIGTERM\nW1005 21:54:13.433000 1295 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 1318 closing signal SIGTERM\nW1005 21:54:13.434000 1295 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 1319 closing signal SIGTERM\nW1005 21:54:13.434000 1295 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 1320 closing signal SIGTERM\nW1005 21:54:13.435000 1295 torch/distributed/elastic/multiprocessing/api.py:900] Sending process 1321 closing signal SIGTERM\nE1005 21:54:16.084000 1295 torch/distributed/elastic/multiprocessing/api.py:874] failed (exitcode: 1) local_rank: 7 (pid: 1322) of binary: /.uv/.venv/bin/python\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/.uv/.venv/lib/python3.13/site-packages/torch/distributed/run.py\", line 905, in <module>\n    main()\n    ~~~~^^\n  File \"/.uv/.venv/lib/python3.13/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py\", line 357, in wrapper\n    return f(*args, **kwargs)\n  File \"/.uv/.venv/lib/python3.13/site-packages/torch/distributed/run.py\", line 901, in main\n    run(args)\n    ~~~^^^^^^\n  File \"/.uv/.venv/lib/python3.13/site-packages/torch/distributed/run.py\", line 892, in run\n    elastic_launch(\n    ~~~~~~~~~~~~~~~\n        config=config,\n        ~~~~~~~~~~~~~~\n        entrypoint=cmd,\n        ~~~~~~~~~~~~~~~\n    )(*cmd_args)\n    ~^^^^^^^^^^^\n  File \"/.uv/.venv/lib/python3.13/site-packages/torch/distributed/launcher/api.py\", line 143, in __call__\n    return launch_agent(self._config, self._entrypoint, list(args))\n  File \"/.uv/.venv/lib/python3.13/site-packages/torch/distributed/launcher/api.py\", line 277, in launch_agent\n    raise ChildFailedError(\n    ...<2 lines>...\n    )\ntorch.distributed.elastic.multiprocessing.errors.ChildFailedError: \n============================================================\nkev.train FAILED\n------------------------------------------------------------\nFailures:\n  <NO_OTHER_FAILURES>\n------------------------------------------------------------\nRoot Cause (first observed failure):\n[0]:\n  time      : 2026-10-05_21:54:13\n  host      : localhost\n  rank      : 7 (local_rank: 7)\n  exitcode  : 1 (pid: 1322)\n  error_file: <N/A>\n  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html\n============================================================\n"
+        },
+        {
+          "extra": "--batch 4 --accum 4",
+          "return_code": 0,
+          "seconds": 320,
+          "peak_nvidia_smi_gb": 121.3,
+          "peak_nvidia_smi_gb_per_gpu": [
+            121.3,
+            121.2,
+            121.3,
+            120.8,
+            120.9,
+            121.0,
+            121.2,
+            120.6
+          ],
+          "peak_host_gb": 86.3,
+          "out_of_memory": false,
+          "training_metrics": {
+            "wall_seconds": 217.16410446166992,
+            "records_seen": 128,
+            "requested_records": 128,
+            "truncated_records": 0,
+            "rejected_records": 0,
+            "optimizer_steps": 1,
+            "forward_tokens": 1065397,
+            "step_seconds": [
+              217.162
+            ],
+            "optimizer_seconds": 2.2249248027801514,
+            "resume_seconds": [],
+            "resume_write_seconds": [],
+            "world_size": 8,
+            "backbone_save_seconds": 53.6,
+            "snapshots": [],
+            "grad_norm": [
+              {
+                "epoch": 0,
+                "steps": 1,
+                "mean": 4195.421387,
+                "max": 4195.421387,
+                "clipped_steps": 1
+              }
+            ],
+            "weights": "full",
+            "peak_device_bytes": 121629591552,
+            "device": "cuda",
+            "dtype": "bf16",
+            "batch": 4,
+            "peak_rss_bytes": 68417875968
+          },
+          "fixed_overhead_seconds": 103,
+          "seconds_per_step": 217.162,
+          "records_per_step": 128.0,
+          "seconds_per_record": 1.696578125,
+          "record_tokens_per_second": 4903.39470073033,
+          "row_tokens_per_second": 14560.480194509168,
+          "peak_allocated_gb_rank0": 121.6,
+          "peak_host_rss_gb_rank0": 68.4
+        }
+      ]
+    }
+  ]
+}

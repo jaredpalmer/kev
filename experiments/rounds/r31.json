@@ -1,0 +1,171 @@
+{
+ "round": 31,
+ "registered": "PLAN.md > Round 31 - two Gemma 4 31B IT follow-ups to round 30: one alpha-0.85 full/one-epoch-LoRA seed-0 blend with the full-weight head, and one additional full-weight pass from r30 final at lr 1e-6 (fresh optimizer and OneCycleLR, shuffle seed 1); final only. Parent is pinned Kev-27B v2. Round 24's audited criteria unchanged, split into short screening and mandatory longdoc development guard for the selected survivor. No confirmation tests, publishing or releases in this round. $500 hard cap including construction, training, reads, GPU checks and incremental storage; register before construction/training/reads.",
+ "gpu": "H200",
+ "app": "kev-r31-cont-frozen",
+ "recovery": {
+  "failed_study": "r31-g31-cont",
+  "failed_call": "fc-01M4H36GVNHJQQ9BGXFGTJ1MVZ",
+  "failed_at": "2026-10-09T22:44:19Z",
+  "reason": "Source-hash guard refused the container before training or lease acquisition after the deployment changed while the call was queued. No trial directory, checkpoint, result or panel read was created.",
+  "replacement_study": "r31-g31-cont2",
+  "rule": "Same continuation candidate and exact unchanged plan; use a separate frozen deployment and never redeploy it while the study is queued or running. Preserve the failed call and its ledger; no completed reads are repeated."
+ },
+ "construction": {
+  "blend": {
+   "sft": "/runs/r30-g31-full/00-trial-0/checkpoint",
+   "toward": "/runs/gemma4-31b-it-2/00-trial-0/checkpoint",
+   "alphas": "0.85",
+   "prefix": "31b-k",
+   "study": "r31-g31-blend",
+   "blend_head": false,
+   "timeout": 10800
+  }
+ },
+ "budget": {
+  "hard_cap": 500,
+  "metered_start": 816.49091164,
+  "cycle": "2026-10",
+  "training_bound": 370.4976,
+  "construction_bound": 4.2072,
+  "screen_reads_bound": 93.978,
+  "gpu_checks_bound": 6.2652,
+  "failed_start_reserve": 10,
+  "screen_total_bound": 484.948,
+  "long_read_bound": 50.1216,
+  "long_admission": "Only the selected short-screen survivor; launch with 28800 s timeout by the registered explicit benchmarks command, not the screen's 2700 s timeout. Admit only if completed actual cost plus outstanding bounds plus $50.1216 plus $10 storage/cancellation reserve is <= $500. Otherwise long guard unread, no promotion."
+ },
+ "studies": {
+  "r31-g31-cont2": {
+   "plan": "experiments/round31/full-cont-lr1e6.json",
+   "suite": "evals/sft-v2-r26",
+   "transfer": "evals/v4/transfer-v4",
+   "gpu": "H200:8",
+   "timeout": 10800,
+   "budget": 371
+  }
+ },
+ "reads": {
+  "breadth": {"suite": "evals/breadth-v1"},
+  "tsheld": {"suite": "evals/tasksource-heldout-v1"},
+  "hard": {"suite": "evals/hard-v1"},
+  "devtools": {"suite": "evals/devtools-v1"},
+  "docs": {"suite": "evals/documents-v1"},
+  "semif": {"suite": "evals/external/semif-v1"},
+  "v9": {"suite": "evals/v9/transfer-v9"},
+  "r3test": {"suite": "evals/round3/transfer-r3", "flags": "--allow-test"},
+  "r3cal": {"suite": "evals/round3/transfer-r3", "flags": "--split calibration"},
+  "transfer4": {"suite": "evals/v4/transfer-v4"},
+  "longdoc": {"suite": "evals/longdoc-v1"}
+ },
+ "read_timeout": {"31b": 2700},
+ "transfer_read": "transfer4",
+ "temperature": {
+  "reads": ["r3cal", "v9"],
+  "sources": {
+   "v9": ["mmlu_pro"],
+   "r3cal": ["composition_holdout", "emotion", "legacy_holdout", "mmlu", "paws", "qnli", "sciq", "tweet_offensive"]
+  },
+  "exclude_reads": ["transfer"],
+  "ci": {"level": 0.9, "samples": 2000, "seed": 0}
+ },
+ "drop_ids": ["codereviewer/cls-test/13657", "codereviewer/cls-test/19245"],
+ "parents": {
+  "31b": {
+   "trial": "runs/release/kev-27b-r23",
+   "pooled": true,
+   "transfer_read": "transfer4",
+   "checkpoint": "jaredpalmer/kev-27b@28be62e9c5ae0471bda2b7c636a55224b4f4b887",
+   "reads": {
+    "breadth": "runs/r23-27b-k-w85-breadth",
+    "tsheld": "runs/r23-27b-k-w85-tsheld",
+    "hard": "runs/r23-27b-k-w85-hard",
+    "devtools": "runs/r23-27b-k-w85-devtools",
+    "docs": "runs/r23-27b-k-w85-docs",
+    "v9": "runs/r23-27b-k-w85-v9",
+    "r3test": "runs/r23-27b-k-w85-r3test",
+    "r3cal": "runs/r23-27b-k-w85-r3cal",
+    "semif": "runs/r23-27b-k-w85-semif",
+    "longdoc": "runs/r23-27b-k-w85-longdoc",
+    "transfer4": "runs/r23-27b-k-w85-transfer4"
+   }
+  }
+ },
+ "arms": {
+  "31b-blend-w85": {
+   "checkpoint": "/runs/r31-g31-blend/31b-k-w85/checkpoint",
+   "parent": "31b",
+   "trained_on": ["evals/sft-v2-r26", "evals/v7/decision-v7"]
+  },
+  "31b-cont": {
+   "trial": "runs/r31-g31-cont2/00-trial-0",
+   "parent": "31b",
+   "trained_on": ["evals/sft-v2-r26"]
+  }
+ },
+ "rule": {
+  "panels": {
+   "breadth": {
+    "reads": ["breadth"],
+    "exclude_sources": ["routerbench", "cfcolor", "humicroedit", "chessbench"],
+    "metrics": ["acc", "ece", "brier"]
+   },
+   "tasksource_heldout": {
+    "reads": ["tsheld"],
+    "exclude_file": {"path": "runs/r24-private/tsheld-exclude.json", "sha256": "a72030abc815261c3b675c3618af80dd410b2a46b295fd8dff20f2122d07e437"},
+    "metrics": ["acc", "ece", "brier"]
+   },
+   "kev": {
+    "reads": ["transfer", "hard", "devtools", "docs"],
+    "exclude_sources": ["emotion", "flakeflagger"],
+    "exclude_tasks": ["commitpackft_type"],
+    "metrics": ["acc", "ece", "brier"]
+   },
+   "short": {
+    "reads": ["transfer", "r3test"],
+    "exclude_sources": ["emotion"],
+    "metrics": ["acc", "brier", "confident_error_rate"]
+   },
+   "breadth_index": {"reads": ["breadth"], "metrics": ["acc", "ece", "brier"], "optional": true},
+   "tasksource_heldout_all_families": {"reads": ["tsheld"], "metrics": ["acc", "ece", "brier"], "optional": true},
+   "hard": {"reads": ["hard"], "metrics": ["acc", "ece", "brier"], "optional": true},
+   "devtools": {"reads": ["devtools"], "exclude_sources": ["flakeflagger"], "exclude_tasks": ["commitpackft_type"], "metrics": ["acc", "ece", "brier"], "optional": true},
+   "docs": {"reads": ["docs"], "metrics": ["acc", "ece", "brier"], "optional": true},
+   "kev_without_hard": {"reads": ["transfer", "devtools", "docs"], "exclude_sources": ["emotion", "flakeflagger"], "exclude_tasks": ["commitpackft_type"], "metrics": ["acc"], "optional": true},
+   "semif": {"reads": ["semif"], "metrics": ["acc", "ece", "brier"], "optional": true}
+  },
+  "unknowable": "v9",
+  "criteria": {
+   "1_breadth_lower_above_0": {"left": "breadth.acc.lower", "op": ">", "right": 0},
+   "1_tasksource_heldout_lower_above_0": {"left": "tasksource_heldout.acc.lower", "op": ">", "right": 0},
+   "1_kev_lower_at_least_minus_1pp": {"left": "kev.acc.lower", "op": ">=", "right": -0.01},
+   "2_short_acc_lower_at_least_minus_2pp": {"left": "short.acc.lower", "op": ">=", "right": -0.02},
+   "2_short_brier_upper_at_most_0.02": {"left": "short.brier.upper", "op": "<=", "right": 0.02},
+   "2_short_confident_errors_upper_at_most_1pp": {"left": "short.confident_error_rate.upper", "op": "<=", "right": 0.01},
+   "2_unknowable_at_most_0.05": {"left": "unknowable.candidate", "op": "<=", "right": 0.05},
+   "3_breadth_ece_at_most_parent_plus_0.01": {"left": "breadth.ece.candidate", "op": "<=", "right": "breadth.ece.parent", "plus": 0.01},
+   "3_kev_ece_at_most_parent_plus_0.01": {"left": "kev.ece.candidate", "op": "<=", "right": "kev.ece.parent", "plus": 0.01},
+   "3_tasksource_heldout_ece_at_most_parent_plus_0.01": {"left": "tasksource_heldout.ece.candidate", "op": "<=", "right": "tasksource_heldout.ece.parent", "plus": 0.01}
+  },
+  "rank": [{"by": ["breadth.acc.delta", "tasksource_heldout.acc.delta", "kev.acc.delta"], "order": "desc"}]
+ },
+ "confirm": {
+  "long": {
+   "candidate_reads": "runs/r31-{arm}-{tag}",
+   "read_timeout": 28800,
+   "panels": {
+    "long": {
+     "reads": ["longdoc"],
+     "source": "longdoc_cuad",
+     "metrics": ["acc", "ece", "brier"],
+     "by_length": {"tokenizer": ["Qwen/Qwen3.8-27B", "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"]}
+    },
+    "long_generated": {"reads": ["longdoc"], "source": "longdoc_synthetic", "report": ["acc", "ece"], "optional": true}
+   },
+   "criteria": {
+    "2_long_cuad_lower_at_least_minus_2pp": {"left": "long.acc.lower", "op": ">=", "right": -0.02},
+    "2_long_cuad_16k_plus_at_least_minus_2pp": {"left": ["long.acc_16k_plus.candidate", "long.acc_16k_plus.parent"], "op": ">=", "right": -0.02}
+   }
+  }
+ }
+}

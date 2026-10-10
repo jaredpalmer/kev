@@ -493,3 +493,55 @@ def test_init_from_warm_start_and_compatibility_checks(tmp_path):
     assert hb.extra["init_source"]["weights_sha256"] and read_json(tmp_path / "b/training_config.json")["init_source"]["resolved"] == str(tmp_path / "a")
     bad = subprocess.run(base + ["--out", str(tmp_path / "c"), "--init_from", str(tmp_path / "a"), "--lora", "8"], capture_output=True, text=True, env=env)
     assert bad.returncode != 0 and "lora is 16 there and 8 here" in bad.stderr
+
+
+GEMMA_12B = ("google/gemma-4-12B", "023679ed352de9bb66cc873c9009ce3482585c08")
+
+
+@pytest.mark.parametrize("attn", ["eager", "sdpa"])
+def test_gemma4_12b_packed_matches_rows_and_prefix(attn, monkeypatch):
+    """Gemma 4 12B (dense, sliding-window 1024 in 5 of 6 layers, the 31B's decoder design) through DecisionModel in fp32 on
+    CUDA, eager and forced chunked SDPA with the math backend: the Gemma delimiter set, the text decoder alone, and
+    packed vs rows vs the prefix paths (1e-3: different GEMM shapes through the deep decoder), with chunked vs one-call
+    SDPA on identical packed inputs separately held to 1e-5, on
+    decision-v7 development records, including one whose state is padded past the window so the window is exercised.
+    GPU-only (48 GB of fp32 weights): `modal run modal_app.py::gpu_tests --tests tests/test_model.py::test_gemma4_12b_packed_matches_rows_and_prefix --gpu H200`."""
+    import torch
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+    from kev.data import materialize
+    from kev.model import DELIMITER_SETS, DecisionModel, delimiters, load_tokenizer, MAX_TRAIN_STATE, training_context
+    from kev.suite import load_split
+    if not torch.cuda.is_available(): pytest.skip("needs CUDA (48 GB of fp32 weights)")
+    torch.manual_seed(0)
+    monkeypatch.setattr(torch.backends.cuda.matmul, "allow_tf32", False)
+    monkeypatch.setattr(torch.backends.cudnn, "allow_tf32", False)
+    monkeypatch.setattr("kev.model.ATTENTION_SCORES", 1 << 24)
+    base, revision = GEMMA_12B
+    tok = load_tokenizer(base, revision=revision)
+    assert delimiters(tok) == DELIMITER_SETS[1]
+    m = DecisionModel(base, tok, "cuda", revision=revision, attn=attn).eval()
+    assert type(m.lm).__name__ == "Gemma4UnifiedTextModel" and not m.hybrid and m.sliding == 1024
+    recs = [materialize(r) for r in load_split("evals/v7/decision-v7", "development")[:4]]
+    filler = " ".join(f"note {i}: nothing relevant here." for i in range(260))   # ~1.3k tokens: branch tokens see only part of this state in sliding layers
+    recs.append({**recs[0], "state": filler + "\n\n" + recs[0]["state"]})
+    worst, ctx = 0.0, training_context(MAX_TRAIN_STATE)
+    for rec in recs:
+        enc = m.encode(tok, rec, max_state=ctx["max_state"], max_branch=ctx["max_branch"])
+        assert enc["ids"][0] == tok.bos_token_id
+        with torch.no_grad(), sdpa_kernel(SDPBackend.MATH):
+            packed = torch.cat([torch.softmax(z, -1) for z in m._readout(m.hidden(enc), enc)]).cpu()
+            rows = torch.cat([torch.softmax(z, -1) for z in m.forward_rows_batch([enc])[0]]).cpu()
+            miss, prefix = m.probs_and_prefix(enc)
+            hit = torch.cat(m.probs_with_prefix(enc, prefix))
+            if attn == "sdpa":
+                with monkeypatch.context() as mp:
+                    mp.setattr("kev.model.ATTENTION_SCORES", 1 << 60)
+                    one_call = torch.cat([torch.softmax(z, -1) for z in m._readout(m.hidden(enc), enc)]).cpu()
+                assert (one_call - packed).abs().max() < 1e-5
+        worst = max(worst, float((rows - packed).abs().max()), float((torch.cat(miss) - packed).abs().max()), float((hit - packed).abs().max()))
+        assert packed.min() >= 0 and torch.isfinite(packed).all()
+    assert worst < 1e-3, worst
+    assert enc["seg"].count(0) > m.sliding, "the long record must exceed the window"
+    if attn == "sdpa":
+        assert m.lm.config._attn_implementation == "kev_sdpa"
+        assert m.lm.config.num_attention_heads * len(enc["ids"]) ** 2 > 1 << 24

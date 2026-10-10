@@ -6,9 +6,13 @@ import torch.nn.functional as F
 from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer, DynamicCache
 from transformers.cache_utils import LinearAttentionCacheLayerMixin
 
-# Reuse existing rarely-used Qwen special tokens as delimiters (state, q, opt, /opt, decide) so no
-# embedding rows need to be added/trained; LoRA adapts their meaning.
+# Reuse existing rarely-used special tokens of the base as delimiters (state, q, opt, /opt, decide) so no embedding rows
+# need to be added/trained; LoRA adapts their meaning. SPECIAL is the Qwen set (every released Kev); DELIMITER_SETS lists
+# the alternatives, tried in order by delimiters(tok): Gemma's `<unusedN>` pieces are vocabulary entries user text cannot
+# produce (the tokenizer never emits them), and `<bos>` as the state token gives a Gemma backbone the start token it
+# was trained to expect at position 0.
 SPECIAL = ["<|fim_prefix|>", "<|fim_middle|>", "<|box_start|>", "<|box_end|>", "<|fim_suffix|>"]
+DELIMITER_SETS = (SPECIAL, ["<bos>", "<unused0>", "<unused1>", "<unused2>", "<unused3>"])
 # training context: state tokens, tokens per question branch, and the whole packed record. Frozen suites are admitted with
 # this rule (kev.suite) and training applies it to records built on the fly, so train and eval see the same population.
 MAX_STATE, MAX_BRANCH, MAX_PACKED = 384, 1024, 2048
@@ -72,13 +76,47 @@ def is_hybrid(config):
     return "linear_attention" in set(getattr(config, "layer_types", None) or [])
 
 
+def sliding_window(config):
+    """The window of a (text) config's sliding-attention layers (Gemma 4: 512 / 1024 tokens, 5 of 6 layers), or None when
+    every attention layer is global (Qwen). Such layers need the block-causal mask cut to the window (DecisionModel._masks)."""
+    return config.sliding_window if "sliding_attention" in set(getattr(config, "layer_types", None) or []) else None
+
+
+def text_backbone(model):
+    """The text decoder of a loaded model: a multimodal checkpoint's (Gemma 4) `language_model`, else the model itself."""
+    return getattr(model, "language_model", model)
+
+
+def delimiters(tok):
+    """The five delimiter tokens (state, q, opt, /opt, decide) this tokenizer has: the first DELIMITER_SETS entry whose
+    tokens are all in its vocabulary (SPECIAL for the Qwen bases; the test tokenizers carry SPECIAL too)."""
+    if (cached := getattr(tok, "_kev_delimiters", None)) is None:
+        for cached in DELIMITER_SETS:
+            if all(tok.convert_tokens_to_ids(t) not in (None, getattr(tok, "unk_token_id", None)) for t in cached): break
+        else: raise ValueError(f"tokenizer has none of the delimiter sets {DELIMITER_SETS}")
+        tok._kev_delimiters = cached
+    return cached
+
+
 _SPECIAL_RE = re.compile(r"<\|([A-Za-z0-9_]+)\|>")
+
+
+def _escape_re(tok):
+    """Pattern of this tokenizer's special tokens that `<|name|>` does not cover (Gemma's `<bos>`, `<image|>`, ...),
+    longest first; None when there are none (the Qwen tokenizers: user_tokens is then exactly the `<|name|>` rewrite)."""
+    if not hasattr(tok, "_kev_escape_re"):
+        rest = sorted({t for t in getattr(tok, "all_special_tokens", ()) if not _SPECIAL_RE.fullmatch(t)}, key=len, reverse=True)
+        tok._kev_escape_re = re.compile("|".join(map(re.escape, rest))) if rest else None
+    return tok._kev_escape_re
 
 
 def user_tokens(tok, text):
     """Tokenize caller-supplied text so it can never produce delimiter/control tokens (option boundaries are unforgeable).
-    The fast tokenizer ignores split_special_tokens, so `<|name|>` is rewritten to `<¦name¦>` before tokenizing."""
-    return tok(_SPECIAL_RE.sub(r"<¦\1¦>", text), add_special_tokens=False).input_ids
+    The fast tokenizer ignores split_special_tokens, so `<|name|>` is rewritten to `<¦name¦>` before tokenizing, and any
+    other special token the tokenizer knows (`<bos>` -> `<¦bos>`) likewise."""
+    text = _SPECIAL_RE.sub(r"<¦\1¦>", text)
+    if (extra := _escape_re(tok)) is not None: text = extra.sub(lambda m: "<¦" + m.group(0)[1:], text)
+    return tok(text, add_special_tokens=False).input_ids
 
 
 OPT_NONE, OPT_DECIDE = -1, -2   # values of enc["opt"]: instruction/state tokens, and the <decide> token
@@ -101,9 +139,9 @@ def encode(tok, rec, max_state=MAX_STATE, max_branch=MAX_BRANCH, strict=False, o
     state_tokens = user_tokens(tok, rec["state"])
     if strict and len(state_tokens) + 1 > max_state:
         raise ContextOverflow(f"state exceeds {max_state} tokens: {len(state_tokens) + 1}", state_tokens=len(state_tokens) + 1, max_state=max_state)
-    S = [tok.convert_tokens_to_ids(SPECIAL[0])] + state_tokens[: max_state - 1]
+    s_id, q_id, o_id, c_id, d_id = (tok.convert_tokens_to_ids(t) for t in delimiters(tok))
+    S = [s_id] + state_tokens[: max_state - 1]
     ids, seg, pos, opt = list(S), [0] * len(S), list(range(len(S))), [OPT_NONE] * len(S)
-    q_id, o_id, c_id, d_id = (tok.convert_tokens_to_ids(t) for t in SPECIAL[1:])
     decide_idx, opt_idx = [], []
     for k, q in enumerate(rec["questions"], start=1):
         instr = [q_id] + user_tokens(tok, q["instr"])
@@ -240,6 +278,47 @@ def probs_one(model, enc, prefix, keep):
     return model.probs_and_prefix(enc) if keep else (model.probs(enc), None)
 
 
+# score elements (batch x heads x queries x keys) one inference attention call may hold before its queries run in chunks
+# (chunked_sdpa). Gemma 4 31B's global layers have 512-dim heads, past every fused SDPA kernel, so SDPA falls back to the
+# math kernel and materialises the scores: a 16k-token packed record asked for 7.9 GiB in one layer and ran out of memory.
+ATTENTION_SCORES = 1 << 28
+
+
+def chunked_sdpa(module, query, key, value, attention_mask, **kw):
+    """transformers' SDPA attention with the queries cut into chunks of at most ATTENTION_SCORES score elements at
+    inference. Each query's softmax is its own, so the chunks reproduce the one call; a call within the bound, and every
+    training pass, is the one call."""
+    from transformers.integrations.sdpa_attention import sdpa_attention_forward
+    b, h, q, _ = query.shape; kv = key.shape[2]
+    if module.training or b * h * q * kv <= ATTENTION_SCORES:
+        return sdpa_attention_forward(module, query, key, value, attention_mask, **kw)
+    causal = attention_mask is None and q > 1 and (kw.get("is_causal") if kw.get("is_causal") is not None else getattr(module, "is_causal", True))
+    bias = kw.pop("position_bias", None)
+    if causal and kv > q:
+        key, value, kv = key[:, :, :q], value[:, :, :q], q
+        if bias is not None: bias = bias[..., :q]
+    c, out = max(1, ATTENTION_SCORES // (b * h * kv)), []
+    for s in range(0, q, c):
+        e = min(q, s + c)
+        if causal:
+            m = (torch.arange(kv, device=query.device)[None, :] <= torch.arange(s, e, device=query.device)[:, None])[None, None]
+        else:
+            m = attention_mask if attention_mask is None or attention_mask.shape[-2] == 1 else attention_mask[..., s:e, :]
+        chunk_bias = bias if bias is None or bias.shape[-2] == 1 else bias[..., s:e, :]
+        out.append(sdpa_attention_forward(module, query[:, :, s:e], key, value, m, position_bias=chunk_bias, **kw)[0])
+    return torch.cat(out, 1), None
+
+
+def _register_chunked_sdpa():
+    from transformers import AttentionInterface
+    from transformers.masking_utils import AttentionMaskInterface, sdpa_mask
+    AttentionInterface.register("kev_sdpa", chunked_sdpa)
+    AttentionMaskInterface.register("kev_sdpa", sdpa_mask)
+
+
+_register_chunked_sdpa()
+
+
 class DecisionModel(nn.Module):
     def __init__(self, name, tok, device, lora=None, revision=None, attn=None, head_dim=256, option_isolation=False, special_embeddings=False, lora_targets="all", dtype=torch.float32,
                  weights=None, direct_load=False):
@@ -254,17 +333,22 @@ class DecisionModel(nn.Module):
         # dtype: fp32 for training and exact evaluation; bf16 is a serving option for large backbones (8B on a 32 GB Mac)
         load = {"dtype": dtype, "attn_implementation": attn}
         if direct_load: load["device_map"] = {"": torch.cuda.current_device() if device == "cuda" else device}   # "cuda": under torchrun, this rank's GPU
-        self.lm = AutoModel.from_pretrained(weights, **load) if weights else AutoModelForCausalLM.from_pretrained(name, revision=revision, **load).model
+        # a multimodal checkpoint (Gemma 4) loads whole; only its text decoder is kept (text_backbone), the towers are dropped
+        self.lm = text_backbone(AutoModel.from_pretrained(weights, **load) if weights else AutoModelForCausalLM.from_pretrained(name, revision=revision, **load).model)
         self.pad_id = pad_id(tok)
         # hybrid backbones (Qwen3.5: Gated DeltaNet layers, recurrent) cannot honour the block-causal mask, so every
         # question runs as its own causal row continuing from the state (rows_of). Attention-only backbones keep the
         # packed form; the two agree to fp32 noise (tests/test_model.py::test_rows_match_packed).
         self.hybrid = is_hybrid(self.lm.config)
+        # sliding-window layers (Gemma 4) take the packed mask cut to their window, per layer type (_masks)
+        self.sliding = sliding_window(self.lm.config)
+        # attention-only backbones run long states as one attention call over every position: SDPA's queries go in chunks
+        if not self.hybrid and attn == "sdpa": self.lm.set_attn_implementation("kev_sdpa")
         if self.hybrid and option_isolation: raise ValueError("option_isolation needs the packed mask; not available on hybrid backbones")
         self.option_isolation = option_isolation
         if lora:
             from peft import LoraConfig, get_peft_model
-            extra = {"trainable_token_indices": {"embed_tokens": [tok.convert_tokens_to_ids(t) for t in SPECIAL]}} if special_embeddings else {}
+            extra = {"trainable_token_indices": {"embed_tokens": [tok.convert_tokens_to_ids(t) for t in delimiters(tok)]}} if special_embeddings else {}
             targets = {"all": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
                        "dense": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],   # "all" minus the DeltaNet projections on hybrids (retention ablation)
                        "attn": ["q_proj", "k_proj", "v_proj", "o_proj"], "qv": ["q_proj", "v_proj"]}[lora_targets]
@@ -321,7 +405,22 @@ class DecisionModel(nn.Module):
             raise ValueError("cannot mix option-isolated and plain encodings in one batch")
         lm_dtype = next(self.lm.parameters()).dtype
         mask = branch_mask_batch([e["seg"] for e in encs], self.device, dtype=lm_dtype, opts=[e["opt"] for e in encs] if isolate else None, length=ids.shape[1])
-        return self.lm(input_ids=ids, position_ids=pos, attention_mask=mask).last_hidden_state.float()   # head stays fp32
+        return self.lm(input_ids=ids, position_ids=pos, attention_mask=self._masks(mask, pos, pos)).last_hidden_state.float()   # head stays fp32
+
+    def _masks(self, mask, q_pos, k_pos):
+        """The packed additive mask as the backbone takes it: itself when every attention layer is global; per layer type
+        when the backbone has sliding-window layers (transformers takes a {layer_type: mask} dict), the sliding layers'
+        copy also hiding keys `sliding` or more positions behind the query. Positions, not indices: a branch's positions
+        continue from the state's (encode), so this is exactly the window the row form (state + one branch) sees."""
+        if self.sliding is None: return mask
+        far = (q_pos[:, :, None] - k_pos[:, None, :] >= self.sliding)[:, None]
+        return {"full_attention": mask, "sliding_attention": mask.masked_fill(far, torch.finfo(mask.dtype).min)}
+
+    def _cache(self):
+        """An empty KV cache for a prefix pass. A hybrid backbone's cache must know the layer types (recurrent + conv states
+        per DeltaNet layer); an attention-only one gets plain layers that keep every key, so that a sliding-window layer
+        (which transformers would otherwise give a cache dropping keys past the window) sees the keys _masks addresses."""
+        return DynamicCache(config=self.lm.config) if self.hybrid else DynamicCache()
 
     def _readout(self, h, enc):
         return [self.head(h[d], h[torch.tensor(oi, device=self.device)]) for d, oi in zip(enc["decide_idx"], enc["opt_idx"])]
@@ -421,8 +520,7 @@ class DecisionModel(nn.Module):
         keeps them even when this record runs as rows: the same state with fewer questions may be packed."""
         Ls = enc["seg"].count(0)
         ids = torch.tensor([enc["ids"][:Ls]], device=self.device); pos = torch.tensor([enc["pos"][:Ls]], device=self.device)
-        # the cache must know the layer types (hybrid backbones keep recurrent + conv states per DeltaNet layer)
-        out = self.lm(input_ids=ids, position_ids=pos, past_key_values=DynamicCache(config=self.lm.config), use_cache=True)
+        out = self.lm(input_ids=ids, position_ids=pos, past_key_values=self._cache(), use_cache=True)
         return Ls, out.past_key_values, None if self.hybrid else out.last_hidden_state[0].float()
 
     @torch.no_grad()
@@ -438,7 +536,7 @@ class DecisionModel(nn.Module):
         ids = torch.tensor([enc["ids"]], device=self.device); pos = torch.tensor([enc["pos"]], device=self.device)
         dt = next(self.lm.parameters()).dtype
         mask = branch_mask_batch([enc["seg"]], self.device, dtype=dt, opts=[enc["opt"]] if enc.get("option_isolation") else None)
-        out = self.lm(input_ids=ids, position_ids=pos, attention_mask=mask, past_key_values=DynamicCache(config=self.lm.config), use_cache=True)
+        out = self.lm(input_ids=ids, position_ids=pos, attention_mask=self._masks(mask, pos, pos), past_key_values=self._cache(), use_cache=True)
         h = out.last_hidden_state[0].float()
         out.past_key_values.crop(-(len(enc["ids"]) - Ls))     # keep the state only (negative = drop that many trailing tokens; positive form deprecated in transformers 5)
         return [F.softmax(z, -1).cpu() for z in self._readout(h, enc)], (Ls, out.past_key_values, h[:Ls].clone())
@@ -455,7 +553,8 @@ class DecisionModel(nn.Module):
         dt = next(self.lm.parameters()).dtype
         mask = branch_mask_batch([enc["seg"]], self.device, dtype=dt, opts=[enc["opt"]] if enc.get("option_isolation") else None)[:, :, Ls:, :]
         try:
-            out = self.lm(input_ids=ids, position_ids=pos, past_key_values=cache, attention_mask=mask, use_cache=True)
+            k_pos = torch.tensor([enc["pos"]], device=self.device)
+            out = self.lm(input_ids=ids, position_ids=pos, past_key_values=cache, attention_mask=self._masks(mask, pos, k_pos), use_cache=True)
             h = torch.cat([h_state, out.last_hidden_state[0].float()], 0)
         finally:
             cache.crop(-(len(enc["ids"]) - Ls))

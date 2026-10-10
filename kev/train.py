@@ -20,7 +20,7 @@ from . import full_ft
 from .checkpoint import Checkpoint, Meta, write_meta
 from .device import DEVICE_HELP, DEVICES, allocated_bytes, empty_cache, select, sync
 from .data import EVAL_ONLY, build, augment, load_records, materialize, none_pair, source_seed
-from .suite import SYNTHETIC_SOURCES, digest, load_split, read_json, read_manifest, validate_training, write_json
+from .suite import ADMISSION_BRANCH_HEADROOM, SYNTHETIC_SOURCES, digest, load_split, read_json, read_manifest, validate_training, write_json
 from .model import MAX_STATE, MAX_TRAIN_STATE, DecisionModel, fits, load_tokenizer, rows_of, training_context, user_tokens
 
 
@@ -99,14 +99,19 @@ def training_requests(a, tok, manifest, holdout):
         reqs = load_split(a.suite, "train"); validate_training(reqs, manifest)
     else:
         reqs = build(a.n_per_source, "train", a.seed, exclude=holdout)
-    if not manifest or a.data:
-        # frozen suites are filtered to the training context when they are frozen (kev.suite.select_unique); records built
-        # on the fly here are not, so apply the same rule instead of letting the strict encoder abort the run (issue #5)
-        kept = [r for r in reqs if fits(materialize(r), tok, **training_context(a.max_state))]
+    foreign_base = bool(manifest) and a.base not in manifest["base_revisions"]
+    if not manifest or a.data or foreign_base:
+        # frozen suites are filtered to the training context when they are frozen (kev.suite.select_unique), under the
+        # tokenizers of their pinned bases; records built on the fly here are not, and a base the suite did not pin
+        # (Gemma 4 on decision-v7) tokenizes differently, so apply the same rule instead of letting the strict encoder
+        # abort the run (issue #5; a Gemma branch of 1,013 tokens aborted a trial at step 690)
+        c = training_context(a.max_state)
+        headroom = ADMISSION_BRANCH_HEADROOM if foreign_base else 0   # as the suite's admission: room for the none option augment adds
+        kept = [r for r in reqs if fits(materialize(r), tok, **{**c, "max_branch": c["max_branch"] - headroom})]
         if len(kept) < len(reqs):
-            c = training_context(a.max_state)
             print(f"dropped {len(reqs) - len(kept)} of {len(reqs)} records that exceed the training context "
-                  f"({c['max_state']} state / {c['max_branch']} branch / {c['max_packed']} packed tokens)", flush=True)
+                  f"({c['max_state']} state / {c['max_branch']} branch / {c['max_packed']} packed tokens)"
+                  + (f" under {a.base}'s tokenizer, which the suite did not admit them with" if foreign_base else ""), flush=True)
         reqs = kept
     if not reqs:
         raise ValueError("empty training set")
