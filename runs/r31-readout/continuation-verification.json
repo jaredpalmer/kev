@@ -1,0 +1,600 @@
+{
+  "verified": true,
+  "trial": "runs/r31-g31-cont2/00-trial-0",
+  "config": {
+    "epochs": 1,
+    "seed": 1,
+    "lr": 1e-06,
+    "lora": 16,
+    "accum": 4,
+    "batch": 4,
+    "perm_kl": 0.0,
+    "perm_frac": 0.3,
+    "ord_w": 0.0,
+    "p_none": 0.1,
+    "p_none_distract": 0.12,
+    "p_distract": 0.15,
+    "p_none_pair": 0.25,
+    "synthetic_repeat": 1,
+    "public_frac": 1.0,
+    "head_lr": 0.0001,
+    "weight_decay": 0.01,
+    "anchor_w": 0.0,
+    "label_smoothing": 0.0,
+    "brier_w": 0.0,
+    "focal_gamma": 0.0,
+    "base": "google/gemma-4-31B-it",
+    "base_revision": "842da3794eaa0b77d5f08bae87a17459d91ff475",
+    "init_from": "/runs/r30-g31-full/00-trial-0/checkpoint",
+    "full_ft": 1,
+    "weights_dtype": "bf16",
+    "dtype": "bf16",
+    "length_sort": 1,
+    "checkpointing": 1,
+    "max_state": 8192,
+    "none_pair_max_state": 8192,
+    "snapshot_fractions": "none"
+  },
+  "git_commit": "1fd9689629bd258968e574ff08b4663a421ceb64",
+  "suite_sha256": "c5c260006d9025ac3f639e4bdf10d94c6a7fde0b2197b2a60828d44b6da0d324",
+  "optimizer_steps": 454,
+  "expected_optimizer_steps": 454,
+  "requested_records": 58094,
+  "records_seen": 74390,
+  "world_size": 8,
+  "tensor_count": 832,
+  "weights_metadata": {
+    "total_parameters": 30697345280,
+    "total_size": 61394690680
+  },
+  "checks": {
+    "configuration": true,
+    "sources": true,
+    "commit": true,
+    "suite": true,
+    "result_provenance": true,
+    "result_training_metrics": true,
+    "base": true,
+    "full_weights": true,
+    "tensor_coverage": true,
+    "weight_totals": true,
+    "training_arguments": true,
+    "head_arguments": true,
+    "world_size": true,
+    "records": true,
+    "records_seen": true,
+    "completed_training": true,
+    "no_early_stop": true,
+    "final_checkpoint": true,
+    "warm_start": true,
+    "no_snapshots": true
+  },
+  "quarantined_resume_diagnostics": {
+    "trial": "runs/r31-g31-cont2/00-trial-0",
+    "training_metrics_sha256": "49fb03886ac419130b5b1b77ecc5073d2eed4b8c4f8359c1733b1fcc9fe11d3d",
+    "train_log_sha256": "88b8d406f8dd4e5d30e94a46eeeca7af858a330ee66849149bbd9771371938f7",
+    "git_commit": "1fd9689629bd258968e574ff08b4663a421ceb64",
+    "source_hashes": {
+      "kev/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "kev/anchors.py": "6963eafdb276db5a6c94d939eae675c761555553b8d0f963ffd803448beaabbb",
+      "kev/api.py": "a6f53af5354f8ea17915abc78360fdf291a5108ce39a53a2d9135d48c603ae58",
+      "kev/autoresearch.py": "7c62762b99c1b081bef06aa1ce83f8dfccce8ac7e9d2c5c0ab4d058055c7eab1",
+      "kev/benchmark.py": "ff81e91b4db58d58081384018d1b2388c98ef71078591fd06f6ac257f7a3fc3a",
+      "kev/budget.py": "246b5ca6450567a61b881308c9482cf1af6ecba599ca161af1febb23d6dc28a7",
+      "kev/calibrate.py": "435ac98696fbd329c3a07f0c12633ba3c09a846f0e9c92e17540bbf8ba2986f8",
+      "kev/checkpoint.py": "02062399977ee0da316dd52e03a79fa5e10134aa49c0b5ed801598c52042dc32",
+      "kev/compare.py": "04aab69063ed9846de95df4285ee7a55934519cd13bcb70571ef5ba11c9dfd3f",
+      "kev/composition.py": "f335ed17e18e0a544893db5e22b9a059e6ce1b2e14dbb863ac7d7bbf8f3e0536",
+      "kev/contrastive.py": "cbb979aa5d40265ad0e64695f94b281d91751fa405811ddfa8212fede111edcf",
+      "kev/cuda_graphs.py": "5ce84f0e4e5ad2177314ed3ecc9564d45d14ad9eb422e0fb079c9e1cbbb011b6",
+      "kev/data.py": "e77a2fffeb8ee7e05b118893be8e38b8358aef97c3ca2e143cdce208201b92f9",
+      "kev/device.py": "bb882f59df46eae633d3b29ff0a939c000aa60a7d6d04ae73829b336f9bc9711",
+      "kev/evaluate.py": "4cedb57f5bfe51e7032e34c27f5e0f896875aa3897435f5ac887f6e6d814d1f7",
+      "kev/experiment.py": "267d5118f9ee7d716fd8218bfd31cb0b66d7b3beae23cab06e28b7fd1b0c15f8",
+      "kev/full_ft.py": "c3abef39cd9d486b3c075a37286afbcd1aa42a04c78a1b7b9b2e77b5a3963929",
+      "kev/fused_qwen35.py": "5d2e587808822ce539ff52f63024357630b67a65f88cd734b82fd488655aebed",
+      "kev/jev.py": "5488645c4fc2a53ca430e556ebfb744736e1a156bd121bd10ba0a9935f423e1c",
+      "kev/metrics.py": "167a586334cfcced4adcc197758535c3bcda832b855c151095ef2d1968cf8983",
+      "kev/mirror.py": "ca2284c670ce2cf1db57231968b9e6cbc01955f8f3c9a3207fd82e73d7b476b6",
+      "kev/mlx_model.py": "49c4a3de3952429e8a4b3945c33b0697a1cd84c41c945709ce6619af2c15842c",
+      "kev/model.py": "62c0cb88e10c47f56bc7d934ad0009267d497648584e0ce4d8dc18fcc2768a53",
+      "kev/plot.py": "0874bcff2885d8155a1cceade0de8a275a7163d3c3fd6aa0c294e8ccf5ff7e02",
+      "kev/predictors.py": "29263ae3297e5cde6cf03da5c5aa3ed377c9681c6a5a639ea4aa259acec7575b",
+      "kev/publish.py": "fcb490a374fc9ef330424ad4a75ce281ab08d2cb04dff2ad912c5f4dae6ab8a7",
+      "kev/rounds.py": "43408cf792b40b769128a6dc4c664832148ab1e47fdac96ba592888d458098de",
+      "kev/serve.py": "dd996a996215cae4c2d1780d3fb4f0fda35bc127004b782731103d05ffb2d2e9",
+      "kev/shared_prefix.py": "bc6dedbad734cca227f3ec6746223b3b03363b0c045aa9f2493d886b1828e71e",
+      "kev/study_v3.py": "7891150aa623e4479c7c789d4dc4662f186132b37b7bac1e1f072b9e08ee13e3",
+      "kev/suite.py": "8e7d257a10b4704d7bf4f8ec2c74dddf26aa5a2a610ea78610360e6baf43eff5",
+      "kev/train.py": "36a765d4565ea83dbc6aeb4974877b6bbc240c64a22eb557c8ea507c5cfad077",
+      "kev/transfer_v9.py": "0902409742151250a28af1fd8f42258b70fcc161f3deed3ee35fe3f473f3c763",
+      "modal_app.py": "09b228f0eddfae527e884628f28797bbd05b74066ba81ed802334a9acc930e41",
+      "pyproject.toml": "7c17fbe9efcadda3eb488b59adf1b6db5938cd33af4d3bd389ce4359b73fcc7d",
+      "uv.lock": "a9922dbb89acdef78299fd2b4a8c3f7f0fa1b2bc08b55595b6926fa785a9c466"
+    },
+    "resumed_optimizer_step": 295,
+    "resumed_microbatch": 1180,
+    "optimizer_steps": 454,
+    "expected_optimizer_steps": 454,
+    "requested_records": 58094,
+    "none_pair_records": 8148,
+    "expected_records_seen": 74390,
+    "actual_records_seen": 74390,
+    "raw_gradient_history_steps": 461,
+    "raw_timing_history_steps": 461,
+    "diagnostic_overcount": 7,
+    "diagnostic_statistics_valid": false,
+    "diagnostics_quarantined": true,
+    "cause": "ResumeWriter passed mutable nested position histories to the background writer; optimizer tensors and scheduler were already independently frozen. The histories do not feed optimizer, schedule, RNG, epoch or microbatch control.",
+    "reproduction": "Frozen source fails test_background_resume_freezes_position_and_replays_exact_weights for both fp32 and bf16 only at the final diagnostic assertion: histories contain ten steps at the step-three save. Before that assertion, optimizer/scheduler counters, working weights, fp32 masters, moments and final scheduler are bit-identical to uninterrupted training. Fixed source passes both cases.",
+    "completion_evidence": "Final 454-step counter, final-save control flow, resume position 295/1180, admitted-data/augmentation counters and exact frozen source agree. Invalid gradient/timing summaries are not used as completion evidence.",
+    "native_artifacts_unchanged": true,
+    "fix_commit": "174b5ab",
+    "before_test_log_sha256": "dced1219824ffc355eb7c6df24f9b5c33cbf2985bf12ac21c171f23f160772b5"
+  },
+  "actual_tensor_headers": {
+    "checkpoint": "/runs/r31-g31-cont2/00-trial-0/checkpoint",
+    "parent": "/runs/r30-g31-full/00-trial-0/checkpoint",
+    "tensor_count": 832,
+    "dtype_counts": {
+      "BF16": 832
+    },
+    "actual_tensor_elements": 30697345340,
+    "metadata": {
+      "total_parameters": 30697345280,
+      "total_size": 61394690680
+    },
+    "tensor_schema_sha256": "1c7002ea9a5439ad00ee0ed6f51fb9ad7f4bf292157e2e94ed103a8d761ea50c",
+    "actual_shards_cover_index": true,
+    "actual_shapes_dtypes_match_parent": true,
+    "actual_shard_sizes_match_tensor_offsets": true,
+    "actual_weights_sha256": "53c95fb74368722d239b2e776d5ee694e24a68275757c2085e36a1931f62fc85",
+    "actual_head_sha256": "9f4f6b036a61ccfd89025532c53c1f12b905d36d05874cd3019a6c4e39522ac9",
+    "actual_payload_hashes_match_measured_checkpoint": true,
+    "verification_app_id": "ap-WIqiFXYa6RcsJEdD2HfWbD"
+  },
+  "transfer_reuse": {
+    "reused_from": "runs/r31-g31-cont2/00-trial-0/transfer",
+    "rows_sha256": "3e5eb55581704c1dfe31490995dcbb06248db21bc6ee3b19e8687d86f0c89b2d",
+    "suite_sha256": "31677c2256b406222e7d94ffdc0a02a70ce05746b9efe307876024c4e77291d1",
+    "registered_directory": "runs/r31-31b-cont-transfer4",
+    "records": 764,
+    "questions": 764,
+    "inference_temperature": 1.0,
+    "measured_checkpoint": {
+      "requested": "/runs/r31-g31-cont2/00-trial-0/checkpoint",
+      "resolved": "/runs/r31-g31-cont2/00-trial-0/checkpoint",
+      "head_sha256": "9f4f6b036a61ccfd89025532c53c1f12b905d36d05874cd3019a6c4e39522ac9",
+      "weights_sha256": "53c95fb74368722d239b2e776d5ee694e24a68275757c2085e36a1931f62fc85",
+      "inference_temperature": 1.0
+    },
+    "environment": {
+      "packages": {
+        "torch": "2.8.0+cu128",
+        "transformers": "5.17.0",
+        "peft": "0.21.0",
+        "flash-linear-attention": "0.5.2",
+        "triton": "3.8.0",
+        "causal-conv1d": "1.7.0",
+        "mlx": null,
+        "mlx-lm": null
+      },
+      "device": "cuda",
+      "gpu": "NVIDIA H200",
+      "backend": "torch",
+      "dtype": "bfloat16",
+      "triton_f32_default": null,
+      "attention": "kev_sdpa",
+      "deltanet": null
+    },
+    "requests_encodings_predictions_and_raw_rows_verified": true,
+    "new_model_calls": 0
+  },
+  "operational_verifier_sources": {
+    "r31_verified_watch.py": {
+      "sha256": "729723b7a18e76509700eedabad779a086d4cc04b2a700467613efd56480c1ad",
+      "source": "from pathlib import Path\nfrom math import ceil\nimport subprocess\nimport sys\n\nROOT = Path(\"/home/ubuntu/repos/kev\")\nsys.path.insert(0, str(ROOT))\n\nfrom kev import rounds\nfrom kev.checkpoint import read_meta\nfrom kev.experiment import load_plan\nfrom kev.full_ft import snapshot_fractions\nfrom kev.suite import digest, read_json, write_json\nfrom r31_reuse_transfer import reuse_transfer\n\n\ndef verify_checkpoint(trial, config, sources, commit, suite_hash, requested_records, expected_index, warm_source=None):\n    provenance = read_json(trial / \"provenance.json\")\n    result = read_json(trial / \"result.json\")\n    checkpoint = trial / \"checkpoint\"\n    meta = read_meta(checkpoint)\n    training = read_json(checkpoint / \"training_config.json\")\n    metrics = read_json(checkpoint / \"training_metrics.json\")\n    index = read_json(checkpoint / \"model.safetensors.index.json\")\n    args = training[\"args\"]\n    expected_steps = args[\"epochs\"] * ceil(requested_records / (args[\"epochs\"] * args[\"batch\"] * args[\"accum\"] * 8))\n    diagnostic_steps = sum(g[\"steps\"] for g in metrics[\"grad_norm\"])\n    telemetry = None\n    if diagnostic_steps != metrics[\"optimizer_steps\"]:\n        telemetry = read_json(\"/home/ubuntu/r31-resume-telemetry-proof.json\")\n        if not (\n            telemetry[\"trial\"] == str(trial.relative_to(ROOT))\n            and telemetry[\"training_metrics_sha256\"] == digest(checkpoint / \"training_metrics.json\")\n            and telemetry[\"train_log_sha256\"] == digest(trial / \"train.log\")\n            and telemetry[\"git_commit\"] == commit\n            and telemetry[\"source_hashes\"] == sources\n            and telemetry[\"optimizer_steps\"] == metrics[\"optimizer_steps\"] == telemetry[\"expected_optimizer_steps\"] == expected_steps\n            and telemetry[\"requested_records\"] == metrics[\"requested_records\"] == requested_records\n            and telemetry[\"actual_records_seen\"] == metrics[\"records_seen\"] == telemetry[\"expected_records_seen\"]\n            and telemetry[\"raw_gradient_history_steps\"] == diagnostic_steps\n            and telemetry[\"raw_timing_history_steps\"] == len(metrics[\"step_seconds\"]) == diagnostic_steps\n            and telemetry[\"diagnostic_overcount\"] == diagnostic_steps - expected_steps == 7\n            and telemetry[\"diagnostic_statistics_valid\"] is False\n            and telemetry[\"diagnostics_quarantined\"] is True\n            and telemetry[\"native_artifacts_unchanged\"] is True\n        ):\n            raise ValueError(\"resume telemetry proof does not identify these exact native artifacts\")\n    checks = {\n        \"configuration\": provenance[\"config\"] == config,\n        \"sources\": provenance[\"source_hashes\"] == sources,\n        \"commit\": provenance[\"git_commit\"] == commit,\n        \"suite\": provenance[\"suite_sha256\"] == suite_hash == meta.extra[\"suite_sha256\"] == training[\"suite_sha256\"],\n        \"result_provenance\": result[\"provenance\"] == provenance,\n        \"result_training_metrics\": result[\"training_resources\"] == metrics,\n        \"base\": meta.base == config[\"base\"] and meta.base_revision == training[\"base_revision\"] == config[\"base_revision\"],\n        \"full_weights\": meta.weights == \"full\" and meta.weights_dtype == \"bf16\" and meta.lora == 0,\n        \"tensor_coverage\": set(index[\"weight_map\"]) == set(expected_index[\"weight_map\"]),\n        \"weight_totals\": index[\"metadata\"] == expected_index[\"metadata\"],\n        \"training_arguments\": all(training[\"args\"].get(k) == v for k, v in config.items()),\n        \"head_arguments\": meta.extra[\"args\"] == training[\"args\"],\n        \"world_size\": metrics[\"world_size\"] == 8,\n        \"records\": metrics[\"requested_records\"] == requested_records,\n        \"records_seen\": metrics[\"records_seen\"] >= requested_records and metrics[\"truncated_records\"] == metrics[\"rejected_records\"] == 0,\n        \"completed_training\": metrics[\"optimizer_steps\"] == expected_steps and (diagnostic_steps == expected_steps or telemetry is not None),\n        \"no_early_stop\": training[\"args\"][\"max_steps\"] in (None, 0) and training[\"args\"][\"stop_after\"] in (None, 0),\n        \"final_checkpoint\": \"snapshot\" not in meta.extra,\n    }\n    if config.get(\"init_from\"):\n        checks[\"warm_start\"] = bool(warm_source) and meta.extra.get(\"init_source\") == training[\"init_source\"] == warm_source\n    if config.get(\"snapshot_fractions\") == \"none\":\n        checks[\"no_snapshots\"] = not metrics[\"snapshots\"] and snapshot_fractions(args[\"snapshot_fractions\"]) == () and args[\"snapshot_every_steps\"] in (None, 0)\n    if failures := [k for k, passed in checks.items() if not passed]:\n        raise ValueError(f\"checkpoint verification failed: {failures}\")\n    return {\n        \"verified\": True,\n        \"trial\": str(trial.relative_to(ROOT)),\n        \"config\": config,\n        \"git_commit\": commit,\n        \"suite_sha256\": suite_hash,\n        \"optimizer_steps\": metrics[\"optimizer_steps\"],\n        \"expected_optimizer_steps\": expected_steps,\n        \"requested_records\": metrics[\"requested_records\"],\n        \"records_seen\": metrics[\"records_seen\"],\n        \"world_size\": metrics[\"world_size\"],\n        \"tensor_count\": len(index[\"weight_map\"]),\n        \"weights_metadata\": index[\"metadata\"],\n        \"checks\": {k: bool(v) for k, v in checks.items()},\n        \"quarantined_resume_diagnostics\": telemetry,\n    }\n\n\nif __name__ == \"__main__\":\n    spec = rounds.load(ROOT / \"experiments/rounds/r31.json\")\n    study = spec[\"studies\"][\"r31-g31-cont2\"]\n    config = load_plan(ROOT / study[\"suite\"], ROOT / study[\"plan\"])[0]\n    sources = read_json(\"/home/ubuntu/r31-frozen-source-hashes.json\")\n    commit = subprocess.check_output([\"git\", \"rev-parse\", \"1fd9689\"], cwd=ROOT, text=True).strip()\n    suite_hash = digest(ROOT / study[\"suite\"] / \"manifest.json\")\n    parent = ROOT / \"runs/r30-g31-full/00-trial-0\"\n    requested_records = read_json(parent / \"checkpoint/training_metrics.json\")[\"requested_records\"]\n    parent_index = read_json(parent / \"checkpoint/model.safetensors.index.json\")\n    blend_report = read_json((ROOT / spec[\"arms\"][\"31b-blend-w85\"][\"checkpoint\"].lstrip(\"/\")).parent / \"interpolation.json\")\n    warm_source = {\n        \"init_from\": config[\"init_from\"],\n        \"resolved\": blend_report[\"sft\"][\"path\"],\n        \"weights_sha256\": blend_report[\"sft\"][\"weights_sha256\"],\n        \"head_sha256\": digest(parent / \"checkpoint/head.pt\"),\n        \"tensors\": len(parent_index[\"weight_map\"]),\n    }\n\n    if \"--selftest\" in sys.argv:\n        p = read_json(parent / \"provenance.json\")\n        verify_checkpoint(parent, p[\"config\"], p[\"source_hashes\"], p[\"git_commit\"], p[\"suite_sha256\"], requested_records, parent_index)\n        print(\"Checkpoint verification passes on the existing round-30 final fixture.\")\n        raise SystemExit(0)\n\n    launch = rounds.launch_arm_reads\n\n    def verified_launch(spec, arm, **options):\n        try:\n            proof = verify_checkpoint(ROOT / spec[\"arms\"][arm][\"trial\"], config, sources, commit, suite_hash, requested_records, parent_index, warm_source)\n            header_proof = \"/home/ubuntu/r31-cont-tensor-headers.json\"\n            subprocess.run([\n                \"uv\", \"run\", \"modal\", \"run\", \"/home/ubuntu/r31_verify_headers.py::main\",\n                \"--checkpoint\", f\"/runs/{spec['arms'][arm]['trial'].removeprefix('runs/')}/checkpoint\",\n                \"--parent\", config[\"init_from\"], \"--out\", header_proof,\n            ], cwd=ROOT, check=True, timeout=300)\n            proof[\"actual_tensor_headers\"] = read_json(header_proof)\n            proof[\"transfer_reuse\"] = reuse_transfer(spec, arm)\n        except Exception as error:\n            raise rounds.Unmapped(f\"checkpoint not verified; do not read it: {type(error).__name__}: {error}\") from error\n        write_json(\"/home/ubuntu/r31-cont-verification.json\", proof, atomic=True)\n        print(f\"{arm}: checkpoint/configuration/provenance verified before short reads\", flush=True)\n        return launch(spec, arm, **options)\n\n    rounds.launch_arm_reads = verified_launch\n    rounds.watch(spec)\n"
+    },
+    "r31_verify_headers.py": {
+      "sha256": "2602d281c0ca2ce422bafd24717492f2218c8670f63ea6b00ffcd839d77eb651",
+      "source": "import hashlib\nimport json\nimport math\nimport struct\nimport sys\nfrom collections import Counter\nfrom pathlib import Path\n\nimport modal\n\nsys.path.insert(0, \"/home/ubuntu/repos/kev\")\nimport modal_app as research\n\napp = modal.App(\"kev-r31-header-verification\")\nimage = research.image.add_local_file(\n    \"/home/ubuntu/repos/kev/modal_app.py\", \"/root/modal_app.py\"\n)\n\n\ndef tensor_schema(checkpoint):\n    index = json.loads((checkpoint / \"model.safetensors.index.json\").read_text())\n    tensors = {}\n    total_size = 0\n    for name in sorted(set(index[\"weight_map\"].values())):\n        path = checkpoint / name\n        with path.open(\"rb\") as stream:\n            header_size = struct.unpack(\"<Q\", stream.read(8))[0]\n            if header_size > 16 * 1024 * 1024:\n                raise ValueError(\"invalid safetensors header size\")\n            header = json.loads(stream.read(header_size))\n        intervals = []\n        for key, value in header.items():\n            if key == \"__metadata__\":\n                continue\n            if key in tensors or index[\"weight_map\"].get(key) != name:\n                raise ValueError(f\"unexpected/duplicate tensor or incorrect shard: {key}\")\n            start, end = value[\"data_offsets\"]\n            itemsize = {\"BF16\": 2, \"F32\": 4}[value[\"dtype\"]]\n            if end - start != math.prod(value[\"shape\"]) * itemsize:\n                raise ValueError(f\"tensor shape/dtype disagree with payload: {key}\")\n            intervals.append((start, end))\n            total_size += end - start\n            tensors[key] = {\"shape\": value[\"shape\"], \"dtype\": value[\"dtype\"]}\n        cursor = 0\n        for start, end in sorted(intervals):\n            if start != cursor or end < start:\n                raise ValueError(f\"noncontiguous tensor data in {name}\")\n            cursor = end\n        if path.stat().st_size != 8 + header_size + cursor:\n            raise ValueError(f\"incorrect shard byte size: {name}\")\n    if set(tensors) != set(index[\"weight_map\"]):\n        raise ValueError(\"actual safetensors do not cover the index\")\n    if total_size != index[\"metadata\"][\"total_size\"]:\n        raise ValueError(\"tensor payload bytes disagree with index\")\n    return tensors, index[\"metadata\"]\n\n\n@app.function(\n    image=image, cpu=1, memory=1024, timeout=180,\n    volumes={research.RUNS_MOUNT: research.runs_volume.with_mount_options(read_only=True)},\n)\ndef verify(checkpoint, parent):\n    from kev.checkpoint import Checkpoint\n    from kev.suite import digest, read_json\n\n    tensors, metadata = tensor_schema(Path(checkpoint))\n    expected, parent_metadata = tensor_schema(Path(parent))\n    if tensors != expected or metadata != parent_metadata:\n        raise ValueError(\"final tensor shapes/dtypes/coverage differ from registered parent\")\n    measured = read_json(Path(checkpoint).parent / \"result.json\")[\"provenance\"][\"measured_checkpoint\"]\n    weights_sha256 = Checkpoint(checkpoint).weights_sha256()\n    head_sha256 = digest(Path(checkpoint) / \"head.pt\")\n    if (weights_sha256 != measured[\"weights_sha256\"]\n            or head_sha256 != measured[\"head_sha256\"]\n            or measured[\"inference_temperature\"] != 1.0):\n        raise ValueError(\"actual final weights/head differ from the native measured checkpoint\")\n    return {\n        \"checkpoint\": checkpoint,\n        \"parent\": parent,\n        \"tensor_count\": len(tensors),\n        \"dtype_counts\": dict(Counter(t[\"dtype\"] for t in tensors.values())),\n        \"actual_tensor_elements\": sum(math.prod(t[\"shape\"]) for t in tensors.values()),\n        \"metadata\": metadata,\n        \"tensor_schema_sha256\": hashlib.sha256(\n            json.dumps(tensors, sort_keys=True).encode()\n        ).hexdigest(),\n        \"actual_shards_cover_index\": True,\n        \"actual_shapes_dtypes_match_parent\": True,\n        \"actual_shard_sizes_match_tensor_offsets\": True,\n        \"actual_weights_sha256\": weights_sha256,\n        \"actual_head_sha256\": head_sha256,\n        \"actual_payload_hashes_match_measured_checkpoint\": True,\n    }\n\n\n@app.local_entrypoint()\ndef main(checkpoint: str, parent: str, out: str):\n    from kev.suite import write_json\n    result = verify.remote(checkpoint, parent)\n    result[\"verification_app_id\"] = app.app_id\n    write_json(out, result, atomic=True)\n    print(json.dumps(result, sort_keys=True), flush=True)\n"
+    },
+    "r31_reuse_transfer.py": {
+      "sha256": "31270fd64fdaf25d38da8811de781c95527822ea584cc427e9d960bfa7285c67",
+      "source": "from pathlib import Path\nimport shutil\nimport sys\n\nROOT = Path(\"/home/ubuntu/repos/kev\")\nsys.path.insert(0, str(ROOT))\n\nfrom transformers import AutoTokenizer\nfrom kev import rounds\nfrom kev.benchmark import prediction_rows, summarize\nfrom kev.checkpoint import read_meta\nfrom kev.data import api_request, materialize\nfrom kev.model import encode\nfrom kev.suite import CONTEXT, digest, load_split, read_json, read_jsonl, read_manifest, record_digest, write_json\n\n\ndef reuse_transfer(spec, arm, write=True):\n    entry = spec[\"arms\"][arm]\n    trial = ROOT / entry[\"trial\"]\n    study = next(value for name, value in spec[\"studies\"].items() if entry[\"trial\"].startswith(f\"runs/{name}/\"))\n    tag = rounds.transfer_read(spec, arm)\n    registered = spec[\"reads\"][tag]\n    if registered.get(\"flags\") or registered.get(\"entrypoint\"):\n        raise ValueError(\"saved transfer cannot replace a read with different flags or entrypoint\")\n    suite = ROOT / registered[\"suite\"]\n    if (ROOT / study[\"transfer\"]).resolve() != suite.resolve():\n        raise ValueError(\"in-trial transfer suite differs from the registered read\")\n    source = trial / \"transfer\"\n    destination = ROOT / rounds.locations(entry.get(\"reads\", spec[\"arm_reads\"]), spec, arm=arm, size=rounds.size_of(arm))[tag]\n    result = read_json(trial / \"result.json\")\n    report = read_json(source / \"report.json\")\n    suite_hash = digest(suite / \"manifest.json\")\n    if result[\"transfer\"][\"suite_sha256\"] != suite_hash:\n        raise ValueError(\"saved transfer manifest differs from the frozen suite\")\n    calibration = report[\"calibration\"]\n    if calibration[\"inference_temperature\"] != 1.0 or not calibration[\"logits_recorded\"]:\n        raise ValueError(\"saved transfer is not raw-logit scoring at T=1\")\n    rows = read_json(source / \"rows.json\")\n    records = load_split(suite, \"development\")\n    coverage = report[\"coverage\"]\n    if any(coverage[key] for key in (\"truncated_records\", \"rejected_records\")):\n        raise ValueError(\"saved transfer rejected or truncated records\")\n    expected_questions = sum(len(record[\"questions\"]) for record in records)\n    if (coverage[\"requested_records\"] != len(records) or coverage[\"requested_questions\"] != expected_questions\n            or coverage[\"evaluated_records\"] != len(records) or coverage[\"evaluated_questions\"] != expected_questions):\n        raise ValueError(\"saved transfer coverage differs from the frozen development partition\")\n    tokenizer = AutoTokenizer.from_pretrained(trial / \"checkpoint\", local_files_only=True)\n    meta = read_meta(trial / \"checkpoint\")\n    context = read_manifest(suite).get(\"context\", CONTEXT)\n    recorded_rows = []\n    for record, prediction in zip(records, read_jsonl(source / \"predictions.jsonl\"), strict=True):\n        if prediction[\"id\"] != record[\"_meta\"][\"id\"] or prediction[\"request_sha256\"] != record_digest(api_request(record)):\n            raise ValueError(\"saved prediction request differs from a frozen transfer record\")\n        encoded = encode(tokenizer, materialize(record), max_state=context[\"max_state\"], max_branch=context[\"max_branch\"],\n                         strict=True, option_isolation=bool(meta.extra[\"args\"][\"option_isolation\"]))\n        if len(encoded[\"ids\"]) > context[\"max_packed\"] or len(encoded[\"ids\"]) != prediction[\"prediction\"][\"input_tokens\"]:\n            raise ValueError(\"saved prediction encoding differs from the registered read context\")\n        reconstructed = prediction_rows(record, prediction[\"prediction\"])\n        if reconstructed != prediction[\"rows\"] or any(row.get(\"inference_temperature\") != 1.0 or \"logits\" not in row for row in reconstructed):\n            raise ValueError(\"saved raw rows differ from their prediction records\")\n        recorded_rows.extend(reconstructed)\n    if recorded_rows != rows or len(rows) != expected_questions:\n        raise ValueError(\"saved rows differ from the complete prediction stream\")\n    measured = result[\"provenance\"][\"measured_checkpoint\"]\n    if measured[\"head_sha256\"] != digest(trial / \"checkpoint/head.pt\") or measured[\"inference_temperature\"] != 1.0:\n        raise ValueError(\"transfer scoring did not use the verified final head at T=1\")\n    proof = {\"reused_from\": str(source.relative_to(ROOT)), \"rows_sha256\": digest(source / \"rows.json\"),\n             \"suite_sha256\": suite_hash, \"registered_directory\": str(destination.relative_to(ROOT)),\n             \"records\": len(records), \"questions\": len(rows), \"inference_temperature\": 1.0,\n             \"measured_checkpoint\": measured, \"environment\": result[\"provenance\"][\"environment\"],\n             \"requests_encodings_predictions_and_raw_rows_verified\": True, \"new_model_calls\": 0}\n    if not write:\n        return proof\n    if (destination / \"rows.json\").exists():\n        if digest(destination / \"rows.json\") != proof[\"rows_sha256\"]:\n            raise ValueError(\"registered transfer already contains different rows; never overwrite or reread\")\n        return proof\n    destination.mkdir(exist_ok=True)\n    final_report = summarize(rows, heldout_sources=tuple(read_manifest(suite)[\"holdout_sources\"]))\n    final_report.update(coverage=coverage, latency_ms=report[\"latency_ms\"], calibration={**calibration, \"additional_temperature\": 1.0},\n                        suite_sha256=suite_hash, split=\"development\", rotations=1, date_facts=False, data=None,\n                        run=rounds.checkpoint_of(entry), calibration_applied=False, environment=proof[\"environment\"],\n                        remote=None, reuse=proof)\n    write_json(destination / \"report.json\", final_report, atomic=True)\n    write_json(destination / \"reuse.json\", proof, atomic=True)\n    temporary = destination / \".rows.json.pending\"\n    shutil.copyfile(source / \"rows.json\", temporary)\n    temporary.replace(destination / \"rows.json\")\n    return proof\n"
+    }
+  },
+  "reads": [
+    {
+      "tag": "breadth",
+      "directory": "runs/r31-31b-cont-breadth",
+      "rows_sha256": "b630989cd55be9cfc915874be071a8970d8b5154094910c5b3b65ec243f07b42",
+      "report_sha256": "bec9c9ee028c6ad68fe94e7941b4e7a5ac0870ffa7f8c7ea54a1d623a20b6a09",
+      "suite_sha256": "6a391fedf285f2f8584f0ff1a5d845a119dd34cd16c58f8aa320c8beced54563",
+      "coverage": {
+        "requested_records": 1990,
+        "requested_questions": 3075,
+        "evaluated_records": 1990,
+        "evaluated_questions": 3075,
+        "rejected_records": 0,
+        "truncated_records": 0
+      },
+      "run": "/runs/r31-g31-cont2/00-trial-0/checkpoint",
+      "environment": {
+        "packages": {
+          "torch": "2.8.0+cu128",
+          "transformers": "5.17.0",
+          "peft": "0.21.0",
+          "flash-linear-attention": "0.5.2",
+          "triton": "3.8.0",
+          "causal-conv1d": "1.7.0",
+          "mlx": null,
+          "mlx-lm": null
+        },
+        "device": "cuda",
+        "gpu": "NVIDIA H200",
+        "backend": "torch",
+        "dtype": "bfloat16",
+        "triton_f32_default": null,
+        "attention": "kev_sdpa",
+        "deltanet": null
+      }
+    },
+    {
+      "tag": "devtools",
+      "directory": "runs/r31-31b-cont-devtools",
+      "rows_sha256": "025756c8cf63d755ac5f23e978bc9042164aa2b64630a0167b8efc7084460f9f",
+      "report_sha256": "ee8af22c1167912795e0762c964377cbf483572902af8d8053398321fb37b66d",
+      "suite_sha256": "d0f7cf40cec3284684f8b2fe8f440a5f0cc40fe4a78db108eca47a5fbd141b0f",
+      "coverage": {
+        "requested_records": 900,
+        "requested_questions": 1074,
+        "evaluated_records": 900,
+        "evaluated_questions": 1074,
+        "rejected_records": 0,
+        "truncated_records": 0
+      },
+      "run": "/runs/r31-g31-cont2/00-trial-0/checkpoint",
+      "environment": {
+        "packages": {
+          "torch": "2.8.0+cu128",
+          "transformers": "5.17.0",
+          "peft": "0.21.0",
+          "flash-linear-attention": "0.5.2",
+          "triton": "3.8.0",
+          "causal-conv1d": "1.7.0",
+          "mlx": null,
+          "mlx-lm": null
+        },
+        "device": "cuda",
+        "gpu": "NVIDIA H200",
+        "backend": "torch",
+        "dtype": "bfloat16",
+        "triton_f32_default": null,
+        "attention": "kev_sdpa",
+        "deltanet": null
+      }
+    },
+    {
+      "tag": "docs",
+      "directory": "runs/r31-31b-cont-docs",
+      "rows_sha256": "842c72cbdcd3a0cff3f6f1a7cabd64fc9b20a595dc5bdbf878ea4733d67c0728",
+      "report_sha256": "75b309a51ae8a6a44b94f7a4d31a17cb7c780f106704af91c5f42a095eeb6096",
+      "suite_sha256": "711903d1241cadbfb9e0a20c93d978762123dcbec0108de9c539a60a753cf8d2",
+      "coverage": {
+        "requested_records": 568,
+        "requested_questions": 920,
+        "evaluated_records": 568,
+        "evaluated_questions": 920,
+        "rejected_records": 0,
+        "truncated_records": 0
+      },
+      "run": "/runs/r31-g31-cont2/00-trial-0/checkpoint",
+      "environment": {
+        "packages": {
+          "torch": "2.8.0+cu128",
+          "transformers": "5.17.0",
+          "peft": "0.21.0",
+          "flash-linear-attention": "0.5.2",
+          "triton": "3.8.0",
+          "causal-conv1d": "1.7.0",
+          "mlx": null,
+          "mlx-lm": null
+        },
+        "device": "cuda",
+        "gpu": "NVIDIA H200",
+        "backend": "torch",
+        "dtype": "bfloat16",
+        "triton_f32_default": null,
+        "attention": "kev_sdpa",
+        "deltanet": null
+      }
+    },
+    {
+      "tag": "hard",
+      "directory": "runs/r31-31b-cont-hard",
+      "rows_sha256": "52e95b96e0ecbf050aa061960c646720abccd31d503d413080fd53b3249ff667",
+      "report_sha256": "bf343b624aa24c6bf719be14e6153c15aa76e5c4ebeed55ff39a4ca0325b44f6",
+      "suite_sha256": "9d8dd335f5a73840b144c987ee91bb0513301128c474a7a4cd3f754a130cfa5c",
+      "coverage": {
+        "requested_records": 700,
+        "requested_questions": 1083,
+        "evaluated_records": 700,
+        "evaluated_questions": 1083,
+        "rejected_records": 0,
+        "truncated_records": 0
+      },
+      "run": "/runs/r31-g31-cont2/00-trial-0/checkpoint",
+      "environment": {
+        "packages": {
+          "torch": "2.8.0+cu128",
+          "transformers": "5.17.0",
+          "peft": "0.21.0",
+          "flash-linear-attention": "0.5.2",
+          "triton": "3.8.0",
+          "causal-conv1d": "1.7.0",
+          "mlx": null,
+          "mlx-lm": null
+        },
+        "device": "cuda",
+        "gpu": "NVIDIA H200",
+        "backend": "torch",
+        "dtype": "bfloat16",
+        "triton_f32_default": null,
+        "attention": "kev_sdpa",
+        "deltanet": null
+      }
+    },
+    {
+      "tag": "r3cal",
+      "directory": "runs/r31-31b-cont-r3cal",
+      "rows_sha256": "3c3585b2d40b6a5204bf9df47a825138e516b26a9de59b498557ee464025de9a",
+      "report_sha256": "b474d5cb8ce0c7ff468505a109b2105ce11fe71933fecdd453e50cde5559ccf1",
+      "suite_sha256": "5da4db16af3f1eac93c24443e3aa039e375af0764d7f401da303de24a67f19f0",
+      "coverage": {
+        "requested_records": 580,
+        "requested_questions": 580,
+        "evaluated_records": 580,
+        "evaluated_questions": 580,
+        "rejected_records": 0,
+        "truncated_records": 0
+      },
+      "run": "/runs/r31-g31-cont2/00-trial-0/checkpoint",
+      "environment": {
+        "packages": {
+          "torch": "2.8.0+cu128",
+          "transformers": "5.17.0",
+          "peft": "0.21.0",
+          "flash-linear-attention": "0.5.2",
+          "triton": "3.8.0",
+          "causal-conv1d": "1.7.0",
+          "mlx": null,
+          "mlx-lm": null
+        },
+        "device": "cuda",
+        "gpu": "NVIDIA H200",
+        "backend": "torch",
+        "dtype": "bfloat16",
+        "triton_f32_default": null,
+        "attention": "kev_sdpa",
+        "deltanet": null
+      }
+    },
+    {
+      "tag": "r3test",
+      "directory": "runs/r31-31b-cont-r3test",
+      "rows_sha256": "4963e91f5f69149ef165c10481a87eba04c9add2ce88d2a9458044fd97ce96f6",
+      "report_sha256": "2b340039c08bdbb972a630f953defb6e228e0de86e73038ecfc134651e2df61c",
+      "suite_sha256": "5da4db16af3f1eac93c24443e3aa039e375af0764d7f401da303de24a67f19f0",
+      "coverage": {
+        "requested_records": 1260,
+        "requested_questions": 1260,
+        "evaluated_records": 1260,
+        "evaluated_questions": 1260,
+        "rejected_records": 0,
+        "truncated_records": 0
+      },
+      "run": "/runs/r31-g31-cont2/00-trial-0/checkpoint",
+      "environment": {
+        "packages": {
+          "torch": "2.8.0+cu128",
+          "transformers": "5.17.0",
+          "peft": "0.21.0",
+          "flash-linear-attention": "0.5.2",
+          "triton": "3.8.0",
+          "causal-conv1d": "1.7.0",
+          "mlx": null,
+          "mlx-lm": null
+        },
+        "device": "cuda",
+        "gpu": "NVIDIA H200",
+        "backend": "torch",
+        "dtype": "bfloat16",
+        "triton_f32_default": null,
+        "attention": "kev_sdpa",
+        "deltanet": null
+      }
+    },
+    {
+      "tag": "semif",
+      "directory": "runs/r31-31b-cont-semif",
+      "rows_sha256": "14fd1f9da4ef7ed6f2ab6143bcd5ace05b37c5194ac2aa654254cc35c95092bf",
+      "report_sha256": "11e2e72f82a593953979c7bec517c6a49d95f485d9e2d0bc9b3506c65bd7ca01",
+      "suite_sha256": "0de05eac16b0ddeeb2719c50a94a9148d6ae195f66303aec74aa103a3845ad11",
+      "coverage": {
+        "requested_records": 252,
+        "requested_questions": 252,
+        "evaluated_records": 252,
+        "evaluated_questions": 252,
+        "rejected_records": 0,
+        "truncated_records": 0
+      },
+      "run": "/runs/r31-g31-cont2/00-trial-0/checkpoint",
+      "environment": {
+        "packages": {
+          "torch": "2.8.0+cu128",
+          "transformers": "5.17.0",
+          "peft": "0.21.0",
+          "flash-linear-attention": "0.5.2",
+          "triton": "3.8.0",
+          "causal-conv1d": "1.7.0",
+          "mlx": null,
+          "mlx-lm": null
+        },
+        "device": "cuda",
+        "gpu": "NVIDIA H200",
+        "backend": "torch",
+        "dtype": "bfloat16",
+        "triton_f32_default": null,
+        "attention": "kev_sdpa",
+        "deltanet": null
+      }
+    },
+    {
+      "tag": "transfer4",
+      "directory": "runs/r31-31b-cont-transfer4",
+      "rows_sha256": "3e5eb55581704c1dfe31490995dcbb06248db21bc6ee3b19e8687d86f0c89b2d",
+      "report_sha256": "62400fc61f5f232c28816239f888e1fc394e5a36de059613f1b41409b055e3f3",
+      "suite_sha256": "31677c2256b406222e7d94ffdc0a02a70ce05746b9efe307876024c4e77291d1",
+      "coverage": {
+        "requested_records": 764,
+        "requested_questions": 764,
+        "evaluated_records": 764,
+        "evaluated_questions": 764,
+        "rejected_records": 0,
+        "truncated_records": 0
+      },
+      "run": "/runs/r31-g31-cont2/00-trial-0/checkpoint",
+      "environment": {
+        "packages": {
+          "torch": "2.8.0+cu128",
+          "transformers": "5.17.0",
+          "peft": "0.21.0",
+          "flash-linear-attention": "0.5.2",
+          "triton": "3.8.0",
+          "causal-conv1d": "1.7.0",
+          "mlx": null,
+          "mlx-lm": null
+        },
+        "device": "cuda",
+        "gpu": "NVIDIA H200",
+        "backend": "torch",
+        "dtype": "bfloat16",
+        "triton_f32_default": null,
+        "attention": "kev_sdpa",
+        "deltanet": null
+      }
+    },
+    {
+      "tag": "tsheld",
+      "directory": "runs/r31-31b-cont-tsheld",
+      "rows_sha256": "6ab6022a8a3a216b6ae9f8216e3773e57207e98871a186f2a09af9a2b5340a49",
+      "report_sha256": "0fa596a254e0d4fdd364574f8b66c5c559a3ff57863a47d97255db38c7c23e42",
+      "suite_sha256": "327f4e1a2d0cd94aa7a37ee5452b2188756676e235c4179763dee5acc6376c87",
+      "coverage": {
+        "requested_records": 2386,
+        "requested_questions": 2788,
+        "evaluated_records": 2386,
+        "evaluated_questions": 2788,
+        "rejected_records": 0,
+        "truncated_records": 0
+      },
+      "run": "/runs/r31-g31-cont2/00-trial-0/checkpoint",
+      "environment": {
+        "packages": {
+          "torch": "2.8.0+cu128",
+          "transformers": "5.17.0",
+          "peft": "0.21.0",
+          "flash-linear-attention": "0.5.2",
+          "triton": "3.8.0",
+          "causal-conv1d": "1.7.0",
+          "mlx": null,
+          "mlx-lm": null
+        },
+        "device": "cuda",
+        "gpu": "NVIDIA H200",
+        "backend": "torch",
+        "dtype": "bfloat16",
+        "triton_f32_default": null,
+        "attention": "kev_sdpa",
+        "deltanet": null
+      }
+    },
+    {
+      "tag": "v9",
+      "directory": "runs/r31-31b-cont-v9",
+      "rows_sha256": "33c596ab93db339bc6583175b84d98c2747875da1ea6afa17142a861af1b3445",
+      "report_sha256": "2a8e61a15b1ce59a3a6c7941c67b33e9353b966784910cec120249c76005597e",
+      "suite_sha256": "3c4f0be94509a3612678bfd3a30fd99a8d0ca3c47ddfe7318075d95b2fa365e4",
+      "coverage": {
+        "requested_records": 1264,
+        "requested_questions": 1264,
+        "evaluated_records": 1264,
+        "evaluated_questions": 1264,
+        "rejected_records": 0,
+        "truncated_records": 0
+      },
+      "run": "/runs/r31-g31-cont2/00-trial-0/checkpoint",
+      "environment": {
+        "packages": {
+          "torch": "2.8.0+cu128",
+          "transformers": "5.17.0",
+          "peft": "0.21.0",
+          "flash-linear-attention": "0.5.2",
+          "triton": "3.8.0",
+          "causal-conv1d": "1.7.0",
+          "mlx": null,
+          "mlx-lm": null
+        },
+        "device": "cuda",
+        "gpu": "NVIDIA H200",
+        "backend": "torch",
+        "dtype": "bfloat16",
+        "triton_f32_default": null,
+        "attention": "kev_sdpa",
+        "deltanet": null
+      }
+    }
+  ],
+  "read_launch": {
+    "launched_at": 1791614549.600128,
+    "commands": [
+      [
+        "modal",
+        "run",
+        "--detach",
+        "modal_app.py::benchmarks",
+        "--jobs",
+        "/runs/r31-g31-cont2/00-trial-0/checkpoint@evals/breadth-v1@r31-31b-cont-breadth,/runs/r31-g31-cont2/00-trial-0/checkpoint@evals/devtools-v1@r31-31b-cont-devtools,/runs/r31-g31-cont2/00-trial-0/checkpoint@evals/documents-v1@r31-31b-cont-docs,/runs/r31-g31-cont2/00-trial-0/checkpoint@evals/hard-v1@r31-31b-cont-hard,/runs/r31-g31-cont2/00-trial-0/checkpoint@evals/round3/transfer-r3@r31-31b-cont-r3cal@--split calibration,/runs/r31-g31-cont2/00-trial-0/checkpoint@evals/round3/transfer-r3@r31-31b-cont-r3test@--allow-test,/runs/r31-g31-cont2/00-trial-0/checkpoint@evals/external/semif-v1@r31-31b-cont-semif,/runs/r31-g31-cont2/00-trial-0/checkpoint@evals/tasksource-heldout-v1@r31-31b-cont-tsheld,/runs/r31-g31-cont2/00-trial-0/checkpoint@evals/v9/transfer-v9@r31-31b-cont-v9",
+        "--gpu",
+        "H200",
+        "--timeout",
+        "2700"
+      ]
+    ]
+  },
+  "screen": {
+    "complete": true,
+    "candidates": {
+      "31b": null
+    },
+    "readout_sha256": "02afa8d02522673dac2b289a617545f0811a792aca92f7f2faa124c07379bb10"
+  },
+  "long_guard": {
+    "status": "unread",
+    "reason": "no registered short-screen survivor"
+  },
+  "negative_gate_cases": {
+    "optimizer_steps": true,
+    "requested_records": true,
+    "records_seen": true,
+    "world_size": true,
+    "snapshots": true,
+    "grad_norm": true
+  },
+  "structural_review": {
+    "verdict": "approval bar met",
+    "scope": "ResumeWriter position ownership and regression delta"
+  },
+  "outstanding_candidate_tasks": []
+}

@@ -3372,6 +3372,62 @@ original app currently shows only $0.00169026 of CPU/memory costs and may lag, s
 Continue to count actual failed-start costs and all outstanding bounds at every later admission. No blend or parent
 read is repeated, and the continuation remains incomplete until the unchanged recovery produces evidence.
 
+**Continuation completion and final verdict (2026-10-10).** The frozen recovery finished on its second registered
+attempt, resuming optimizer step 295. It completed all **454 optimizer steps**, 58,094 admitted requests plus
+8,148 none-pair augmentations (two siblings each), hence **74,390 records seen**, on eight H200s. The registered
+recipe, fresh-optimizer warm start, base revision and training-source hashes remain unchanged; there are no snapshots,
+early stop, truncated records or rejected records after tokenizer admission. The initial foreign-tokenizer admission
+excluded 421 of 58,515 records; this is filtering before training, not truncation.
+
+The first final-checkpoint gate rejected a real **resume-telemetry race**, not unfinished optimization:
+`ResumeWriter` froze optimizer tensors, scheduler and RNG, but its background thread retained mutable nested
+`position` histories. The native final artifact has 461 gradient/timing entries for 454 steps, a seven-entry overcount.
+`kev/full_ft.py` now deep-copies the position at the writer boundary. An event-controlled regression fails on the
+frozen pre-fix source only at the history assertion, and passes on the fix for both fp32 and bf16, with exact final
+working weights, optimizer state and scheduler state across interruption/resume. These are CPU trajectory checks,
+not a new bit-identical GPU-training claim.
+
+The native files were **not edited or rewritten**. Their gradient/timing histories and derived statistics are invalid
+and quarantined. Acceptance instead requires the exact checkpoint/log digests, frozen commit/source map, registered
+arguments, independent optimizer/data/control-flow counters and measured checkpoint identity. Negative checks reject
+altered steps, requested/seen records, world size, snapshots and gradient summaries. `"none"` is interpreted by the
+canonical snapshot parser, not compared against an unparsed list. Remote verification read the actual 832 bf16
+safetensors, checked schema against the parent, contiguous offsets/shard sizes and full payload/head hashes:
+weights `53c95fb74368722d239b2e776d5ee694e24a68275757c2085e36a1931f62fc85`,
+head `9f4f6b036a61ccfd89025532c53c1f12b905d36d05874cd3019a6c4e39522ac9`.
+The native 764 transfer-v4 requests/encodings/raw-logit rows supply that registered panel with **zero new model calls**.
+Only the other nine short panels were launched, each once; all completed without rejected or truncated records.
+The detailed acceptance proof and operational verifier sources are in `runs/r31-readout/continuation-verification.json`.
+
+At pooled T **1.382** (90% temperature interval [1.231, 1.516], 648 questions), versus the same v2 parent pool:
+
+| continuation panel | accuracy delta, pp (paired 95% interval) | Brier delta | ECE candidate minus parent |
+|---|---|---|---|
+| breadth, audited | −0.1 [−1.3, +1.0] | +0.013 | +0.013 |
+| tasksource-heldout, excluded families | −0.4 [−2.0, +1.3] | +0.000 | −0.014 |
+| Kev panel | −0.6 [−1.6, +0.4] | +0.012 | −0.000 |
+| hard | −2.4 [−4.3, −0.6] | +0.038 | −0.017 |
+| devtools, audited | −0.5 [−2.7, +1.9] | +0.002 | −0.006 |
+| documents | +0.7 [−1.2, +2.5] | −0.001 | +0.000 |
+| short state | +0.6 [−0.7, +2.0] | −0.000 | — |
+
+The continuation fails the **same five** criteria as the blend: neither positive-gain primary clears zero, the
+Kev lower bound is below −1 pp, short-state confident-error upper bound is +1.3 pp (bar +1 pp), and breadth ECE
+exceeds parent +0.01. Unknowable share is zero. Both arms are complete short-screen failures in
+`runs/r31-readout/round31.json`; **no survivor, no candidate, keep Kev-27B v2**. The extra pass reduces the hard gap
+from round 30's −4.7 pp to −2.4 pp, but does not beat v2 or satisfy the registered rule. No conditional longdoc
+read was admitted; that guard remains **unread**, not passed or failed. No publishing, Hub writes, release or merge.
+
+Final execution has no outstanding candidate jobs. App-scoped billing across 19 identified apps is
+**$174.00457262 observed 2026-10-10 06:57 UTC**, still provisional because provider billing can lag; the snapshot
+is `runs/r31-readout/scoped-billing.json`. It includes verification/control apps, not just training, and remains
+inside the $500 cap. Structural re-review approves the one-line writer-boundary fix: no call-site special cases,
+new canonical rules or production helper layers. The post-fix ten fast suites pass **508 tests**, with 21
+unavailable archived-artifact skips; the interrupted/resumed fp32/bf16 regression and negative gate checks pass.
+An additional attempt to run the live API-conformance file had no local server listening and failed all 13 tests
+at connection setup; it is not a passing API run or evidence of a model-path regression.
+The previously recorded GPU, smoke-fixture, historical-private-history and missing-archive caveats remain in force.
+
 ## Record
 
 One line per round or named study. `rN.json` is `experiments/rounds/rN.json` on main (the rule as data; `python -m
