@@ -105,6 +105,47 @@ def test_dedupe_drops_exact_copies_and_conflicting_states():
     assert [r["state"] for r in kept] == ["login broken"]
 
 
+@pytest.mark.parametrize("left,right", [
+    ({"type": "score", "criteria": ["bad", "good"], "label": 1},
+     {"type": "score", "criteria": ["bad", "neutral", "good"], "label": 2}),
+    ({"type": "choice", "criteria": {"a": "billing", "b": "shipping"}, "label": "a"},
+     {"type": "choice", "criteria": {"a": "shipping", "b": "billing"}, "label": "b"}),
+    ({"type": "noul", "label": True},
+     {"type": "choice", "criteria": {"yes": "yes", "no": "no"}, "label": "yes"}),
+])
+def test_dedupe_preserves_different_question_definitions(left, right):
+    rows = [{"state": "same input", "questions": {"answer": {"instructions": "Assess this input", **q}}} for q in (left, right)]
+    assert all(split_data.check_record(row) == [] for row in rows)
+    assert split_data.dedupe(rows) == (rows, 0, 0)
+
+
+def test_dedupe_still_detects_conflicts_with_reordered_criteria_keys():
+    first = {"type": "choice", "instructions": "Route this", "criteria": {"a": "billing", "b": "shipping"}, "label": "a"}
+    second = {**first, "criteria": {"b": "shipping", "a": "billing"}, "label": "b"}
+    rows = [{"state": "same input", "questions": {"answer": q}} for q in (first, second)]
+    assert split_data.dedupe(rows) == ([], 0, 1)
+
+
+def test_split_cli_keeps_question_variants_in_the_same_partition(tmp_path, monkeypatch):
+    rows = [{"state": f"case {i}", "questions": {"rating": {
+        "type": "score", "instructions": "Rate the experience", "criteria": levels, "label": len(levels) - 1}}}
+        for i in range(60) for levels in (["bad", "good"], ["bad", "neutral", "good"])]
+    src, out = tmp_path / "variants.jsonl", tmp_path / "out"
+    src.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["split_data.py", str(src), "--out", str(out)])
+    assert split_data.main() == 0
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    assert summary["records"] == 120 and summary["conflicting_states_dropped"] == 0
+    states = []
+    for name in ("train", "calibration", "development"):
+        part = [json.loads(line) for line in (out / f"{name}.jsonl").read_text(encoding="utf-8").splitlines()]
+        counts = Counter(split_data.state_key(row["state"]) for row in part)
+        assert set(counts.values()) == {2}
+        states.append(set(counts))
+    assert sum(map(len, states)) == 60
+    assert not (states[0] & states[1] or states[0] & states[2] or states[1] & states[2])
+
+
 def test_split_keeps_states_together_and_is_deterministic():
     rows = [record(f"ticket {i % 40}", dept=["returns", "shipping", "billing", "account"][i % 4]) for i in range(80)]
     parts = split_data.split(rows, {"calibration": 0.2, "development": 0.2}, seed=3)

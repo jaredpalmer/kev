@@ -117,7 +117,8 @@ def dedupe(records):
         seen.add(fingerprint)
         key = state_key(r["state"])
         for qid, q in r["questions"].items():
-            previous = by_state[key].setdefault((qid, json.dumps(q.get("instructions"), sort_keys=True)), label_key(q))
+            question = json.dumps({k: q.get(k) for k in ("type", "instructions", "criteria")}, sort_keys=True)
+            previous = by_state[key].setdefault((qid, question), label_key(q))
             if previous != label_key(q): conflicts.add(key)
         kept.append(r)
     dropped_dupes = len(records) - len(kept)
