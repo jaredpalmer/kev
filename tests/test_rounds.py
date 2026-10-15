@@ -780,6 +780,51 @@ def test_arms_are_served_at_the_pooled_temperature_and_parents_at_their_own(tmp_
     assert side.pool.reads == ["runs/r99-x-wise-cal", "runs/r99-x-wise-v9"] and side.dirs["locked"] == "runs/locked/kev-x-r99-ungated/transfer"
 
 
+@pytest.mark.parametrize("templated", [False, True])
+def test_a_pooled_parent_is_served_at_the_pool_over_its_own_reads(tmp_path, templated):
+    """A parent without development rows (a blend, Kev-27B v2) is served on the round's pool over its reads, as an arm is."""
+    spec = _pool_round(tmp_path)
+    spec["parents"]["p"] = {"trial": "runs/release/p", "pooled": True, "transfer_read": "transfer4",
+                            "reads": {t: (f"runs/r{{round}}-x-wise-{t}" if templated else f"runs/r99-x-wise-{t}")
+                                      for t in ("main", "cal", "v9", "transfer4")}}
+    assert not (tmp_path / "runs/release/p/development").exists()
+    assert rounds.validate(spec, tmp_path, plans=False).problems == []
+    parent, wise = rounds.parent_side(spec, "x-wise", tmp_path), rounds.arm_side(spec, "x-wise", tmp_path)
+    assert parent.dirs["transfer"] == "runs/r99-x-wise-transfer4" and parent.pool.reads == wise.pool.reads and parent.t == wise.t
+    assert rounds.readout(spec, tmp_path)["arms"]["x-wise"]["parent_temperature"] == wise.t
+    parent_reads = rounds.side_reads(spec, "x-wise", spec["rule"], "parent", parent)
+    assert {tag for tag, _ in parent_reads} >= {"cal", "v9", "transfer4"}
+    spec.pop("temperature")
+    for rows in (False, True):
+        assert "parent p: pooled parent needs a `temperature` pool" in rounds.validate(spec, tmp_path, rows=rows, plans=False).problems
+
+
+def test_a_missing_parent_pool_read_leaves_the_comparison_incomplete(tmp_path):
+    spec = _pool_round(tmp_path)
+    parent_cal = "runs/parent-cal"
+    _rows(tmp_path, parent_cal, [f"c/{i}" for i in range(80)], 8, source="mmlu")
+    spec["parents"]["p"] = {
+        "trial": "runs/release/p",
+        "pooled": True,
+        "transfer_read": "transfer4",
+        "reads": {
+            "cal": parent_cal,
+            "v9": "runs/r99-x-wise-v9",
+            "main": "runs/p-main",
+            "transfer4": "runs/r99-x-wise-transfer4",
+        },
+    }
+    (tmp_path / parent_cal / "rows.json").unlink()
+    assert any(
+        f"parent temperature read {parent_cal}" in problem
+        for problem in rounds.validate(spec, tmp_path, plans=False).problems
+    )
+    wise = rounds.readout(spec, tmp_path)["arms"]["x-wise"]
+    assert (wise["complete"], wise["passed"], wise["missing"]) == (
+        False, None, [f"parent:{parent_cal}"]
+    )
+
+
 def test_calibrate_checkpoint_ships_the_pooled_temperature(tmp_path):
     """scripts/calibrate_checkpoint.py --rows path:sources ... --exclude_rows selects what the round's pool selects, so the
     temperature a release writes into head.pt is the one its round served it at."""
