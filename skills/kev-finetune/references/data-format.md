@@ -41,7 +41,9 @@ fit are dropped by the trainer with a printed count; `kev_modal.py::validate` re
   `generate_data.py` targets this automatically; `split_data.py` warns when it fails.
 - **Hard negatives.** States that mention two options but where the rule picks one; polite anger; short and long inputs.
   Put the rule in the spec's `guidance` so the generator labels consistently.
-- **Distinct states.** Identical states with different labels are dropped as conflicts. Near-duplicates inflate scores;
+- **Distinct states.** Identical states with different labels on the same question definition are dropped as conflicts.
+  The definition is the question id, type, instructions and criteria. Two rubrics that share a state are kept, in the
+  same partition, and their labels are counted separately. Near-duplicates inflate scores;
   `split_data.py` groups exact matches only, so vary names, numbers and wording.
 - **Several questions per record** are fine and cheaper (one state, several labels), as long as each label is right.
 - **Real examples first.** If you have 50 real labelled cases, use them as `--examples` for the generator and keep
@@ -61,6 +63,9 @@ development; below that the temperature fit and the scores are unstable.
 ## Converting existing labels
 
 Map each source row to one record. Keep the model's `instructions` and `criteria` constant across records (put them in
-a small Python dict and reuse it). Convert labels to the required type: routing names -> `choice` option names, flags ->
+a small Python dict and reuse it). A file with two definitions of one id is not a label conflict.
+`split_data.py` counts each definition on its own. One definition keeps the question id, in the order the ids first
+appear. A second is named `rating (2 levels)`, or `answer (2 options) #2` when that name is already used, and every
+partition uses that same name. Convert labels to the required type: routing names -> `choice` option names, flags ->
 `noul` booleans, ratings -> `score` indices (subtract 1 if your scale starts at 1). Then run
 `python3 scripts/split_data.py yours.jsonl` to validate before splitting.

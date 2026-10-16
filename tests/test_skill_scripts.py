@@ -105,6 +105,164 @@ def test_dedupe_drops_exact_copies_and_conflicting_states():
     assert [r["state"] for r in kept] == ["login broken"]
 
 
+@pytest.mark.parametrize("left,right", [
+    ({"type": "score", "criteria": ["bad", "good"], "label": 1},
+     {"type": "score", "criteria": ["bad", "neutral", "good"], "label": 2}),
+    ({"type": "score", "instructions": "Rate anger", "criteria": ["bad", "good"], "label": 0},
+     {"type": "score", "instructions": "Rate joy", "criteria": ["bad", "good"], "label": 1}),
+    ({"type": "score", "criteria": ["bad", "good"], "label": 0},
+     {"type": "score", "criteria": ["good", "bad"], "label": 1}),
+    ({"type": "choice", "criteria": {"a": "billing", "b": "shipping"}, "label": "a"},
+     {"type": "choice", "criteria": {"a": "shipping", "b": "billing"}, "label": "b"}),
+    ({"type": "noul", "label": True},
+     {"type": "choice", "criteria": {"yes": "yes", "no": "no"}, "label": "yes"}),
+    ({"type": "noul", "label": True},
+     {"type": "noul", "criteria": {"true": "yes", "false": "no"}, "label": False}),
+])
+def test_dedupe_preserves_different_question_definitions(left, right):
+    rows = [{"state": "same input", "questions": {"answer": {"instructions": "Assess this input", **q}}} for q in (left, right)]
+    assert all(split_data.check_record(row) == [] for row in rows)
+    assert split_data.dedupe(rows) == (rows, 0, 0)
+
+
+@pytest.mark.parametrize("criteria", [
+    {"a": "billing", "b": "shipping"},
+    {"é": "naïve", "b": "autre"},
+])
+def test_dedupe_still_detects_conflicts_with_reordered_criteria_keys(criteria):
+    first = {"type": "choice", "instructions": "Route this", "criteria": criteria, "label": next(iter(criteria))}
+    second = {**first, "criteria": {k: criteria[k] for k in reversed(criteria)}, "label": next(reversed(criteria))}
+    rows = [{"state": "same input", "questions": {"answer": q}} for q in (first, second)]
+    assert split_data.dedupe(rows) == ([], 0, 1)
+
+
+def test_dedupe_treats_missing_and_null_noul_criteria_as_one_form():
+    bare = {"type": "noul", "instructions": "Urgent?", "label": True}
+    null = {"type": "noul", "instructions": "Urgent?", "criteria": None, "label": False}
+    rows = [{"state": "same input", "questions": {"urgent": q}} for q in (bare, null)]
+    assert all(split_data.check_record(row) == [] for row in rows)
+    assert split_data.dedupe(rows) == ([], 0, 1)
+
+
+def test_label_table_counts_each_question_definition():
+    short = {"type": "score", "instructions": "Rate it", "criteria": ["bad", "good"], "label": 1}
+    long = {"type": "score", "instructions": "Rate it", "criteria": ["bad", "neutral", "good"], "label": 1}
+    rows = [{"state": "same", "questions": {"rating": q}} for q in (short, long)]
+    table = split_data.label_table(rows)
+    assert table["rating (2 levels)"] == Counter({"1": 1})
+    assert table["rating (3 levels)"] == Counter({"1": 1})
+    warnings = {w.split(":")[0]: w for w in split_data.warnings_for(rows)}
+    assert "['0']" in warnings["question 'rating (2 levels)'"]
+    assert "['0', '2']" in warnings["question 'rating (3 levels)'"]
+    assert set(split_data.label_table([record("x")])) == {"department", "escalate", "frustration"}
+    plain = {"type": "noul", "instructions": "Is it urgent?", "label": True}
+    described = {"type": "noul", "instructions": "Is it urgent?", "criteria": {"true": "yes", "false": "no"}, "label": False}
+    noul_rows = [{"state": f"n{i}", "questions": {"answer": q}} for i, q in enumerate((plain, described))]
+    assert set(split_data.label_table(noul_rows)) == {"answer (noul)", "answer (noul) #2"}
+
+
+def test_form_names_stay_with_the_definition_when_the_file_is_reversed():
+    forms = [{"type": "choice", "instructions": instr, "criteria": {"a": "1", "b": "2"}, "label": "a"} for instr in ("Alpha", "Beta", "Gamma")]
+    rows = [{"state": f"s{i}", "questions": {"answer": q}} for i, q in enumerate(forms)]
+    def named(seq):
+        return {sample["instructions"]: name for name, sample, _ in split_data.label_groups(seq)}
+    assert named(rows) == named(list(reversed(rows)))
+    assert set(named(rows).values()) == {"answer (2 options)", "answer (2 options) #2", "answer (2 options) #3"}
+
+
+def test_form_name_does_not_replace_another_question_id():
+    rows = [
+        {"state": "a", "questions": {
+            "answer": {"type": "choice", "instructions": "One", "criteria": {"a": "1", "b": "2"}, "label": "a"},
+            "answer (2 options)": {"type": "noul", "instructions": "Other?", "label": True}}},
+        {"state": "b", "questions": {
+            "answer": {"type": "choice", "instructions": "Two", "criteria": {"c": "1", "d": "2"}, "label": "c"}}}]
+    table = split_data.label_table(rows)
+    assert table["answer (2 options)"] == Counter({"true": 1})
+    assert sum(sum(counts.values()) for counts in table.values()) == 3
+    assert Counter({"a": 1}) in table.values() and Counter({"c": 1}) in table.values()
+
+
+def test_summary_keeps_question_ids_in_first_seen_order(tmp_path, monkeypatch):
+    rows = [{"state": f"s{i}", "questions": {
+        "zebra": {"type": "noul", "instructions": "Z?", "label": i % 2 == 0},
+        "apple": {"type": "noul", "instructions": "A?", "label": True}}} for i in range(30)]
+    src, out = tmp_path / "ids.jsonl", tmp_path / "out"
+    src.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["split_data.py", str(src), "--out", str(out)])
+    assert split_data.main() == 0
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    assert list(split_data.label_table(rows)) == ["zebra", "apple"]
+    for part in summary["partitions"].values():
+        assert list(part["labels"]) == ["zebra", "apple"]
+
+
+def test_summary_uses_one_name_for_a_form_in_every_partition(tmp_path, monkeypatch):
+    short = {"type": "score", "instructions": "Rate", "criteria": ["bad", "good"], "label": 1}
+    long = {"type": "score", "instructions": "Rate", "criteria": ["bad", "neutral", "good"], "label": 2}
+    rows = [{"state": f"short {i}", "questions": {"rating": short}} for i in range(2)]
+    rows.append({"state": "long 0", "questions": {"rating": long}})
+    src, out = tmp_path / "scales.jsonl", tmp_path / "out"
+    src.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    # 3 states at 0.34/0.34 puts one state in each partition, so two partitions contain only the short scale.
+    monkeypatch.setattr(sys, "argv", ["split_data.py", str(src), "--out", str(out), "--calibration", "0.34", "--development", "0.34"])
+    assert split_data.main() == 0
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    keys = [set(part["labels"]) for part in summary["partitions"].values()]
+    assert {"rating (3 levels)"} in keys and {"rating (2 levels)"} in keys
+    assert all("rating" not in part["labels"] for part in summary["partitions"].values())
+
+
+def test_holdout_scale_keeps_its_own_summary_name(tmp_path, monkeypatch):
+    short = {"type": "score", "instructions": "Rate", "criteria": ["bad", "good"], "label": 1}
+    long = {"type": "score", "instructions": "Rate", "criteria": ["bad", "neutral", "good"], "label": 2}
+    synthetic = [{"state": f"gen {i}", "questions": {"rating": short}} for i in range(10)]
+    real = [{"state": f"real {i}", "questions": {"rating": long}} for i in range(6)]
+    for name, group in (("gen.jsonl", synthetic), ("real.jsonl", real)):
+        (tmp_path / name).write_text("".join(json.dumps(row) + "\n" for row in group), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["split_data.py", str(tmp_path / "gen.jsonl"), "--out", str(tmp_path / "out"), "--holdout", str(tmp_path / "real.jsonl")])
+    assert split_data.main() == 0
+    summary = json.loads((tmp_path / "out/summary.json").read_text(encoding="utf-8"))
+    assert set(summary["partitions"]["train"]["labels"]) == {"rating (2 levels)"}
+    assert set(summary["partitions"]["calibration"]["labels"]) == {"rating (3 levels)"}
+    assert set(summary["partitions"]["development"]["labels"]) == {"rating (3 levels)"}
+
+
+def test_invalid_criteria_is_rejected_before_the_histogram(tmp_path, monkeypatch):
+    rows = [record(f"case {i}") for i in range(30)]
+    bad = [{"state": "no criteria", "questions": {"rating": {"type": "score", "instructions": "Rate", "label": 1}}},
+           {"state": "list criteria", "questions": {"team": {"type": "choice", "instructions": "Who?", "criteria": ["a", "b"], "label": "a"}}}]
+    src = tmp_path / "d.jsonl"
+    src.write_text("".join(json.dumps(row) + "\n" for row in rows + bad), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["split_data.py", str(src), "--out", str(tmp_path / "out")])
+    assert split_data.main() == 0
+    summary = json.loads((tmp_path / "out/summary.json").read_text(encoding="utf-8"))
+    assert summary["invalid_lines"] == 2 and summary["records"] == 30
+    assert all(set(part["labels"]) == {"department", "escalate", "frustration"} for part in summary["partitions"].values())
+
+
+def test_split_cli_keeps_question_variants_in_the_same_partition(tmp_path, monkeypatch):
+    rows = [{"state": f"case {i}", "questions": {"rating": {
+        "type": "score", "instructions": "Rate the experience", "criteria": levels, "label": len(levels) - 1}}}
+        for i in range(60) for levels in (["bad", "good"], ["bad", "neutral", "good"])]
+    src, out = tmp_path / "variants.jsonl", tmp_path / "out"
+    src.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["split_data.py", str(src), "--out", str(out)])
+    assert split_data.main() == 0
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    assert summary["records"] == 120 and summary["conflicting_states_dropped"] == 0
+    for part in summary["partitions"].values():
+        assert set(part["labels"]) == {"rating (2 levels)", "rating (3 levels)"}
+    states = []
+    for name in ("train", "calibration", "development"):
+        part = [json.loads(line) for line in (out / f"{name}.jsonl").read_text(encoding="utf-8").splitlines()]
+        counts = Counter(split_data.state_key(row["state"]) for row in part)
+        assert set(counts.values()) == {2}
+        states.append(set(counts))
+    assert sum(map(len, states)) == 60
+    assert not (states[0] & states[1] or states[0] & states[2] or states[1] & states[2])
+
+
 def test_split_keeps_states_together_and_is_deterministic():
     rows = [record(f"ticket {i % 40}", dept=["returns", "shipping", "billing", "account"][i % 4]) for i in range(80)]
     parts = split_data.split(rows, {"calibration": 0.2, "development": 0.2}, seed=3)
