@@ -15,7 +15,7 @@ import argparse, asyncio, atexit, hmac, os, queue, random, sys, threading, time,
 from concurrent.futures import Future
 import torch
 from dataclasses import dataclass, field, replace
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -31,6 +31,7 @@ PREFIX_MAX_TOKENS = int(os.environ.get("KEV_PREFIX_MAX_TOKENS", "65536"))  # sta
 DATE_FACTS = os.environ.get("KEV_DATE_FACTS", "0") == "1"
 TRUNCATE_STATES = os.environ.get("KEV_TRUNCATE_STATES", "0") == "1"    # unset = a state over SERVE_MAX_STATE tokens gets a 422; 1 = read its first SERVE_MAX_STATE tokens, and every response says whether it did (truncated, usage.state_tokens / state_tokens_used)
 API_KEY = os.environ.get("KEV_API_KEY")                                  # unset = open server; set = require Authorization: Bearer <key>, as the TypeSafe clients always send
+QUEUE_POLL_S = 0.5                                                       # how often a queued request checks that its client is still there
 MAX_BATCH = int(os.environ.get("KEV_MAX_BATCH", "64"))                                                           # requests the model thread takes at once (kev.cuda_graphs splits them to fit its buffers)
 MODEL_NAMES = ("kev-latest", "jev-latest")                               # both names serve this checkpoint; jev-latest is the TypeSafe SDK default model, so an unconfigured client works
 
@@ -105,6 +106,7 @@ class Server:
     lock: threading.Lock = field(default_factory=threading.Lock)
     batches: int = 0
     batched_requests: int = 0
+    abandoned: int = 0   # queued requests skipped because their client disconnected before the model thread reached them
     release_date: str = field(default="")   # for the TypeSafe model card; resolved once (may ask the Hub)
     truncate_states: bool = field(default_factory=lambda: TRUNCATE_STATES)   # KEV_TRUNCATE_STATES; off: an over-length state is refused (kev.model.admit)
 
@@ -126,7 +128,9 @@ class Server:
         if self.stopping.is_set(): return
         self.stopping.set(); self.thread.join()
         while not self.queue.empty():
-            self.queue.get_nowait()[1].set_exception(RuntimeError("the server stopped")); self.queue.task_done()
+            done = self.queue.get_nowait()[1]
+            if not done.cancelled(): done.set_exception(RuntimeError("the server stopped"))
+            self.queue.task_done()
         sys.setswitchinterval(self.switch_interval)
 
     def submit(self, rec):
@@ -158,6 +162,12 @@ class Server:
             while len(batch) < MAX_BATCH:
                 try: batch.append(self.queue.get_nowait())
                 except queue.Empty: break
+            # a client that disconnected while queued cancelled its future (answer_async); skip it instead of answering nobody
+            live = [item for item in batch if item[1].set_running_or_notify_cancel()]
+            for _ in range(len(batch) - len(live)): self.queue.task_done()
+            self.abandoned += len(batch) - len(live)
+            batch = live
+            if not batch: continue
             try:
                 with self.lock: results = self._run([enc for enc, _ in batch])
             except Exception as e:   # every request of the batch gets the error; the thread lives on
@@ -202,11 +212,21 @@ class Server:
         rec, meta = to_record(prepare(req))
         return self._body(req, meta, *self.probs(rec))
 
-    async def answer_async(self, req):
+    async def answer_async(self, req, disconnected=None):
         """answer() for the event loop: a request waiting on the model thread holds no worker thread, so a container takes
-        as many concurrent requests as its batches can absorb (FastAPI runs sync endpoints on a 40-thread pool)."""
+        as many concurrent requests as its batches can absorb (FastAPI runs sync endpoints on a 40-thread pool).
+        `disconnected` (Request.is_disconnected) is polled while the request is queued: a client that gave up cancels its
+        place, so a slow server does not spend its model time on answers nobody reads (clients with short timeouts and
+        retries otherwise pile up a queue that only grows)."""
         rec, meta = to_record(prepare(req))
-        return self._body(req, meta, *await asyncio.wrap_future(self.submit(rec)))
+        done = self.submit(rec)
+        waiting = asyncio.wrap_future(done)
+        while disconnected is not None:
+            finished, _ = await asyncio.wait({waiting}, timeout=QUEUE_POLL_S)
+            if finished: break
+            if await disconnected() and done.cancel():
+                raise HTTPException(499, "client disconnected before its request ran")
+        return self._body(req, meta, *await waiting)
 
     def _body(self, req, meta, ps, m):
         """The TypeSafe body. A server that may truncate (truncate_states) also says, on every response, whether it did:
@@ -247,9 +267,9 @@ def server() -> Server:
 
 
 @app.post("/v1/systemone")
-async def systemone(req: SystemOneRequest):
+async def systemone(req: SystemOneRequest, request: Request):
     """TypeSafe-compatible endpoint: typed questions in, typed answers out, one prefill pass."""
-    return await server().answer_async(req)
+    return await server().answer_async(req, request.is_disconnected)
 
 
 class PermuteSystemOne(BaseModel):
@@ -308,7 +328,7 @@ def models():
             "cuda_graphs": graphs.stats() if (graphs := getattr(s.model, "graphs", None)) else None,
             "prefix_cache": {"size": s.prefix_cache.size, "min_state_tokens": s.prefix_cache.min_tokens, "max_tokens": s.prefix_cache.max_tokens, "hits": s.prefix_cache.hits,
                              "misses": s.prefix_cache.misses, "cached_states": len(s.prefix_cache.entries), "oom_retries": s.prefix_cache.oom_retries},
-            "batches": {"count": s.batches, "requests": s.batched_requests, "queued": s.queue.qsize()}}
+            "batches": {"count": s.batches, "requests": s.batched_requests, "queued": s.queue.qsize(), "abandoned": s.abandoned}}
     return {"models": [{"name": name, **card} for name in MODEL_NAMES]}
 
 
