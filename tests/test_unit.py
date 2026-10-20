@@ -696,6 +696,36 @@ def test_full_weight_dtype_must_match_config(tiny_base, tmp_path, monkeypatch):
     assert Checkpoint(tmp_path / "full").load("cpu")[1].dtype == "bfloat16"  # no recorded dtype: head.pt decides
 
 
+def long_state_data(tiny_base, path, *extra_words):
+    """A --data file: the tiny base's first record once per entry of `extra_words`, its state replaced by that many
+    words (one token each in the word-level tokenizer, so a state of n words is n + 1 state tokens), then the tiny base's
+    second record unchanged."""
+    import json
+    rows = (tiny_base / "data.jsonl").read_text(encoding="utf-8").splitlines()
+    long = [{**json.loads(rows[0]), "state": " ".join(["it"] * n)} for n in extra_words]
+    path.write_text("".join(json.dumps(r) + "\n" for r in long) + rows[1] + "\n", encoding="utf-8")
+    return path
+
+
+def test_dropped_data_records_are_named_with_the_max_state_that_keeps_them(tiny_base, tmp_path, monkeypatch, capsys):
+    """A --data record over the training context is dropped and the run goes on (issue #5's rule for records that were not
+    filtered when a suite was frozen). The drop line names the longest record it dropped and the --max_state that keeps
+    every dropped record, and training_config.json records the drop, so a detached run that lost records shows it after
+    the fact (issue #155)."""
+    import sys
+    from kev import train
+    from kev.model import MAX_STATE
+    from kev.suite import read_json
+    data = long_state_data(tiny_base, tmp_path / "long.jsonl", MAX_STATE + 21)   # 406 state tokens at the 384 default
+    monkeypatch.setattr(sys, "argv", ["kev.train", "--base", str(tiny_base / "base"), "--data", str(data), "--device", "cpu", "--batch", "2",
+                                      "--lr", "1e-3", "--max_steps", "1", "--out", str(tmp_path / "run")])
+    train.main()
+    line = next(l for l in capsys.readouterr().out.splitlines() if l.startswith("dropped"))
+    assert line.startswith("dropped 1 of 2 records that exceed the training context (384 state / 1024 branch / 2048 packed tokens)")
+    assert f"--max_state {MAX_STATE + 22}" in line and "custom/0" in line and f"{MAX_STATE + 22} state tokens" in line
+    assert read_json(tmp_path / "run/training_config.json")["dropped"] == {"count": 1, "of": 2, "ids": ["custom/0"], "max_state": MAX_STATE + 22, "over_any_context": 0}
+
+
 def test_loader_rule_needs_head_pt_and_files_to_agree(tmp_path):
     """adapter_config.json -> LoRA; config.json + model*.safetensors and no adapter -> full weights; head.pt's `weights` must
     name the same layout, so a half-copied directory fails loudly instead of loading the wrong thing."""
