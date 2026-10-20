@@ -300,6 +300,7 @@ A request may carry any number of questions. The server runs them a token budget
 | `KEV_TRUNCATE_STATES=1` | Read the first 65,536 tokens of a longer state instead of refusing it; every response then has `truncated` and `usage.state_tokens` / `state_tokens_used` |
 | `KEV_DTYPE=fp32` | Serve the exact fp32 path the evaluations use (bf16 is the default on GPUs) |
 | `KEV_API_KEY` | Require a bearer key |
+| `KEV_MAX_BATCH=64` | Queued requests the model thread takes at once. On CPU, where a batch runs one request at a time and answers all of them at the end, `1` answers each request as it finishes |
 
 ## How It Works
 
