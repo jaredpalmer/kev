@@ -2799,3 +2799,16 @@ def test_score_presentation_checks_levels_and_empty_data_fail_before_the_checkpo
     assert checks.main(["--run", "unused", "--levels", "4", "--states", "1", "--orders-max", "2"]) == 0
     assert all(sorted(row) == ["level 1", "level 2", "level 3", "level 4"] for row in seen[:-1])
     assert seen[-1] == ["level 1"] * 4 and len(seen) == 3                    # 2 orders + one control call
+
+
+def test_row_passes_bucket_rows_by_length_in_eval():
+    """Serving sorts question rows by length so a short question is not padded to the longest one; training keeps order."""
+    from types import SimpleNamespace
+    rows = [([0] * n, None) for n in (500, 30, 35, 200, 40, 2100, 300)]
+    model = SimpleNamespace(training=False, ROW_BUCKET_RATIO=1.5)
+    passes = DecisionModel._row_passes(model, rows, chunk=64)
+    assert sorted(i for p in passes for i in p) == list(range(len(rows)))
+    assert passes == [[1, 2, 4], [3, 6], [0], [5]]
+    assert all(len(p) <= 2 for p in DecisionModel._row_passes(model, rows, chunk=2))
+    assert DecisionModel._row_passes(SimpleNamespace(training=True, ROW_BUCKET_RATIO=1.5), rows, chunk=3) == [[0, 1, 2], [3, 4, 5], [6]]
+    assert DecisionModel._row_passes(SimpleNamespace(training=False, ROW_BUCKET_RATIO=0), rows, chunk=4) == [[0, 1, 2, 3], [4, 5, 6]]
