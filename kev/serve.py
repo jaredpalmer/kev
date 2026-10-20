@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, replace
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.datastructures import Headers, MutableHeaders
 from pydantic import BaseModel, Field
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
 from .checkpoint import Checkpoint, LoadOptions, fused_available, is_hub_id, mlx_available
@@ -249,17 +250,34 @@ app = FastAPI(title="kev")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["x-typesafe-request-id", "server-timing"])
 
 
-@app.middleware("http")
-async def typesafe(request, call_next):
-    """Bearer auth (when API_KEY is set) and the request id every TypeSafe client reads off the response."""
-    started = time.perf_counter()
-    if API_KEY and request.url.path.startswith("/v1") and not hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {API_KEY}"):
-        resp = JSONResponse({"detail": "missing or invalid API key; send Authorization: Bearer <KEV_API_KEY>"}, 401, {"www-authenticate": "Bearer"})
-    else:
-        resp = await call_next(request)
-    resp.headers["x-typesafe-request-id"] = request.headers.get("x-typesafe-request-id") or uuid.uuid4().hex
-    resp.headers["server-timing"] = f"app;dur={(time.perf_counter() - started) * 1000:.1f}"   # time inside this process, for telling it from the network
-    return resp
+class TypeSafeMiddleware:
+    """Bearer auth (when API_KEY is set) and the request id every TypeSafe client reads off the response. Plain ASGI, not
+    @app.middleware("http"): Starlette's BaseHTTPMiddleware hides the client's disconnect from the endpoint, so a queued
+    request whose client gave up could not cancel its place (answer_async)."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        started = time.perf_counter()
+        headers = Headers(scope=scope)
+        rid = headers.get("x-typesafe-request-id") or uuid.uuid4().hex
+
+        async def send_marked(message):
+            if message["type"] == "http.response.start":
+                out = MutableHeaders(scope=message)
+                out["x-typesafe-request-id"] = rid
+                out["server-timing"] = f"app;dur={(time.perf_counter() - started) * 1000:.1f}"   # time inside this process, for telling it from the network
+            await send(message)
+
+        if API_KEY and scope["path"].startswith("/v1") and not hmac.compare_digest(headers.get("authorization", ""), f"Bearer {API_KEY}"):
+            resp = JSONResponse({"detail": "missing or invalid API key; send Authorization: Bearer <KEV_API_KEY>"}, 401, {"www-authenticate": "Bearer"})
+            return await resp(scope, receive, send_marked)
+        await self.app(scope, receive, send_marked)
+
+
+app.add_middleware(TypeSafeMiddleware)
 
 
 def server() -> Server:
