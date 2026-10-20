@@ -655,8 +655,10 @@ def test_full_weight_checkpoint_round_trip(tiny_base, tmp_path, monkeypatch):
     from safetensors.torch import load_file
     from kev.checkpoint import Checkpoint, LoadOptions, mlx_available, read_meta
     from kev.data import load_records, materialize
+    from kev.suite import read_json
     train_tiny(tiny_base, tmp_path / "full", *FULL, "--max_steps", "3", monkeypatch=monkeypatch)
     files = {p.name for p in (tmp_path / "full").iterdir()}
+    assert "dropped" not in read_json(tmp_path / "full/training_config.json")        # nothing over the context: no drop record
     assert {"config.json", "model.safetensors", "head.pt", "tokenizer.json", "tokenizer_config.json"} <= files and "adapter_config.json" not in files
     meta = read_meta(tmp_path / "full")
     assert (meta.weights, meta.lora, meta.weights_dtype, meta.base) == ("full", 0, "bf16", str(tiny_base / "base")) and set(meta.head) == {"q.weight", "q.bias", "k.weight", "k.bias"}
@@ -724,6 +726,73 @@ def test_dropped_data_records_are_named_with_the_max_state_that_keeps_them(tiny_
     assert line.startswith("dropped 1 of 2 records that exceed the training context (384 state / 1024 branch / 2048 packed tokens)")
     assert f"--max_state {MAX_STATE + 22}" in line and "custom/0" in line and f"{MAX_STATE + 22} state tokens" in line
     assert read_json(tmp_path / "run/training_config.json")["dropped"] == {"count": 1, "of": 2, "ids": ["custom/0"], "max_state": MAX_STATE + 22, "over_any_context": 0}
+
+
+def test_drop_report_tells_the_records_a_larger_max_state_keeps_from_the_ones_no_context_admits(tiny_base, tmp_path, monkeypatch, capsys):
+    """Mixed case: a record a larger --max_state keeps and one whose state is over MAX_TRAIN_STATE are told apart, in the
+    line and in the record: the hint covers the first, the count the second."""
+    import sys
+    from kev import train
+    from kev.model import MAX_STATE, MAX_TRAIN_STATE
+    from kev.suite import read_json
+    data = long_state_data(tiny_base, tmp_path / "mixed.jsonl", MAX_STATE + 21, MAX_TRAIN_STATE)   # 406 and 65,537 state tokens
+    monkeypatch.setattr(sys, "argv", ["kev.train", "--base", str(tiny_base / "base"), "--data", str(data), "--device", "cpu", "--batch", "2",
+                                      "--lr", "1e-3", "--max_steps", "1", "--out", str(tmp_path / "run")])
+    train.main()
+    line = next(l for l in capsys.readouterr().out.splitlines() if l.startswith("dropped"))
+    assert line.startswith("dropped 2 of 3 records that exceed the training context")
+    assert line.endswith(f"--max_state {MAX_STATE + 22} keeps 1 of them (the longest, custom/0, has {MAX_STATE + 22} state tokens); "
+                         f"1 record(s) fit no training context ({MAX_TRAIN_STATE:,} state tokens at most)")
+    assert read_json(tmp_path / "run/training_config.json")["dropped"] == {"count": 2, "of": 3, "ids": ["custom/0", "custom/1"], "max_state": MAX_STATE + 22, "over_any_context": 1}
+    data = long_state_data(tiny_base, tmp_path / "none.jsonl", MAX_TRAIN_STATE)
+    monkeypatch.setattr(sys, "argv", ["kev.train", "--base", str(tiny_base / "base"), "--data", str(data), "--device", "cpu", "--batch", "2",
+                                      "--lr", "1e-3", "--max_steps", "1", "--out", str(tmp_path / "run2")])
+    train.main()
+    line = next(l for l in capsys.readouterr().out.splitlines() if l.startswith("dropped"))
+    assert line.endswith(f"; none fits any training context ({MAX_TRAIN_STATE:,} state tokens at most)")
+    assert read_json(tmp_path / "run2/training_config.json")["dropped"]["max_state"] is None
+
+
+def test_admitting_max_state_is_the_smallest_training_context_that_fits(tiny_base, tmp_path):
+    """admitting_max_state is exact on each of the three limits the context filter applies: the record fits at the value
+    it names and not one below, whether the state, a question's row or the packed record is what overflows; a state over
+    MAX_TRAIN_STATE has no value. A run that drops nothing records no `dropped` key (checked on the round-trip run above)."""
+    import json
+    from kev.data import load_records, materialize
+    from kev.model import MAX_STATE, MAX_TRAIN_STATE, fits, load_tokenizer, training_context
+    from kev.train import admitting_max_state
+    tok = load_tokenizer(str(tiny_base / "base"))
+    base = json.loads((tiny_base / "data.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    def record(state_words, option_words=1, questions=1):
+        q = {f"q{i}": {"type": "choice", "instructions": "which team", "label": "billing",
+                       "criteria": {"billing": None, "shipping": None, " ".join(["it"] * option_words): None}} for i in range(questions)}
+        (tmp_path / "one.jsonl").write_text(json.dumps({"state": " ".join(["it"] * state_words), "questions": q}) + "\n", encoding="utf-8")
+        return materialize(load_records(tmp_path / "one.jsonl")[0])
+    assert fits(record(MAX_STATE - 1), tok, **training_context(MAX_STATE)) and admitting_max_state(tok, record(MAX_STATE - 1)) == MAX_STATE
+    by_state, by_row, by_packed = record(MAX_STATE + 21), record(8, option_words=1100), record(8, option_words=680, questions=3)
+    assert admitting_max_state(tok, by_state) == MAX_STATE + 22
+    for rec in (by_state, by_row, by_packed):
+        need = admitting_max_state(tok, rec)
+        assert need > MAX_STATE and fits(rec, tok, **training_context(need)) and not fits(rec, tok, **training_context(need - 1))
+    assert admitting_max_state(tok, record(MAX_TRAIN_STATE - 1)) == MAX_TRAIN_STATE
+    assert admitting_max_state(tok, record(MAX_TRAIN_STATE)) is None
+
+
+def test_records_built_on_the_fly_get_the_same_drop_line_and_record(tiny_base, tmp_path, monkeypatch, capsys):
+    """The smoke path (no --suite, no --data; issue #5) goes through the same filter, so it gets the same line and key."""
+    import sys
+    from kev import train
+    from kev.data import load_records
+    from kev.model import MAX_STATE
+    from kev.suite import read_json
+    built = load_records(long_state_data(tiny_base, tmp_path / "built.jsonl", MAX_STATE + 21))
+    monkeypatch.setattr(train, "build", lambda *args, **kwargs: built)
+    monkeypatch.setattr(sys, "argv", ["kev.train", "--base", str(tiny_base / "base"), "--n_per_source", "2", "--device", "cpu", "--batch", "2",
+                                      "--lr", "1e-3", "--max_steps", "1", "--out", str(tmp_path / "run")])
+    train.main()
+    line = next(l for l in capsys.readouterr().out.splitlines() if l.startswith("dropped"))
+    assert f"--max_state {MAX_STATE + 22} keeps them (the longest, custom/0, has {MAX_STATE + 22} state tokens)" in line
+    assert read_json(tmp_path / "run/training_config.json")["dropped"]["ids"] == ["custom/0"]
 
 
 def test_loader_rule_needs_head_pt_and_files_to_agree(tmp_path):
