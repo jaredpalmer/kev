@@ -7,17 +7,20 @@ when KEV_API_KEY is set (unset = open server, the local default). Demo extras: P
 under several option orders) and POST /v1/systemone/separate (each question in its own pass, for the packed-vs-separate
 comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS / KEV_PREFIX_MAX_TOKENS size the state-prefix cache; KEV_DATE_FACTS=1 opts into the
 date preprocessing (api.with_date_facts). A state over kev.model.SERVE_MAX_STATE tokens is refused with a 422 (kev.model.admit);
-KEV_TRUNCATE_STATES=1 reads its first SERVE_MAX_STATE tokens instead, and then every response says whether it did. Backend
+KEV_TRUNCATE_STATES=1 reads its first SERVE_MAX_STATE tokens instead, and then every response says whether it did. A
+queued /v1/systemone request whose client has disconnected is not scored. Without CUDA graphs the model thread answers
+each request when that request's pass finishes, instead of holding the batch until the last one does. Backend
 and precision follow LoadOptions (KEV_BACKEND, KEV_DTYPE, ...): on Apple Silicon a hybrid checkpoint runs on MLX
 by default, without a torch MPS probe, elsewhere on torch in bf16.
 """
 import argparse, asyncio, atexit, hmac, os, queue, random, sys, threading, time, traceback, uuid
-from concurrent.futures import Future
+from concurrent.futures import Future, InvalidStateError
 import torch
 from dataclasses import dataclass, field, replace
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.datastructures import Headers, MutableHeaders
 from pydantic import BaseModel, Field
 from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
 from .checkpoint import Checkpoint, LoadOptions, fused_available, is_hub_id, mlx_available
@@ -31,6 +34,7 @@ PREFIX_MAX_TOKENS = int(os.environ.get("KEV_PREFIX_MAX_TOKENS", "65536"))  # sta
 DATE_FACTS = os.environ.get("KEV_DATE_FACTS", "0") == "1"
 TRUNCATE_STATES = os.environ.get("KEV_TRUNCATE_STATES", "0") == "1"    # unset = a state over SERVE_MAX_STATE tokens gets a 422; 1 = read its first SERVE_MAX_STATE tokens, and every response says whether it did (truncated, usage.state_tokens / state_tokens_used)
 API_KEY = os.environ.get("KEV_API_KEY")                                  # unset = open server; set = require Authorization: Bearer <key>, as the TypeSafe clients always send
+QUEUE_POLL_S = 0.5                                                       # how often a queued request checks that its client is still there
 MAX_BATCH = 64                                                           # requests the model thread takes at once (kev.cuda_graphs splits them to fit its buffers)
 MODEL_NAMES = ("kev-latest", "jev-latest")                               # both names serve this checkpoint; jev-latest is the TypeSafe SDK default model, so an unconfigured client works
 
@@ -94,9 +98,10 @@ class PrefixCache:
 class Server:
     """The loaded checkpoint, the state-prefix cache (PrefixCache), and the one model thread that runs every forward pass.
 
-    Request threads encode their record and queue it; the model thread takes everything queued when it becomes free and
-    runs it as one batch (model.probs_batch: with CUDA graphs, shared state and row passes; otherwise one request at a
-    time), then answers each request. It also captures pending CUDA graphs when the graphs say so (capture_due). `lock` is
+    Request threads encode their record and queue it; the model thread takes up to MAX_BATCH queued requests when it
+    becomes free. With CUDA graphs it runs them as one batch and answers them together (model.probs_batch: shared state
+    and row passes). Without graphs each request is its own pass, answered before the next starts, and a future cancelled
+    while it waited is skipped. It also captures pending CUDA graphs when the graphs say so (capture_due). `lock` is
     held around each batch and capture: hold it to use the model directly."""
     checkpoint: Checkpoint
     tok: object
@@ -105,6 +110,7 @@ class Server:
     lock: threading.Lock = field(default_factory=threading.Lock)
     batches: int = 0
     batched_requests: int = 0
+    abandoned: int = 0   # queued requests skipped because their client disconnected before the model thread reached them
     release_date: str = field(default="")   # for the TypeSafe model card; resolved once (may ask the Hub)
     truncate_states: bool = field(default_factory=lambda: TRUNCATE_STATES)   # KEV_TRUNCATE_STATES; off: an over-length state is refused (kev.model.admit)
 
@@ -126,15 +132,19 @@ class Server:
         if self.stopping.is_set(): return
         self.stopping.set(); self.thread.join()
         while not self.queue.empty():
-            self.queue.get_nowait()[1].set_exception(RuntimeError("the server stopped")); self.queue.task_done()
+            try: _, done = self.queue.get_nowait()
+            except queue.Empty: break
+            try: done.set_exception(RuntimeError("the server stopped"))
+            except InvalidStateError: pass   # answer_async already cancelled it
+            self.queue.task_done()
         sys.setswitchinterval(self.switch_interval)
 
     def submit(self, rec):
         """Queue one record for the model thread. -> a Future of (probabilities, stats). The state prefix (tokens up to the
         first question) is cached across requests, so a repeated state only pays for its question rows. latency_ms is the
-        model time of the batch the request ran in (not its wait in the queue). A record kev.model.admit refuses (a state
-        over SERVE_MAX_STATE tokens unless truncate_states, a question row over SERVE_MAX_BRANCH) is a 422 here, before
-        it reaches the model."""
+        model time of the pass the request ran in, not its wait in the queue (a CUDA-graph batch shares one time). A
+        record kev.model.admit refuses (a state over SERVE_MAX_STATE tokens unless truncate_states, a question row over
+        SERVE_MAX_BRANCH) is a 422 here, before it reaches the model."""
         if self.stopping.is_set(): raise HTTPException(503, "the server is stopping")
         try: enc = admit(self.model, self.tok, rec, truncate=self.truncate_states)
         except ValueError as e:   # ContextOverflow, or a record the encoder cannot take
@@ -158,16 +168,33 @@ class Server:
             while len(batch) < MAX_BATCH:
                 try: batch.append(self.queue.get_nowait())
                 except queue.Empty: break
-            try:
-                with self.lock: results = self._run([enc for enc, _ in batch])
-            except Exception as e:   # every request of the batch gets the error; the thread lives on
-                traceback.clear_frames(e.__traceback__)   # the batch's futures keep the exception, and its frames held the failed pass's tensors (142 MiB, a 3,578-token state on Kev-0.8B); the traceback keeps its lines
-                results = [e] * len(batch)
-            for (_, done), result in zip(batch, results):
-                (done.set_exception if isinstance(result, Exception) else done.set_result)(result)
-                self.queue.task_done()
+            # CUDA graphs replay a batch as one pass, so those requests are claimed and answered together. Every other
+            # backend already runs one request at a time inside probs_batch; claiming the whole grab first marked them
+            # running, and the first answer waited until the last pass. Claim and answer one at a time instead, so a
+            # client that leaves during the queue is not computed and the request in front is not held for it.
+            if graphs is None:
+                for item in batch: self._answer([item])
+            else:
+                self._answer(batch)
             if graphs is not None and graphs.capture_due(idle=False):
                 with self.lock: graphs.capture_pending(limit=1)
+
+    def _answer(self, batch):
+        """Run the requests whose clients are still waiting, and set their futures. answer_async cancels the future of a
+        client that disconnected; set_running_or_notify_cancel claims the rest so a later cancel cannot land mid-result."""
+        live = [item for item in batch if item[1].set_running_or_notify_cancel()]
+        skipped = len(batch) - len(live)
+        self.abandoned += skipped
+        for _ in range(skipped): self.queue.task_done()
+        if not live: return
+        try:
+            with self.lock: results = self._run([enc for enc, _ in live])
+        except Exception as e:   # every request of this run gets the error; the thread lives on
+            traceback.clear_frames(e.__traceback__)   # the futures keep the exception, and its frames held the failed pass's tensors (142 MiB, a 3,578-token state on Kev-0.8B); the traceback keeps its lines
+            results = [e] * len(live)
+        for (_, done), result in zip(live, results):
+            (done.set_exception if isinstance(result, Exception) else done.set_result)(result)
+            self.queue.task_done()
 
     def _run(self, encs):
         """One batch through model.probs_batch, with the prefix cache. -> per request (probs, stats). A pass out of device
@@ -202,11 +229,26 @@ class Server:
         rec, meta = to_record(prepare(req))
         return self._body(req, meta, *self.probs(rec))
 
-    async def answer_async(self, req):
+    async def answer_async(self, req, disconnected=None):
         """answer() for the event loop: a request waiting on the model thread holds no worker thread, so a container takes
-        as many concurrent requests as its batches can absorb (FastAPI runs sync endpoints on a 40-thread pool)."""
+        as many concurrent requests as its batches can absorb (FastAPI runs sync endpoints on a 40-thread pool).
+        `disconnected` (Request.is_disconnected) is polled while the request waits. The wait ends as soon as the future
+        does, so a live client is not delayed by the poll. A client that has gone cancels its future and the model thread
+        skips it (clients with short timeouts otherwise retry, and the queue only grows). Leaving this task any other way,
+        including cancellation at shutdown, cancels the future too unless the model has already claimed it."""
         rec, meta = to_record(prepare(req))
-        return self._body(req, meta, *await asyncio.wrap_future(self.submit(rec)))
+        done = self.submit(rec)
+        waiting = asyncio.wrap_future(done)
+        try:
+            if disconnected is not None:
+                while not waiting.done():
+                    finished, _ = await asyncio.wait({waiting}, timeout=QUEUE_POLL_S)
+                    if finished: break
+                    if await disconnected() and done.cancel():
+                        raise HTTPException(499, "client disconnected before its request ran")
+            return self._body(req, meta, *await waiting)
+        finally:
+            done.cancel()   # no-op once the model has claimed the future or set its result
 
     def _body(self, req, meta, ps, m):
         """The TypeSafe body. A server that may truncate (truncate_states) also says, on every response, whether it did:
@@ -229,17 +271,35 @@ app = FastAPI(title="kev")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], expose_headers=["x-typesafe-request-id", "server-timing"])
 
 
-@app.middleware("http")
-async def typesafe(request, call_next):
-    """Bearer auth (when API_KEY is set) and the request id every TypeSafe client reads off the response."""
-    started = time.perf_counter()
-    if API_KEY and request.url.path.startswith("/v1") and not hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {API_KEY}"):
-        resp = JSONResponse({"detail": "missing or invalid API key; send Authorization: Bearer <KEV_API_KEY>"}, 401, {"www-authenticate": "Bearer"})
-    else:
-        resp = await call_next(request)
-    resp.headers["x-typesafe-request-id"] = request.headers.get("x-typesafe-request-id") or uuid.uuid4().hex
-    resp.headers["server-timing"] = f"app;dur={(time.perf_counter() - started) * 1000:.1f}"   # time inside this process, for telling it from the network
-    return resp
+class TypeSafeMiddleware:
+    """Bearer auth (when API_KEY is set) and the request id every TypeSafe client reads off the response. Plain ASGI, not
+    @app.middleware("http"): Starlette's BaseHTTPMiddleware hides the client's disconnect from the endpoint, so a queued
+    request whose client gave up could not cancel its place (answer_async)."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        started = time.perf_counter()
+        headers = Headers(scope=scope)
+        rid = headers.get("x-typesafe-request-id") or uuid.uuid4().hex
+
+        async def send_marked(message):
+            if message["type"] == "http.response.start":
+                message.setdefault("headers", [])   # the ASGI spec allows a start message with no headers
+                out = MutableHeaders(scope=message)
+                out["x-typesafe-request-id"] = rid
+                out["server-timing"] = f"app;dur={(time.perf_counter() - started) * 1000:.1f}"   # time inside this process, up to the first response byte, for telling it from the network
+            await send(message)
+
+        if API_KEY and scope["path"].startswith("/v1") and not hmac.compare_digest(headers.get("authorization", ""), f"Bearer {API_KEY}"):
+            resp = JSONResponse({"detail": "missing or invalid API key; send Authorization: Bearer <KEV_API_KEY>"}, 401, {"www-authenticate": "Bearer"})
+            return await resp(scope, receive, send_marked)
+        await self.app(scope, receive, send_marked)
+
+
+app.add_middleware(TypeSafeMiddleware)
 
 
 def server() -> Server:
@@ -247,9 +307,9 @@ def server() -> Server:
 
 
 @app.post("/v1/systemone")
-async def systemone(req: SystemOneRequest):
+async def systemone(req: SystemOneRequest, request: Request):
     """TypeSafe-compatible endpoint: typed questions in, typed answers out, one prefill pass."""
-    return await server().answer_async(req)
+    return await server().answer_async(req, request.is_disconnected)
 
 
 class PermuteSystemOne(BaseModel):
@@ -298,7 +358,8 @@ def truncation_marks(body, part):
 @app.get("/v1/models")
 def models():
     """One TypeSafe model card (name, description, release_date) per accepted model name, plus the Kev serving details
-    a client may ignore: the run, the base, the device, the backend and precision, the temperature, prefix-cache stats."""
+    a client may ignore: the run, the base, the device, the backend and precision, the temperature, prefix-cache stats.
+    `batches.abandoned` counts queued requests skipped because the client disconnected before they were scored."""
     s = server()
     ck, meta = s.checkpoint, s.checkpoint.meta
     card = {"description": f"Kev pointer head on {meta.base}, serving {ck.requested} at temperature {s.model.head.temperature:.2f}",
@@ -308,7 +369,7 @@ def models():
             "cuda_graphs": graphs.stats() if (graphs := getattr(s.model, "graphs", None)) else None,
             "prefix_cache": {"size": s.prefix_cache.size, "min_state_tokens": s.prefix_cache.min_tokens, "max_tokens": s.prefix_cache.max_tokens, "hits": s.prefix_cache.hits,
                              "misses": s.prefix_cache.misses, "cached_states": len(s.prefix_cache.entries), "oom_retries": s.prefix_cache.oom_retries},
-            "batches": {"count": s.batches, "requests": s.batched_requests, "queued": s.queue.qsize()}}
+            "batches": {"count": s.batches, "requests": s.batched_requests, "queued": s.queue.qsize(), "abandoned": s.abandoned}}
     return {"models": [{"name": name, **card} for name in MODEL_NAMES]}
 
 
