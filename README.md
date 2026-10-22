@@ -300,6 +300,7 @@ A request may carry any number of questions. The server runs them a token budget
 | `KEV_TRUNCATE_STATES=1` | Read the first 65,536 tokens of a longer state instead of refusing it; every response then has `truncated` and `usage.state_tokens` / `state_tokens_used` |
 | `KEV_DTYPE=fp32` | Serve the exact fp32 path the evaluations use (bf16 is the default on GPUs) |
 | `KEV_API_KEY` | Require a bearer key |
+| `KEV_ROW_BUCKET_RATIO=1.5` | Group question rows of similar length into one pass (a new pass starts at 1.5x the shortest), so short questions are not padded to the longest; `0` keeps request order |
 
 ## How It Works
 

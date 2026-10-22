@@ -338,9 +338,9 @@ class DecisionModel(nn.Module):
         With `cache`, the rows are branches continuing the cached state: in eager mode the cache is replicated once per
         chunk, leaving the caller's prefix pristine, and the cached tokens are marked real in the attention mask."""
         chunk = len(rows) if self.training else rows_per_pass([ids for ids, _ in rows], prefix_len)
-        out = []
-        for start in range(0, len(rows), chunk):
-            part = rows[start:start + chunk]
+        out = [None] * len(rows)
+        for idx in self._row_passes(rows, chunk):
+            part = [rows[i] for i in idx]
             ids, pos, att = self._pad_rows(part)
             past = {}
             if cache is not None:
@@ -358,8 +358,25 @@ class DecisionModel(nn.Module):
                 att = torch.cat([torch.ones((len(part), prefix_len), dtype=torch.long, device=self.device), att], 1)
                 past = {"past_key_values": replica, "use_cache": True}
             h = self.lm(input_ids=ids, position_ids=pos, attention_mask=att, **past).last_hidden_state.float()
-            out += [h[i, : len(row_ids)] for i, (row_ids, _) in enumerate(part)]
+            for j, (i, (row_ids, _)) in enumerate(zip(idx, part)): out[i] = h[j, : len(row_ids)]
         return out
+
+    ROW_BUCKET_RATIO = float(os.environ.get("KEV_ROW_BUCKET_RATIO", "1.5"))   # eval: start a new pass when a row is this much longer than the pass's shortest; 0 = original order
+
+    def _row_passes(self, rows, chunk):
+        """Row indices per forward pass. Training keeps the given order. In eval, rows are sorted by length and a pass
+        closes when it is full or the next row exceeds ROW_BUCKET_RATIO x its shortest, so short questions are not padded
+        to the longest one (rows are independent and pads are masked, so the answers do not change)."""
+        n = len(rows)
+        if self.training or self.ROW_BUCKET_RATIO <= 0:
+            return [list(range(s, min(s + chunk, n))) for s in range(0, n, chunk)]
+        passes = []
+        for i in sorted(range(n), key=lambda i: len(rows[i][0])):
+            if passes and len(passes[-1]) < chunk and len(rows[i][0]) <= self.ROW_BUCKET_RATIO * len(rows[passes[-1][0]][0]):
+                passes[-1].append(i)
+            else:
+                passes.append([i])
+        return passes
 
     def forward_rows_batch(self, encs, shared_prefix=False):
         """Row form: every question of every record is one causal row = state tokens + its branch tokens. Returns the same
