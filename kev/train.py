@@ -21,7 +21,7 @@ from .checkpoint import Checkpoint, Meta, write_meta
 from .device import DEVICE_HELP, DEVICES, allocated_bytes, empty_cache, select, sync
 from .data import EVAL_ONLY, build, augment, load_records, materialize, none_pair, source_seed
 from .suite import SYNTHETIC_SOURCES, digest, load_split, read_json, read_manifest, validate_training, write_json
-from .model import MAX_STATE, MAX_TRAIN_STATE, DecisionModel, fits, load_tokenizer, rows_of, training_context, user_tokens
+from .model import MAX_STATE, MAX_TRAIN_STATE, DecisionModel, admitting_max_state, fits, load_tokenizer, rows_of, training_context, user_tokens
 
 
 # --- losses -----------------------------------------------------------------------------------------------------------
@@ -86,8 +86,10 @@ def accumulation_records(n, batch, accum, microbatch):
 def training_requests(a, tok, manifest, holdout):
     """The labelled requests one run trains on: the suite's training partition, records built from the public sources,
     or the user's own file (optionally with a replay sample from the suite); filtered to the training context, checked
-    against the eval-only policy, then the ablation knobs (--train_sources, --public_frac, --synthetic_repeat)."""
+    against the eval-only policy, then the ablation knobs (--train_sources, --public_frac, --synthetic_repeat). Returns the
+    records and drop_report's account of what the context filter dropped (None when nothing was)."""
     # the suite's rules (declared trainable sources, no held-out structures) apply to every record taken from it
+    dropped = None
     if a.data:
         reqs = load_records(a.data)
         if a.replay:
@@ -102,11 +104,13 @@ def training_requests(a, tok, manifest, holdout):
     if not manifest or a.data:
         # frozen suites are filtered to the training context when they are frozen (kev.suite.select_unique); records built
         # on the fly here are not, so apply the same rule instead of letting the strict encoder abort the run (issue #5)
-        kept = [r for r in reqs if fits(materialize(r), tok, **training_context(a.max_state))]
+        c = training_context(a.max_state)
+        admitted = [fits(materialize(r), tok, **c) for r in reqs]
+        kept = [r for r, ok in zip(reqs, admitted) if ok]
         if len(kept) < len(reqs):
-            c = training_context(a.max_state)
-            print(f"dropped {len(reqs) - len(kept)} of {len(reqs)} records that exceed the training context "
-                  f"({c['max_state']} state / {c['max_branch']} branch / {c['max_packed']} packed tokens)", flush=True)
+            dropped, hint = drop_report(tok, [r for r, ok in zip(reqs, admitted) if not ok], len(reqs))
+            print(f"dropped {dropped['count']} of {dropped['of']} records that exceed the training context "
+                  f"({c['max_state']} state / {c['max_branch']} branch / {c['max_packed']} packed tokens); {hint}", flush=True)
         reqs = kept
     if not reqs:
         raise ValueError("empty training set")
@@ -130,7 +134,31 @@ def training_requests(a, tok, manifest, holdout):
         extra = [r for r in reqs if r["_meta"]["source"] in SYNTHETIC_SOURCES] * (a.synthetic_repeat - 1)
         reqs = reqs + extra
         print(f"mix: synthetic_repeat {a.synthetic_repeat} -> +{len(extra)} records", flush=True)
-    return reqs
+    return reqs, dropped
+
+
+def drop_report(tok, dropped, total):
+    """What the context filter dropped: the `dropped` object training_config.json keeps, and the rest of the drop line.
+    The object carries the count, the first ids, the smallest --max_state that admits every dropped record some training
+    context admits (None when none does), the record and limit that set it (state, row or packed, from
+    kev.model.admitting_max_state), and how many records no training context admits. The line keeps the `dropped` head
+    kev-finetune forwards, and names that record, so a detached run shows what it lost and what would have kept it (#155)."""
+    ranked = [(admitting_max_state(tok, materialize(r)), r["_meta"]["id"]) for r in dropped]
+    fit = [item for item in ranked if item[0] is not None]
+    over = len(ranked) - len(fit)
+    report = {"count": len(dropped), "of": total, "ids": [name for _, name in ranked[:20]],
+              "max_state": None, "over_any_context": over}
+    ceiling = f"({MAX_TRAIN_STATE:,} state tokens at most)"
+    if not fit:
+        return report, f"none fits any training context {ceiling}"
+    (need, limit, tokens), name = max(fit, key=lambda item: item[0][0])
+    report["max_state"], report["limit_id"], report["limit"], report["limit_tokens"] = need, name, limit, tokens
+    detail = {"state": f"{name} has {tokens} state tokens", "row": f"{name} has a row of {tokens} tokens",
+              "packed": f"{name} has {tokens} packed tokens"}[limit]
+    keeps = "them" if over == 0 else f"{len(fit)} of them"
+    hint = f"--max_state {need} keeps {keeps} ({detail})"
+    if over: hint += f"; {over} {'record fits' if over == 1 else 'records fit'} no training context {ceiling}"
+    return report, hint
 
 
 @dataclass(eq=False)   # identity, so batch.index(v) finds this very variant
@@ -563,13 +591,14 @@ def main():
     if world > 1: full_ft.shard(model)
     print(f"device={dev} world={world} trainable params={sum(p.numel() for p in model.trainable_parameters())/1e6:.1f}M", flush=True)
 
-    reqs = training_requests(a, tok, manifest, holdout)
+    reqs, dropped = training_requests(a, tok, manifest, holdout)
     # the none-pair gate (none_pairs) and the ceiling's token shapes (plan_shapes)
     state_tokens = state_token_counts(tok, reqs) if a.none_pair_max_state is not None or a.pass_tokens_max else None
     suite_hash = digest(Path(a.suite) / "manifest.json") if manifest else None
     if not rank:
         write_json(out_dir / "training_config.json", {"args": vars(a), "suite_sha256": suite_hash, "base_revision": revision, "init_source": init_source,
-                                                    "ordinal_objective": "ranked_probability_score", "holdout": holdout})
+                                                    "ordinal_objective": "ranked_probability_score", "holdout": holdout,
+                                                    **({"dropped": dropped} if dropped else {})})
     print(f"{len(reqs)} training requests (holdout={holdout}), questions by type "
           f"{dict(Counter(q['qtype'] for r in reqs for q in materialize(r)['questions']))}")
 

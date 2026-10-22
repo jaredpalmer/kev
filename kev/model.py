@@ -202,6 +202,25 @@ def rows_of(enc):
     return enc["ids"][:Ls], enc["pos"][:Ls], rows
 
 
+def admitting_max_state(tok, rec):
+    """Smallest --max_state whose training context admits the internal record `rec` (what `fits` takes), or None when
+    none does. -> (max_state, limit, tokens): limit is "state", "row" or "packed", whichever overflow of the default
+    limits is largest, and tokens is that length. A tie prefers state, then row, because --max_state counts state
+    tokens. training_context grows all three limits by the same amount, so that overflow is the lift."""
+    c = training_context(MAX_TRAIN_STATE)
+    try:
+        enc = encode(tok, rec, max_state=c["max_state"], max_branch=c["max_branch"], strict=True)
+    except ValueError:
+        return None
+    if len(enc["ids"]) > c["max_packed"]: return None
+    state = enc["state_tokens"]
+    row = state + max((len(r["ids"]) for r in rows_of(enc)[2]), default=0)
+    packed = len(enc["ids"])
+    lifts = (("state", state, state - MAX_STATE), ("row", row, row - MAX_BRANCH), ("packed", packed, packed - MAX_PACKED))
+    limit, tokens, lift = max(lifts, key=lambda item: item[2])   # ties prefer state, then row, the order written above
+    return MAX_STATE + max(0, lift), limit, tokens
+
+
 class PointerHead(nn.Module):
     def __init__(self, d, dp=256):
         """dp = pointer dimension (head capacity knob)."""
