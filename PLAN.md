@@ -3117,6 +3117,317 @@ and guardrails-ood-v1 for the parent and all eleven arms (24 reads, ≈ $180 at 
 the read-out formally needs the ten longdoc reads (≈ $270 from scratch at about 4.7 h each), and it would not change the
 verdict.
 
+## Round 30 - Gemma 4 31B IT under round 24's rule (registered 2026-10-05)
+
+**Question.** Does Gemma 4 31B IT (`google/gemma-4-31B-it@842da379`, dense, attention-only with sliding-window layers) close
+the gap to Kev-27B v2 when it gets v2's training rather than the one-epoch v7 LoRA recipe? The report-only reads above have
+the one-epoch LoRA trials level with v1 and below v2 on hard-v1 (−16 pp), devtools (−7), docs (−4) and tasksource-heldout (−3).
+
+**Arms** (`experiments/rounds/r30.json`, parent `31b` = Kev-27B v2, `runs/release/kev-27b-r23`, its round-23 reads
+`runs/r23-27b-k-w85-*`, served as round 23 served it: on the round's pool over its own r3cal/v9 reads, `pooled: true`, a
+new parent option in `kev.rounds` with a test):
+- (a) `r30-g31-full`: round 22's full-weight recipe from the base (`experiments/round30/full-lr2e6.json`: `--full_ft 1`,
+  bf16, lr 2e-6, head lr 1e-4, batch 8 × accum 2 on 8 ranks (4 × 4 after the fit check), `sft-v2-r26`), `H200:8`, 4 h timeout; candidates the final
+  checkpoint and the 25/50/75% snapshots (`31b-full-s25/s50/s75`; their step paths are round 26's step counts as
+  placeholders and are corrected from the trial's plan before any read). Two departures, both forced by the base:
+  `--max_state 8192` (not 32,768) and no `--shared_prefix` / `--pass_tokens_max` (hybrid-only: Gemma trains on the packed
+  mask). A fit check runs first on `H200:8` (`runs/sft-probe/r30-fit-g31-8xh200`, `--state_tokens 2048,4096,8192`, fallbacks
+  batch 4 / 2); if 8192 does not fit at any batch, (a) is not launched and that is the result.
+  Fit check result (2026-10-05): 2048 fits at batch 8 (98 GB/GPU), 4096 at batch 8 (123 GB), 8192 out of memory at
+  batch 8 and fits at the registered fallback batch 4 × accum 4 (121 GB/GPU, same 128 records/step); (a) runs at
+  batch 4 × accum 4. Report `runs/sft-probe/r30-fit-g31-8xh200`.
+- (b) `r30-g31-lora2`: the one-epoch Gemma LoRA recipe (`experiments/gemma4-31b-it.json`) at two epochs, seeds 0 and 1
+  (`experiments/round30/lora-2ep.json`, decision-v7), `H200`, 8 h timeout. Round 6's follow-up found two epochs no better
+  at 27B on Qwen; this asks it again on a new base whose one-epoch trials are below v2.
+  Seed 1 lost its worker at step 1440/3128 (Modal "worker disappeared", 2026-10-05 23:02 UTC; the retry refused the
+  existing trial directory, and a LoRA trial has no resume point). It is rerun unchanged, before any read, as study
+  `r30-g31-lora2b` (`experiments/round30/lora-2ep-s1.json`, bound $51); arm `31b-lora2-s1` points at it.
+- Corrections before any read of the snapshot arms (2026-10-06): (1) the snapshot paths were copied from round 26 (steps
+  115/229/344 of 458); Gemma's re-filtered sft-v2-r26 gave 454 steps and the trial wrote steps 114/227/341, so arms
+  `31b-full-s25/s50/s75` point there (same 25/50/75% fractions). (2) Seed 0's agents-ood-v1, guardrails-ood-v1 and longdoc-v1
+  reads ran out of memory before writing rows (Gemma 4 31B's 512-dim global heads fall back to SDPA's math kernel; fixed by
+  `kev_sdpa`, queries chunked at inference) and were relaunched with the fix under the same names. The failed outputs on the
+  volume were removed by mistake; their failure.json records are in `runs/r30-oom-failures/`. No rows had been read.
+
+**Rule.** Round 24's audited rule and confirmation verbatim (breadth-v1 and the Kev panel primaries; tasksource-heldout
+guard with `runs/r24-private/tsheld-exclude.json`; short-state and CUAD long-document guards; calibration criteria; no
+pooled-externals guard; SemIf report only). The wanli-v2 / typesafe-v1 report-only reads are dropped (removed suites).
+Confirmation stages are not run in this round without Jared.
+
+**Budget.** $1,200 including reads (Jared, 2026-10-05); metered baseline $365.65 at 19:40 UTC. Admission bounds: fit check
+$41.17, (a) $494.00 (H200:8 × 4 h × 3 attempts), (b) $100.24 (H200 × 8 h × 2 trials). Reads are spend-gated before each
+batch: launch only while (metered − baseline) + running bounds < $1,080 (10% reserve).
+
+**Readout (2026-10-06, `uv run python -m kev.rounds readout experiments/rounds/r30.json` -> `runs/r30-readout.txt`).** No
+candidate. Every arm is below Kev-27B v2 on the Kev panel primary, so no guard can promote one. Paired against v2,
+record-clustered, pp (95% intervals; corrected from the earlier 90% label, which applied only to temperature fits):
+
+| arm | Kev panel | breadth-v1 | breadth index | tasksource-heldout | hard-v1 | Kev without hard | short-state acc | SemIf (report) |
+|---|---|---|---|---|---|---|---|---|
+| `31b-full` (final) | -1.6 [-2.6, -0.5] | +0.3 [-0.8, +1.4] | +0.7 [-0.5, +1.9] | -1.2 [-2.7, +0.3] | -4.7 [-6.7, -2.8] | -0.0 [-1.2, +1.2] | +0.5 [-0.7, +1.8] | -2.1 [-6.2, +1.4] |
+| `31b-full-s75` | -1.9 [-3.0, -0.9] | +0.3 [-0.8, +1.4] | +0.7 [-0.5, +1.9] | -1.6 [-3.2, -0.1] | -4.7 [-6.6, -2.8] | -0.6 [-1.9, +0.7] | +0.3 [-0.9, +1.6] | -2.1 [-6.2, +1.4] |
+| `31b-full-s50` | -2.9 [-4.0, -1.8] | -0.2 [-1.3, +0.9] | +0.0 [-1.2, +1.2] | -2.0 [-3.6, -0.4] | -6.3 [-8.5, -4.2] | -1.3 [-2.6, -0.1] | -0.1 [-1.4, +1.2] | -2.1 [-6.2, +1.4] |
+| `31b-full-s25` | -6.6 [-7.8, -5.4] | -3.2 [-4.8, -1.7] | -3.0 [-4.5, -1.6] | -7.8 [-10.0, -5.8] | -12.8 [-15.2, -10.5] | -3.6 [-5.1, -2.2] | -2.5 [-4.1, -1.0] | -4.2 [-9.0, +0.7] |
+| `31b-lora2-s0` | -8.1 [-9.3, -6.8] | -1.6 [-2.8, -0.4] | -0.9 [-2.2, +0.4] | -4.4 [-6.2, -2.5] | -16.7 [-19.3, -14.1] | -4.0 [-5.3, -2.7] | +0.8 [-0.4, +2.1] | -7.6 [-13.2, -2.8] |
+| `31b-lora2-s1` | -8.1 [-9.4, -6.8] | -0.8 [-2.0, +0.4] | -0.5 [-1.8, +0.8] | -3.3 [-5.2, -1.5] | -16.3 [-19.0, -13.7] | -4.2 [-5.6, -2.9] | -0.5 [-1.8, +0.9] | -6.2 [-11.1, -2.1] |
+
+Calibration: Kev panel ECE within +-0.01 of v2 for every arm; breadth ECE +0.009 to +0.024 (the full-weight arms' breadth index
+ECE interval excludes 0); tasksource-heldout all-families ECE +0.055 for both LoRA seeds. guardrails-ood-v1 objective (report
+only): full -0.021, s75 -0.023, s50 -0.026, s25 -0.073, LoRA s0 -0.196 / s1 -0.217, v2 -0.019.
+
+What it says. v2's full-weight recipe closes most of the gap on Gemma: the final checkpoint ties v2 everywhere except hard-v1
+(-4.7) and so the Kev panel (-1.6); the gain is monotone in steps (s25 < s50 < s75 < final), so a longer run might close it
+further, but this round does not show that. Two-epoch LoRA is no better than the one-epoch trials on hard (-16) and
+stays far below full weight; round 6's two-epoch negative holds on this base.
+
+Not read. The CUAD/long-document guard (longdoc-v1) and agents-ood-v1 were stopped (Jared, 2026-10-06): the primary
+already fixed the decision. Under `kev_sdpa`, long Gemma states are slow (agents-ood: about 60 of 373 records in 2.5 h on
+one H200; longdoc: about 50 records per 15 min), so neither would have finished inside the 4 h read timeout. Their
+partial `predictions.jsonl` stay on the volume, never pulled. Making long Gemma reads fast (a fused kernel for 512-dim
+heads, or chunking keys too) is a prerequisite for any Gemma release.
+
+Spend. Metered $863.67 at the readout, $498 over the $365.65 baseline, inside the $1,200 cap.
+
+## Gemma 4 31B, report only (2026-10-05)
+
+Development reads of the two `runs/gemma4-31b-it-2` trials (google/gemma-4-31B-it@842da37, v7 recipe, LoRA r16, one epoch, lr 5e-5; seeds 0 and 1), one `::benchmarks` call per trial, results in `runs/g31it-s{0,1}-<suite>` (transfer-v4 dev is the trial's own transfer read). Each Gemma trial is served at the temperature fitted on its own development rows (s0 1.782, s1 1.447); Kev-27B v1 (`runs/r6-27b-v2/01-trial-1`) at its fitted 1.382; Kev-27B v2 (`runs/release/kev-27b-r23*`, reads `runs/r23-27b-k-w85-*`) at round 23's registered pool temperature 1.32. Panel exclusions as round 24's rule (breadth: routerbench, cfcolor, humicroedit, chessbench; devtools: flakeflagger, commitpackft_type; transfer: emotion; the two codereviewer drops). Deltas are Gemma minus reference, accuracy in pp, `kev.metrics.paired_bootstrap` (micro, record-clustered, 2000 resamples, seed 0), on the records both sides scored. No test partition was read. Not a round: nothing here selects or ships a model.
+
+| suite | n | Gemma s0 acc / Brier / ECE | Gemma s1 acc / Brier / ECE | v1 acc / Brier / ECE | v2 acc / Brier / ECE | s0 − v1 | s1 − v1 | s0 − v2 | s1 − v2 |
+|---|---|---|---|---|---|---|---|---|---|
+| transfer-v4 dev | 576 | 0.894 / 0.169 / 0.034 | 0.891 / 0.164 / 0.022 | 0.884 / 0.184 / 0.038 | 0.887 / 0.171 / 0.035 | +1.0 [-1.6, +4.0] | +0.7 [-1.6, +3.0] | +0.7 [-1.7, +3.3] | +0.3 [-1.9, +2.6] |
+| transfer-v9 | 1046 | 0.824 / 0.256 / 0.041 | 0.826 / 0.252 / 0.031 | 0.822 / 0.265 / 0.050 | 0.820 / 0.252 / 0.036 | +0.2 [-1.8, +2.2] | +0.4 [-1.5, +2.2] | +0.4 [-1.8, +2.5] | +0.6 [-1.3, +2.5] |
+| hard-v1 | 1083 | 0.752 / 0.328 / 0.017 | 0.762 / 0.323 / 0.017 | 0.733 / 0.338 / 0.047 | 0.912 / 0.120 / 0.033 | +1.8 [-0.8, +4.4] | +2.9 [+0.3, +5.3] | -16.1 [-18.7, -13.4] | -15.1 [-17.8, -12.4] |
+| devtools-v1 | 772 | 0.750 / 0.343 / 0.077 | 0.741 / 0.332 / 0.077 | 0.781 / 0.293 / 0.031 | 0.816 / 0.260 / 0.039 | -3.1 [-4.9, -1.4] | -4.0 [-5.9, -2.3] | -6.6 [-8.9, -4.2] | -7.5 [-9.9, -5.1] |
+| documents-v1 | 920 | 0.883 / 0.183 / 0.083 | 0.874 / 0.185 / 0.070 | 0.862 / 0.201 / 0.088 | 0.916 / 0.120 / 0.019 | +2.1 [+0.0, +4.0] | +1.2 [-1.0, +3.2] | -3.4 [-5.3, -1.5] | -4.2 [-6.3, -2.2] |
+| breadth-v1 | 2475 | 0.825 / 0.242 / 0.017 | 0.829 / 0.239 / 0.016 | 0.820 / 0.245 / 0.008 | 0.836 / 0.223 / 0.010 | +0.5 [-0.5, +1.7] | +0.8 [-0.2, +2.0] | -1.0 [-2.1, +0.2] | -0.7 [-1.8, +0.5] |
+| tasksource-heldout-v1 (round 24's seven families excluded) | 1993 | 0.758 / 0.347 / 0.038 | 0.755 / 0.347 / 0.035 | 0.748 / 0.353 / 0.042 | 0.790 / 0.302 / 0.043 | +1.0 [-0.8, +2.9] | +0.7 [-1.1, +2.5] | -3.2 [-5.0, -1.4] | -3.5 [-5.3, -1.8] |
+| SemIf (report only) | 144 | 0.931 / 0.115 / 0.042 | 0.931 / 0.089 / 0.051 | 0.972 / 0.061 / 0.068 | 0.965 / 0.063 / 0.061 | -4.2 [-9.0, +0.0] | -4.2 [-8.3, -0.7] | -3.5 [-8.3, +0.7] | -3.5 [-8.3, +0.7] |
+
+Chance-corrected breadth index (`scripts/breadth_report.py`, all 14 datasets, raw rows, paired record bootstrap, 2000 resamples; `runs/g31-breadth-index*`): v1 50.2 [47.4, 53.3], v2 52.0 [49.4, 54.9], Gemma s0 52.4 [49.5, 55.4], s1 52.5 [49.6, 55.4]. Gemma − v1: +2.1 [−0.6, +4.7] / +2.3 [−0.6, +5.1]; Gemma − v2: +0.3 [−2.5, +3.2] / +0.5 [−2.6, +3.6]. Its gain over v1 comes from the arts and routerbench datasets that round 24's breadth guard excludes; on the audited panel it is +0.5 / +0.8 pp over v1 and −1.0 / −0.7 pp under v2 (table).
+
+Reading (two seeds agree on every sign). Against v1 a one-epoch LoRA on Gemma 4 31B IT is level or better on transfer-v4, v9, hard-v1, docs and breadth (hard s1 +2.9 [+0.3, +5.3]), and worse on devtools-v1 (−3.1 / −4.0, both intervals exclude zero). Against v2 it is level on transfer-v4, v9 and breadth and clearly worse where v2's full-weight SFT data taught the task: hard-v1 −16.1 / −15.1, devtools −6.6 / −7.5, docs −3.4 / −4.2, tasksource-heldout −3.2 / −3.5. Gemma's calibration is worse off its fitting distribution (devtools and docs ECE 0.07–0.08 against v2's 0.04 / 0.02). SemIf is report only: −4.2 / −4.2 vs v1, −3.5 / −3.5 vs v2 on 144 questions. tasksource-heldout is read with round 24's private exclusion list (`runs/r24-private/tsheld-exclude.json`, sha256 `a72030ab…`, restored from kev-private-train): level with v1 (+1.0 / +0.7) and below v2 (−3.2 / −3.5); v1's and v2's reads are `runs/r21-P27-tsheld` and `runs/r23-27b-k-w85-tsheld`.
+
+So the base is competitive with v1 at LoRA strength, and the gap to v2 is the SFT data, not the base: the question for round 30 is whether v2's full-weight recipe closes it on Gemma.
+
+## Round 31 - Gemma blend and another full-weight pass (registered 2026-10-09)
+
+Jared approved the two-arm follow-up after round 30. Full-weight Gemma improved from 25% through the final checkpoint
+but remained below Kev-27B v2 on the Kev panel and hard-v1. This round asks whether interpolation or another pass
+closes that gap; it does not test new data, new architectures, or a Qwen continuation. The knowledge graph's
+`topics/full-weight-sft.md` records the round-23 blend as the positive precedent and rounds 25/26 as negative continued
+SFT precedents. Nothing is trained, constructed or read until this registration and its spec are committed.
+
+**Two candidates, fixed before results** (`experiments/rounds/r31.json`):
+
+- `31b-blend-w85`: the round-30 final full-weight backbone at `/runs/r30-g31-full/00-trial-0/checkpoint`, blended with
+  the one-epoch Gemma IT seed-0 LoRA at `/runs/gemma4-31b-it-2/00-trial-0/checkpoint`. Alpha 0.85 on full weights, 0.15
+  on the LoRA endpoint merged in fp32, rounded once to bf16; keep the full-weight pointer head. This is round 23's
+  winning blend setting, not a sweep selected on Gemma reads. Existing `scripts/interpolate_checkpoint.py` checks
+  base/revision, every tensor name/shape, and head compatibility; no new merging implementation. CPU construction:
+  `KEV_HF_SECRET=huggingface-secret uv run modal run --detach modal_app.py::interpolate --sft /runs/r30-g31-full/00-trial-0/checkpoint --toward /runs/gemma4-31b-it-2/00-trial-0/checkpoint --base google/gemma-4-31B-it --revision 842da3794eaa0b77d5f08bae87a17459d91ff475 --alphas 0.85 --prefix 31b-k --study r31-g31-blend --timeout 10800`.
+- `31b-cont`: warm-start the backbone and head from round 30's full-weight final and train one further pass over the
+  same `sft-v2-r26` training partition, at peak backbone lr **1e-6**. Fresh AdamW and OneCycleLR, not an exact resume or
+  the second half of a two-pass schedule; the completed trial deleted its optimizer resume point. Keep head lr 1e-4,
+  state 8192, bf16, batch 4 x accumulation 4, checkpointing and length-sort; shuffle/augmentation seed 1 so the repeat
+  is not the identical seed-0 order. Final only, no snapshot candidates. Plan `experiments/round31/full-cont-lr1e6.json`;
+  new immutable study `r31-g31-cont`, H200:8, 10800 s per attempt, up to the existing three-attempt ledger. Round 30's
+  measured 11,653 s wall time suggests a continuation attempt will be needed. The watcher must remain alive.
+
+**Read and decision rule.** Parent remains the latest released Kev-27B v2, pinned at `28be62e9c5ae0471bda2b7c636a55224b4f4b887`,
+served at the same registered round-24 temperature pool over its existing round-23 reads. Both new candidates get their
+own pool and one batched `::benchmarks` call each for breadth-v1, excluded tasksource-heldout-v1, hard-v1, devtools-v1,
+documents-v1, transfer-v4 development, transfer-v9 development, transfer-r3 calibration and the **already-spent**
+transfer-r3 test short-state guard, plus report-only SemIf. `--allow-test` is used only for that registered short-state
+guard, never advertised as fresh confirmation. No other test/locked partitions are read. Frozen eval bytes are unchanged.
+
+Round 24's audited criteria and ranking are unchanged, but reads are staged: all non-long criteria are the short
+screen; the selected survivor must also pass the two original CUAD criteria in `confirm.long`. The word "candidate"
+in the screen's automatic output means **screen survivor only**, not promotion or release. No survivors means stop
+without longdoc. If there is a survivor and its bounded read fits the remaining cap, launch its single longdoc-v1
+**development** read once with 28800 s (explicit `::benchmarks` command; `launch-reads` otherwise uses the screen's
+2700 s timeout). Existing parent longdoc rows are reused. If that read times out or cannot be admitted, its long guard
+is **unread/incomplete**, never passed. Agents/guardrails OOD are omitted, not silently claimed as read. A winner would
+still need separately registered confirmation and serving/long-input verification; this round publishes nothing.
+
+Accuracy, Brier and ECE are recorded on both sides, paired by record with `kev.metrics.paired_bootstrap` through
+`kev.rounds` (2,000 resamples, seed 0, 95% paired percentile intervals; the temperature-fit interval is separately 90%);
+the chance-corrected all-family breadth index and hard/devtools/docs are also
+reported. Same seven-family exclusion hash as round 30. No repeat of r30 candidate reads or new parent reads.
+
+**Budget, hard cap $500 including reads and GPU checks.** `kev.budget` admission bounds: training $370.50 (three 3 h
+attempts at $41.1664/h), CPU interpolation $4.21, twenty screen jobs at 2700 s on H200 $93.98, targeted GPU verification
+at most 3600 s $6.27: **$474.95**, leaving $25.05 for incremental storage and reserve. Actual training is expected
+to be much cheaper than all three full attempts. The selected survivor's eight-hour longdoc bound is $50.12; admit
+only if completed actual costs + outstanding job bounds + $50.12 + $10 reserve fit $500. Otherwise stop incomplete.
+Before launches use both the attempt/resource ledger (billing lag cannot authorize overspend) and the current Modal
+metered summary. Baseline returned on 2026-10-09: **$816.49091164**, cycle 2026-10; this provider figure is lower than
+the prior $863.67 report, so do not subtract the old report or claim the difference is spend refunded. Keep the new
+baseline and actual job durations to attribute this round, and stop new admissions at $490.
+
+No Hub writes, mirrors, published cards, README numbers, main commits or merge. Work stays on `base/gemma4` / PR #221.
+
+**Execution and verification (2026-10-09).** The blend finished in 828 s: 832 tensors, alpha 0.85, fp32 arithmetic,
+full-weight head retained. Its interpolation artifact pins both endpoints (full weights `98bd0ce6…`, merged LoRA
+`5f94f57b…`), the base revision, head hashes, formula and output weights `306779c1…`. The continuation is spawned
+with its attempt ledger and watcher intact, initially queued for H200:8.
+
+The inference review found a latent unequal-query/key-length bug: the chunker used bottom-right implicit causality,
+whereas Transformers' SDPA uses upper-left causality and trims excess keys. It now follows that reference and slices
+position bias alongside queries. Twelve direct regression cases cover unequal lengths, explicit masks and bias.
+Targeted H200 verification passes **15 tests**, including the two Gemma 12B implementations, Qwen rows, and those
+regressions. Chunked versus original SDPA on identical Gemma inputs is held to **1e-5** with the math backend.
+Packed/rows/prefix use a separate **1e-3** bound: deterministic eager and math-SDPA runs both showed the same
+`0.000241607` probability drift (0.024 pp), so the former 1e-4 cross-shape assertion was not a chunking diagnostic.
+Default fused SDPA still has larger shape-dependent drift (the earlier diagnostic reached 0.047); neither the test
+backend nor the new tolerance changes the research read path, and this is not a serving-parity claim.
+The complete requested unit suite has **571 passed, 21 archived-artifact skips, 2 warnings in 733.07 s** after the
+pooled-parent fixes and integration of main's device-probing change (`fc4a17e`). Targeted conventions/pool checks
+passed 27 tests before the privacy guard and 30 afterward, including the canonical delimiter rule. CPU weight-backed
+checks pass eight tests;
+the generated eight-record Qwen smoke fixture fails the strict merge-parity test identically on main and this branch
+(max probability difference `2.6643e-5`, bound `1e-5`). This is recorded, not a green test or a relaxed bound.
+H200 old/main-versus-branch verification gives byte-identical benchmark rows and identical scoring/report fields
+except wall-clock `latency_ms`; converter output also matches. Fixed-seed GPU training is **not bit-identical**:
+adapter/head maxima are `2.170235e-4` / `5.584210e-5`. A repeat of unchanged main differs by `2.164692e-4` /
+`2.244860e-5`, establishing baseline nondeterminism, not exact training parity. The synthetic smoke merge fixture
+also fails identically on both revisions on H200 (`2.8193e-5` against the unchanged `1e-5` bound). Its separate
+server-OOM tests pass on both revisions in fresh processes; the first whole-suite run failed its allocation-pressure
+precondition instead. The Modal image's installed fused Qwen3.5 kernels cannot score that hybrid checkpoint on CPU.
+
+Structural review found that pooled-parent reads bypassed the canonical template resolver. `parent_side` now uses
+`locations` before `temperature_pool`; a static/templated path regression covers this. Pooled parents require a registered
+pool, and absent parent fit rows leave comparisons incomplete instead of raising. These cases have regression coverage.
+The full unit rerun initially stalled in
+two-rank snapshot-process shutdown after writing its checkpoint. That same test passes in isolation (98.33 s) with
+`OMP_NUM_THREADS=1 MKL_NUM_THREADS=1`; the complete requested suite passed with those thread limits and no test exclusions
+(733.07 s). Historical readout replay used saved rows only: **134 passed, 1 skipped in 769.70 s**;
+247 expected archive files remain unavailable after restoration, so incomplete archive coverage is not a green replay
+or a reason to rerun historical panels.
+
+**Thermonuclear structural review (2026-10-09).** Against main, the implementation review found and corrected the
+templated pooled-parent path bypass (`kev/rounds.py:352`), the missing registered-pool invariant
+(`kev/rounds.py:417`), and the missing-fit exception (`kev/rounds.py:860-862`). These reuse `locations`,
+`temperature_pool`, and `Side` rather than introducing a second readout engine. In the model, the tokenizer-specific
+delimiter contract and escaping stay in `kev.model.delimiters`/`user_tokens` (`kev/model.py:90,113`);
+sliding/global masks and the inference-only SDPA adapter stay inside `DecisionModel`/the Transformers attention
+interface (`kev/model.py:287,410-425`), not in serving or training call sites. Foreign-base admission reuses
+`training_context`/`fits` (`kev/train.py:86-120`), leaving Qwen's admitted-base path intact. The implementation
+does not push a source file across 1,000 lines; `kev/rounds.py` and the affected tests were already over that
+threshold. No dramatically simpler implementation, new duplicated canonical rule, or unjustified special-case
+layer was found. **Structural approval bar met for the current implementation**, not a claim of bit-exact training,
+arbitrary release-parent provenance, serving parity under fused SDPA, or a complete round-31 verdict.
+
+The review also found a **private-artifact boundary leak**: ten committed `tasksource-heldout-v1` reports contained
+per-source breakdowns. These reports are removed from the branch's tracked tree and their directories ignored,
+while aggregate scores, calibration and paired readouts remain committed; the full report copies remain local,
+outside the Git index. `tests/test_conventions.py` now rejects any tracked report for this private suite with a
+nonempty `tasks` breakdown, including reports identified by the suite-manifest hash. A cleanup commit does not
+remove those files from existing branch history: a separate approved history rewrite would be needed to erase
+that already-pushed exposure. Do not claim that historical privacy is repaired.
+
+**App-scoped Modal spend, provisional.** Billing for the eleven identified round-31 apps (blend/read app, GPU and
+CPU verification, and main training-repeat control) totals **$5.92757282 as observed 2026-10-09 22:05 UTC**. This
+is a scoped billing-report snapshot, not the final round cost: the queued continuation has no GPU allocation yet,
+billing may lag and new benchmark apps must be added if it later runs. The registered $500 hard cap and conditional
+long-read admission still apply; workspace-wide metering alone must not be reported as this round's spend.
+
+Pooled-parent provenance limitation: the engine checks the registered pool against every candidate's training
+(`pool_training_problems`), but does not establish training-source separation for a release/blend parent lacking ordinary
+trial provenance. Kev-27B v2 reuses round 23's registered parent reads and temperature pool; this is not a claim that
+arbitrary pooled parents have a generic training-provenance audit.
+
+**Blend short screen (2026-10-09), not the final round verdict.** All ten registered reads finished once. At pooled
+T **1.0968** (90% temperature interval [0.9772, 1.2030], 648 questions), against the parent's own pool T **1.3195**:
+
+| panel | accuracy delta, pp (paired 95% interval) | Brier delta | ECE candidate / parent |
+|---|---|---|---|
+| breadth, audited | +0.2 [−0.9, +1.3] | +0.007 | 0.0309 / 0.0103 |
+| tasksource-heldout, excluded families | −1.0 [−2.6, +0.5] | +0.008 | 0.0362 / 0.0432 |
+| Kev panel | −1.8 [−2.8, −0.7] | +0.019 | 0.0094 / 0.0146 |
+| hard | −4.2 [−6.2, −2.3] | +0.056 | 0.0216 / 0.0326 |
+| devtools, audited | −1.3 [−3.9, +1.4] | +0.003 | 0.0129 / 0.0386 |
+| documents | −0.5 [−2.3, +1.2] | +0.005 | 0.0115 / 0.0191 |
+| short state | +0.5 [−0.8, +1.8] | −0.002 | — |
+
+The blend fails both positive-gain primaries, the Kev lower-bound guard, breadth ECE, and the short-state
+confident-error upper bound (+0.0095 [0.0032, 0.0164], bar +0.01). Unknowable share is zero. No longdoc read is
+admitted for this arm. `runs/r31-readout/round31.json` is explicitly incomplete for `31b-cont`, whose H200:8 call
+remains queued with its continuation watcher alive; no continuation result or overall verdict is inferred.
+
+**Continuation launch failure and unchanged recovery (2026-10-09, registered before retry).** At 22:44 UTC the
+original call `fc-01M4H36GVNHJQQ9BGXFGTJ1MVZ` failed its source-hash guard before lease acquisition, model loading
+or training. I redeployed `kev-r31` during its three-hour queue; the late container no longer had the sources
+the launcher had hashed. No `/r31-g31-cont` directory exists on the runs volume, and there is no checkpoint, result,
+provenance or continuation panel read. The failed call and its spawn/watch ledgers are preserved. This is a launch
+failure, not negative model evidence; the watcher exited after recording the continuation as incomplete.
+
+Recover the **same** `31b-cont` candidate under the new immutable study `r31-g31-cont2`. The plan
+`experiments/round31/full-cont-lr1e6.json` is byte-for-byte unchanged: same round-30 initialization, training partition,
+Gemma revision, H200:8, seed 1, fresh optimizer, LR, batch/accumulation, state limit, augmentations and final-only output.
+The round still has exactly two candidates. Use the separate deployment `kev-r31-cont-frozen`; do not redeploy it
+while the recovery is queued or running. Do not disable the source guard. The spec records this operational amendment
+before launch; the failed original study is not an outstanding job. Add a **$10 failed-start reserve** to the original
+$474.948 screen bound, for a conservative **$484.948** total inside the unchanged $500 hard cap. Billing for the
+original app currently shows only $0.00169026 of CPU/memory costs and may lag, so it does not authorize overspending.
+Continue to count actual failed-start costs and all outstanding bounds at every later admission. No blend or parent
+read is repeated, and the continuation remains incomplete until the unchanged recovery produces evidence.
+
+**Continuation completion and final verdict (2026-10-10).** The frozen recovery finished on its second registered
+attempt, resuming optimizer step 295. It completed all **454 optimizer steps**, 58,094 admitted requests plus
+8,148 none-pair augmentations (two siblings each), hence **74,390 records seen**, on eight H200s. The registered
+recipe, fresh-optimizer warm start, base revision and training-source hashes remain unchanged; there are no snapshots,
+early stop, truncated records or rejected records after tokenizer admission. The initial foreign-tokenizer admission
+excluded 421 of 58,515 records; this is filtering before training, not truncation.
+
+The first final-checkpoint gate rejected a real **resume-telemetry race**, not unfinished optimization:
+`ResumeWriter` froze optimizer tensors, scheduler and RNG, but its background thread retained mutable nested
+`position` histories. The native final artifact has 461 gradient/timing entries for 454 steps, a seven-entry overcount.
+`kev/full_ft.py` now deep-copies the position at the writer boundary. An event-controlled regression fails on the
+frozen pre-fix source only at the history assertion, and passes on the fix for both fp32 and bf16, with exact final
+working weights, optimizer state and scheduler state across interruption/resume. These are CPU trajectory checks,
+not a new bit-identical GPU-training claim.
+
+The native files were **not edited or rewritten**. Their gradient/timing histories and derived statistics are invalid
+and quarantined. Acceptance instead requires the exact checkpoint/log digests, frozen commit/source map, registered
+arguments, independent optimizer/data/control-flow counters and measured checkpoint identity. Negative checks reject
+altered steps, requested/seen records, world size, snapshots and gradient summaries. `"none"` is interpreted by the
+canonical snapshot parser, not compared against an unparsed list. Remote verification read the actual 832 bf16
+safetensors, checked schema against the parent, contiguous offsets/shard sizes and full payload/head hashes:
+weights `53c95fb74368722d239b2e776d5ee694e24a68275757c2085e36a1931f62fc85`,
+head `9f4f6b036a61ccfd89025532c53c1f12b905d36d05874cd3019a6c4e39522ac9`.
+The native 764 transfer-v4 requests/encodings/raw-logit rows supply that registered panel with **zero new model calls**.
+Only the other nine short panels were launched, each once; all completed without rejected or truncated records.
+The detailed acceptance proof and operational verifier sources are in `runs/r31-readout/continuation-verification.json`.
+
+At pooled T **1.382** (90% temperature interval [1.231, 1.516], 648 questions), versus the same v2 parent pool:
+
+| continuation panel | accuracy delta, pp (paired 95% interval) | Brier delta | ECE candidate minus parent |
+|---|---|---|---|
+| breadth, audited | −0.1 [−1.3, +1.0] | +0.013 | +0.013 |
+| tasksource-heldout, excluded families | −0.4 [−2.0, +1.3] | +0.000 | −0.014 |
+| Kev panel | −0.6 [−1.6, +0.4] | +0.012 | −0.000 |
+| hard | −2.4 [−4.3, −0.6] | +0.038 | −0.017 |
+| devtools, audited | −0.5 [−2.7, +1.9] | +0.002 | −0.006 |
+| documents | +0.7 [−1.2, +2.5] | −0.001 | +0.000 |
+| short state | +0.6 [−0.7, +2.0] | −0.000 | — |
+
+The continuation fails the **same five** criteria as the blend: neither positive-gain primary clears zero, the
+Kev lower bound is below −1 pp, short-state confident-error upper bound is +1.3 pp (bar +1 pp), and breadth ECE
+exceeds parent +0.01. Unknowable share is zero. Both arms are complete short-screen failures in
+`runs/r31-readout/round31.json`; **no survivor, no candidate, keep Kev-27B v2**. The extra pass reduces the hard gap
+from round 30's −4.7 pp to −2.4 pp, but does not beat v2 or satisfy the registered rule. No conditional longdoc
+read was admitted; that guard remains **unread**, not passed or failed. No publishing, Hub writes, release or merge.
+
+Final execution has no outstanding candidate jobs. App-scoped billing across 19 identified apps is
+**$174.00457262 observed 2026-10-10 06:57 UTC**, still provisional because provider billing can lag; the snapshot
+is `runs/r31-readout/scoped-billing.json`. It includes verification/control apps, not just training, and remains
+inside the $500 cap. Structural re-review approves the one-line writer-boundary fix: no call-site special cases,
+new canonical rules or production helper layers. The post-fix ten fast suites pass **508 tests**, with 21
+unavailable archived-artifact skips; the interrupted/resumed fp32/bf16 regression and negative gate checks pass.
+An additional attempt to run the live API-conformance file had no local server listening and failed all 13 tests
+at connection setup; it is not a passing API run or evidence of a model-path regression.
+The previously recorded GPU, smoke-fixture, historical-private-history and missing-archive caveats remain in force.
+
 ## Record
 
 One line per round or named study. `rN.json` is `experiments/rounds/rN.json` on main (the rule as data; `python -m
