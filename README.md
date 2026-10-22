@@ -227,6 +227,67 @@ For lower warm HTTP latency, add `KEV_FLASH=1 KEV_REGION=us-east` to the deploym
 
 A model you fine-tuned with the `kev-finetune` skill deploys the same way from its own Modal app (`KEV_SERVE_SECRET=kev-serve-key KEV_SERVE_RUN=<run> modal deploy scripts/kev_modal.py`; see [its deploy guide](skills/kev-finetune/references/deploy.md)). To host Kev on your own machines instead, run `kev.serve` from [Run It Locally](#run-it-locally) on a GPU box with `--host 0.0.0.0` and put it behind your own proxy; [Serving Performance](#serving-performance) says which GPU to pick.
 
+## Docker
+
+To serve on a Linux or WSL2 box you already have, build the same server into an image. The image installs the CUDA build of PyTorch and the fused Gated DeltaNet kernels, so the build needs no GPU of its own — `--gpus` applies at `docker run`.
+
+```bash
+docker build -t kev .
+```
+
+Docker cannot see the host's GPU at build time, so the variant is a build argument:
+
+| `KEV_DEVICE` | When | What it installs |
+|---|---|---|
+| `gpu` (default) | NVIDIA GPU | flash-linear-attention, `triton>=3.7.1`, causal-conv1d — the fused fast path |
+| `cpu` | no GPU, or to disable acceleration | none of the above; eager PyTorch kernels (slow) |
+
+```bash
+docker build --build-arg KEV_DEVICE=cpu -t kev .
+```
+
+The `gpu` build is x86_64 only, because causal-conv1d comes from a prebuilt wheel; on an arm64 host build `cpu`.
+
+### Run
+
+The image serves a checkpoint at `/models/mine` and expects its base model at `/models/base`. Mount the two directories and it starts with no arguments — `--host 0.0.0.0 --port 8000` are fixed in the entrypoint:
+
+```bash
+docker run --rm -d --name kev --gpus all -p 8000:8000 \
+  -v /data/Qwen3.5-4B-Base:/models/base:ro \
+  -v /data/kev-mine:/models/mine:ro \
+  -v kev-triton:/triton-cache \
+  kev
+```
+
+The first GPU request compiles the kernels (a few minutes); the `/triton-cache` volume makes that a one-time cost. To serve a released model instead, override `--run`:
+
+```bash
+docker run --rm -d --gpus all -p 8000:8000 \
+  -v kev-models:/models -v kev-triton:/triton-cache \
+  kev --run jaredpalmer/kev-4b
+```
+
+A Hub id downloads into `/models` (`HF_HOME`) on first start.
+
+### Offline Base Model
+
+kev's loader reads the base path from `head.pt`, not from `adapter_config.json`, so pointing a checkpoint at a local base is one command:
+
+```bash
+python scripts/repoint_checkpoint.py --run /data/kev-mine --base /models/base
+```
+
+`--base` is the path *inside* the container. The script rewrites only the base reference — the pointer weights, the temperature and the provenance are untouched — is idempotent, and does not need the target to exist yet. Then mount the directories and start with no arguments; the default command already serves `/models/mine`.
+
+### Verify
+
+```bash
+curl -s http://127.0.0.1:8000/v1/models | python3 -m json.tool
+```
+
+Send the ticket from [Run It Locally](#run-it-locally) to port 8000; an `answers.department.choice` in the reply means the service is up. [docs/docker.md](docs/docker.md) has the full guide: prerequisites, the NVIDIA Container Toolkit and WSL2 setup, the mount convention and every persistent volume.
+
 ## What to Expect
 
 **Accuracy.** Kev-27B is within three points of Jev, or ahead of it, on 9 of the 11 new-source categories in the chart below. Kev-4B and Kev-9B are about as close on classification-shaped sources like routing, entailment and science questions. Knowledge questions depend mostly on the base model: on MMLU Kev-9B scores 0.73 and Kev-27B matches Jev at 0.90, but on the harder MMLU-Pro Kev-27B scores 0.675 against Jev's 0.840. The smaller models also trail on day-precision date arithmetic.
