@@ -397,7 +397,7 @@ def test_rows_hidden_replicates_cache_without_changing_prefix(monkeypatch):
     torch.nn.Module.__init__(model)
     model.lm, model.device, model.pad_id = LM(), "cpu", 0
     model.eval()
-    monkeypatch.setattr(M, "rows_per_pass", lambda rows, prefix_len=0: 2)
+    monkeypatch.setattr(M, "rows_per_pass", lambda rows, prefix_len=0, budget=0: 2)
     rows = [([1, 2], [2, 3]), ([3], [2]), ([4], [2])]
     hidden = model._rows_hidden(rows, cache=cache, prefix_len=2)
     assert [h.shape for h in hidden] == [(2, 2), (1, 2), (1, 2)]
@@ -2799,3 +2799,48 @@ def test_score_presentation_checks_levels_and_empty_data_fail_before_the_checkpo
     assert checks.main(["--run", "unused", "--levels", "4", "--states", "1", "--orders-max", "2"]) == 0
     assert all(sorted(row) == ["level 1", "level 2", "level 3", "level 4"] for row in seen[:-1])
     assert seen[-1] == ["level 1"] * 4 and len(seen) == 3                    # 2 orders + one control call
+
+
+def test_row_groups_by_attended_length():
+    """Eager passes group similar attended lengths and size each pass from its own longest row. A long cached state
+    counts, so two short branches over it stay together; the same branches with no prefix split."""
+    from kev.model import row_groups, rows_per_pass
+    lengths = [10] * 7
+    budget = 30
+    chunk = rows_per_pass([range(10)] * 7, budget=budget)
+    assert row_groups(lengths, budget=budget) == [list(range(s, min(s + chunk, 7))) for s in range(0, 7, chunk)]
+    assert rows_per_pass([range(n) for n in (10, 10, 10, 10, 100)], budget=50) == 1   # the old global count: one row at a time
+    assert row_groups([10, 10, 10, 10, 100], budget=50) == [[0, 1, 2, 3], [4]]        # the short pass is sized from 10, not 100
+    assert row_groups([140, 100, 100, 100], budget=450) == [[1, 2, 3], [0]]           # 140/100 is within 1.5, but 4 rows do not fit 450
+    assert row_groups([40, 200], prefix_len=1000) == [[0, 1]]                          # attended 1040 and 1200
+    assert row_groups([40, 200]) == [[0], [1]]
+    reported = row_groups([500, 30, 35, 200, 40, 2100, 300])
+    assert reported == [[1, 2, 4], [3, 6], [0], [5]] and sorted(i for p in reported for i in p) == list(range(7))
+
+
+def test_rows_hidden_restores_request_order_and_trains_in_one_batch():
+    """Eval may run a short row before a long one; the hidden states come back in request order, and the short row is
+    not padded to the long one. Training forwards every row once, in the given order."""
+    seen = []
+
+    class LM(torch.nn.Module):
+        def forward(self, input_ids, position_ids, attention_mask, **kw):
+            seen.append(input_ids.tolist())
+            h = torch.zeros(input_ids.shape[0], input_ids.shape[1], 1)
+            h[:, :, 0] = input_ids.float()
+            return SimpleNamespace(last_hidden_state=h)
+
+    def model():
+        m = DecisionModel.__new__(DecisionModel)
+        torch.nn.Module.__init__(m)
+        m.lm, m.device, m.pad_id = LM(), "cpu", 0
+        return m
+
+    rows = [([1, 1, 1], [0, 1, 2]), ([2], [0]), ([3, 3], [0, 1])]
+    m = model(); m.eval()
+    hidden = m._rows_hidden(rows)
+    assert [h[:, 0].tolist() for h in hidden] == [[1, 1, 1], [2], [3, 3]]
+    assert seen == [[[2]], [[3, 3, 0], [1, 1, 1]]]
+    seen.clear(); m.train()
+    assert [h[:, 0].tolist() for h in m._rows_hidden(rows)] == [[1, 1, 1], [2], [3, 3]]
+    assert seen == [[[1, 1, 1], [2, 0, 0], [3, 3, 0]]]

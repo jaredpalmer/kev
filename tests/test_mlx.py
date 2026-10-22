@@ -293,9 +293,9 @@ def test_prefix_reuse_and_question_isolation(models):
     alone = [m.probs(m.encode(tok, {"state": rec["state"], "questions": [q]}))[0] for q in rec["questions"]]
     close(alone, full)
     import kev.mlx_model as MM
-    saved, MM.rows_per_pass = MM.rows_per_pass, lambda rows, prefix_len=0, budget=0: 1   # one row (and one cache copy) per pass: same answers
+    saved, MM.row_groups = MM.row_groups, lambda lengths, prefix_len=0, budget=0: [[i] for i in range(len(lengths))]   # one row (and one cache copy) per pass: same answers
     try: chunked = m.probs_with_prefix(enc, prefix)
-    finally: MM.rows_per_pass = saved
+    finally: MM.row_groups = saved
     assert same(chunked, alone)   # one branch row on the cached prefix, whether asked alone or split out of a batch
     with pytest.raises(ValueError, match="prefix"):
         m.probs_with_prefix(m.encode(tok, {**rec, "state": rec["state"] + " extra words here"}), prefix)

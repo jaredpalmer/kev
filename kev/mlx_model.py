@@ -27,7 +27,7 @@ from mlx_lm.models import qwen3_5
 from mlx_lm.models.cache import make_prompt_cache
 from mlx_lm.utils import load_model
 
-from .model import PointerHead, encode, probs_one, rows_of, rows_per_pass
+from .model import PointerHead, encode, probs_one, row_groups, rows_of
 
 CACHE_LIMIT = 1 << 30   # MLX's buffer cache keeps a buffer per new request shape; Kev-4B on an M5, 50 requests: 1.0 GB cached vs 3.7 GB unbounded, same latency
 MLX_DTYPES = {"bfloat16": mx.bfloat16, "float32": mx.float32}   # config.json's dtype names (kev.checkpoint.Checkpoint.saved_dtype) -> MLX
@@ -166,11 +166,13 @@ class MLXDecisionModel:
         """Row form, as the torch path computes it: every question is one causal row of state + branch tokens, the state
         recomputed per row. The reference the prefix form is checked against (tests/test_mlx.py); serving uses `forward`."""
         S, _, rows = rows_of(enc)
-        chunk, out = rows_per_pass([S + r["ids"] for r in rows]), []
-        for start in range(0, len(rows), chunk):
-            part = rows[start:start + chunk]
+        out = [None] * len(rows)
+        for idx in row_groups([len(S) + len(r["ids"]) for r in rows]):
+            part = [rows[i] for i in idx]
             h = self._hidden([S + r["ids"] for r in part])
-            out += [self._logits(h[i], len(S) + r["decide"], [len(S) + o for o in r["opts"]]) for i, r in enumerate(part)]
+            for j, i in enumerate(idx):
+                r = part[j]
+                out[i] = self._logits(h[j], len(S) + r["decide"], [len(S) + o for o in r["opts"]])
         return out
 
     # --- state prefix: the state runs once into an mlx-lm prompt cache (KV for the attention layers, conv + recurrent state
@@ -194,14 +196,14 @@ class MLXDecisionModel:
         return Ls, cache
 
     def _branch_logits(self, enc, cache):
-        """Branches as rows on a replicated copy of the state cache, rows_per_pass rows (and cache copies) at a time."""
+        """Branches as rows on a replicated copy of the state cache, one row_groups pass (and its cache copies) at a time."""
         _, _, rows = rows_of(enc)
-        chunk, out = rows_per_pass([r["ids"] for r in rows], enc["seg"].count(0)), []
-        for start in range(0, len(rows), chunk):
-            part = rows[start:start + chunk]
+        out = [None] * len(rows)
+        for idx in row_groups([len(r["ids"]) for r in rows], enc["seg"].count(0)):
+            part = [rows[i] for i in idx]
             batch = [type(c).merge([c] * len(part)) for c in cache]      # merge copies the arrays: `cache` is not mutated
             h = self._hidden([r["ids"] for r in part], batch)
-            out += [self._logits(h[i], r["decide"], r["opts"]) for i, r in enumerate(part)]
+            for j, i in enumerate(idx): out[i] = self._logits(h[j], part[j]["decide"], part[j]["opts"])
         return out
 
     def _branch_probs(self, enc, cache):
