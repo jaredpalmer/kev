@@ -16,6 +16,7 @@ import the data or suite modules at import time.
     ck.meta.temperature                             # the calibration the checkpoint carries
 """
 import datetime
+import hashlib
 import importlib.util
 import json
 import os
@@ -45,6 +46,23 @@ def resolve_run(run):
     return snapshot_download(repo, revision=revision or None, allow_patterns=["*.json", "*.safetensors", "*.pt", "*.txt", "*.jinja"])
 
 
+def directory_digest(base):
+    """Content identity of a base model directory: sha256 over every non-hidden regular file's relative path, size and
+    content, in sorted order, so two directories holding identical files have the same digest whatever their paths.
+    Hidden entries (HF download metadata, lock files) are skipped: they vary between copies of the same weights.
+    Recorded in head.pt as Meta.base_digest and compared by warm_start instead of the base path."""
+    h = hashlib.sha256()
+    for f in sorted(Path(base).rglob("*")):
+        rel = f.relative_to(base)
+        if f.is_file() and not any(part.startswith(".") for part in rel.parts):
+            h.update(f"{rel.as_posix()}:{f.stat().st_size}:".encode())
+            with f.open("rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    h.update(block)
+            h.update(b"\n")
+    return h.hexdigest()
+
+
 @dataclass
 class Meta:
     """Contents of `head.pt`. Every reader gets the same defaults for fields older checkpoints did not write.
@@ -52,6 +70,7 @@ class Meta:
     read-modify-write round trip loses nothing."""
     base: str
     head: dict | None = None
+    base_digest: str | None = None   # content identity of the base (directory_digest); None = checkpoints older than this field
     base_revision: str | None = None
     lora: int = 0
     head_dim: int = 256
@@ -63,7 +82,7 @@ class Meta:
     weights: str = "lora"          # "lora": an adapter on the base; "full": the whole backbone is in the checkpoint (kev.train --full_ft)
     extra: dict = field(default_factory=dict)
 
-    KNOWN = ("base", "head", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings", "weights_dtype", "temperature", "holdout", "weights")
+    KNOWN = ("base", "head", "base_digest", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings", "weights_dtype", "temperature", "holdout", "weights")
 
     @classmethod
     def from_dict(cls, d):
@@ -313,7 +332,7 @@ class Checkpoint:
         if dtype != torch.float32: m.lm = m.lm.to(dtype)
         return m, merge
 
-    COMPAT_FIELDS = ("base", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings", "weights")
+    COMPAT_FIELDS = ("base_revision", "lora", "head_dim", "option_isolation", "special_embeddings", "weights")
 
     def warm_start(self, model, ours):
         """Delta training: load this checkpoint's weights (adapter, or full backbone) and pointer head into `model` (a fresh
@@ -321,6 +340,13 @@ class Checkpoint:
         run will save; every architecture field is compared BEFORE loading, because peft and load_state_dict(strict=False)
         load matching keys silently and a half-loaded model still trains and still reports a loss. Returns provenance."""
         from .suite import digest   # lazy: the Space vendors this module without kev/suite.py
+        # Base identity: by content digest when both sides recorded one, else verbatim path (the old semantics,
+        # for checkpoints older than base_digest and hub bases). Same weights at a different path warm-start cleanly.
+        if self.meta.base_digest and ours.base_digest:
+            if self.meta.base_digest != ours.base_digest:
+                raise ValueError(f"--init_from {self.path}: base digest is {self.meta.base_digest!r} there and {ours.base_digest!r} here")
+        elif self.meta.base != ours.base:
+            raise ValueError(f"--init_from {self.path}: base is {self.meta.base!r} there and {ours.base!r} here")
         for name in self.COMPAT_FIELDS:
             theirs, mine = getattr(self.meta, name), getattr(ours, name)
             if theirs != mine and not (name == "base_revision" and None in (theirs, mine)):
