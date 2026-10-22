@@ -32,7 +32,7 @@ DATE_FACTS = os.environ.get("KEV_DATE_FACTS", "0") == "1"
 TRUNCATE_STATES = os.environ.get("KEV_TRUNCATE_STATES", "0") == "1"    # unset = a state over SERVE_MAX_STATE tokens gets a 422; 1 = read its first SERVE_MAX_STATE tokens, and every response says whether it did (truncated, usage.state_tokens / state_tokens_used)
 API_KEY = os.environ.get("KEV_API_KEY")                                  # unset = open server; set = require Authorization: Bearer <key>, as the TypeSafe clients always send
 MAX_BATCH = 64                                                           # requests the model thread takes at once (kev.cuda_graphs splits them to fit its buffers)
-MODEL_NAMES = ("kev-latest", "jev-latest")                               # both names serve this checkpoint; jev-latest is the TypeSafe SDK default model, so an unconfigured client works
+MODEL_NAMES = ("kev-latest", "jev-latest", "typesafe/jev-1.13")                               # both names serve this checkpoint; jev-latest is the TypeSafe SDK default model, so an unconfigured client works
 
 
 @dataclass
@@ -249,6 +249,12 @@ def server() -> Server:
 @app.post("/v1/systemone")
 async def systemone(req: SystemOneRequest):
     """TypeSafe-compatible endpoint: typed questions in, typed answers out, one prefill pass."""
+    return await server().answer_async(req)
+
+@app.post("/v1/decisions")
+async def decisions(req: SystemOneRequest):
+    """Alias of /v1/systemone for clients (jcode gateway lane) that call /v1/decisions. The
+    jev-1.13 model name in the request is accepted as-is: MODEL_NAMES serves it."""
     return await server().answer_async(req)
 
 
