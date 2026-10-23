@@ -18,6 +18,8 @@ DEVICES = ("cpu", "cuda", "mps")
 # The child prints one line with this prefix. ROCm and other wheels write startup text to stdout around it;
 # a bare "cuda" line in that text is not a result.
 PROBE_PREFIX = "kev-device "
+# Announce the selected device before allocation, so a failed auto probe does not retry MPS.
+PROBE_START_PREFIX = "kev-probing "
 DEVICE_HELP = ("auto probes in a child process and falls back to cpu (CUDA/ROCm first, then MPS; "
                "each probe waits KEV_DEVICE_PROBE_TIMEOUT seconds, default 30); "
                "an explicit accelerator fails closed; cpu skips discovery")
@@ -42,7 +44,7 @@ def probe_timeout():
 def select(device="auto", *, dtype=torch.float32, timeout=None):
     """Resolve a device before loading weights. A fresh interpreter contains native driver crashes.
 
-    Explicit CPU never inspects accelerators. Auto tries CUDA/ROCm and, if that probe fails, MPS, then falls back to CPU.
+    Explicit CPU never inspects accelerators. Auto tries CUDA/ROCm, then MPS, then CPU. A failed MPS probe is not repeated.
     An explicit accelerator fails closed. This tests one allocation/matmul/sync, not every model kernel or whether the checkpoint fits.
     """
     if device != "auto" and device not in DEVICES:
@@ -57,6 +59,11 @@ def select(device="auto", *, dtype=torch.float32, timeout=None):
             return _run_probe(attempt, dtype, timeout)
         except (OSError, subprocess.SubprocessError, ValueError) as error:
             failures.append((attempt, error))
+            output = getattr(error, "output", None) or ""
+            if isinstance(output, bytes):  # TimeoutExpired keeps captured output as bytes, even with text=True.
+                output = output.decode("utf-8", errors="replace")
+            if attempt == "auto" and PROBE_START_PREFIX + "mps" in output.splitlines():
+                break
     message = "Device probe failed (" + "; ".join(f"{attempt}: {_probe_detail(error)}" for attempt, error in failures) + ")."
     if device != "auto":
         raise RuntimeError(f"{message} Fix the accelerator runtime or pass --device cpu.") from failures[-1][1]
@@ -87,6 +94,7 @@ def _probe(device, dtype):
     """Child-process entry point: no accelerator operations from here may run in the selecting process."""
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    print(PROBE_START_PREFIX + device, flush=True)
     if device != "cpu":
         with torch.no_grad():
             matrix = torch.ones(8, 8, device=device, dtype=dtype)

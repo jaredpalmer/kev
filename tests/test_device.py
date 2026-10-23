@@ -355,13 +355,19 @@ def test_base_mmlu_probe_help_does_not_probe(monkeypatch):
     assert error.value.code == 0
 
 
-def test_auto_tries_mps_after_the_cuda_probe_fails(monkeypatch):
+@pytest.mark.parametrize("failure", [
+    subprocess.CalledProcessError(-11, "probe"),
+    subprocess.CalledProcessError(-11, "probe", output=device.PROBE_START_PREFIX + "cuda\n",
+                                  stderr="HIP error: invalid device function"),
+    subprocess.TimeoutExpired("probe", 30, output=(device.PROBE_START_PREFIX + "cuda\n").encode()),
+])
+def test_auto_tries_mps_after_the_cuda_probe_fails(monkeypatch, failure):
     calls = []
     def run(command, **kwargs):
         calls.append(command[-2])
         assert kwargs["timeout"] == 30.0
         if command[-2] == "auto":
-            raise subprocess.CalledProcessError(-11, "probe", stderr="HIP error: invalid device function")
+            raise failure
         return SimpleNamespace(stdout=reported("mps"))
     monkeypatch.setattr(subprocess, "run", run)
     with warnings.catch_warnings():
@@ -525,3 +531,42 @@ def test_serve_cuda_on_apple_silicon_does_not_switch_to_mlx(startup, monkeypatch
     monkeypatch.setattr(subprocess, "run", run)
     serve.main()
     assert seen == ["cuda"] and startup[0][0] == "cuda"
+
+
+@pytest.mark.parametrize("failure", ["error", "timeout", "crash"])
+def test_auto_does_not_repeat_a_failed_mps_probe(tmp_path, monkeypatch, failure):
+    """Run the real child with an MPS stand-in; each allocation records one probe attempt."""
+    fake_torch = '''
+import os, signal, time
+from contextlib import nullcontext
+from types import SimpleNamespace
+float32 = "float32"
+cuda = SimpleNamespace(is_available=lambda: False)
+backends = SimpleNamespace(mps=SimpleNamespace(is_available=lambda: True))
+no_grad = nullcontext
+def ones(*args, **kwargs):
+    with open(os.environ["PROBE_ATTEMPTS"], "a", encoding="utf-8") as out:
+        out.write(kwargs["device"] + "\\n")
+    failure = os.environ["PROBE_FAILURE"]
+    if failure == "timeout":
+        time.sleep(30)
+    elif failure == "crash":
+        os.kill(os.getpid(), signal.SIGTERM)
+    raise TypeError("unsupported MPS dtype")
+'''
+    (tmp_path / "torch.py").write_text(fake_torch, encoding="utf-8")
+    attempts = tmp_path / "attempts.txt"
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+    monkeypatch.setenv("PROBE_ATTEMPTS", str(attempts))
+    monkeypatch.setenv("PROBE_FAILURE", failure)
+    with pytest.warns(RuntimeWarning, match="Falling back to CPU") as caught:
+        assert device.select(timeout=2 if failure == "timeout" else 10) == "cpu"
+    assert attempts.read_text(encoding="utf-8").splitlines() == ["mps"]
+    assert "; mps:" not in str(caught[0].message)
+
+
+def test_probe_start_marker_does_not_report_success(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k:
+                        SimpleNamespace(stdout=device.PROBE_START_PREFIX + "mps\n"))
+    with pytest.warns(RuntimeWarning, match="unexpected probe result"):
+        assert device.select() == "cpu"
