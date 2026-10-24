@@ -72,10 +72,18 @@ def deltanet_forward(self, hidden_states, cache_params=None, attention_mask=None
     mixed, conv_state = causal_conv1d(mixed, self.conv_weight, None, initial_state=layer.conv_states[0] if previous else None,
                                       output_final_state=fill, activation="silu")
     q, k, v = mixed.split([self.key_dim, self.key_dim, self.value_dim], -1)
-    out, recurrent = chunk_gated_delta_rule(
-        q.reshape(B, T, -1, self.head_k_dim), k.reshape(B, T, -1, self.head_k_dim), v.reshape(B, T, -1, self.head_v_dim),
-        g=a, beta=b, initial_state=layer.recurrent_states[0] if previous else None, output_final_state=fill,
-        use_qk_l2norm_in_kernel=True, use_gate_in_kernel=True, A_log=self.A_log, dt_bias=self.dt_bias, use_beta_sigmoid_in_kernel=True)
+    indices = getattr(layer, "state_indices", None)
+    if indices is not None:
+        from .indexed_delta import indexed_delta_rule
+        out = indexed_delta_rule(
+            q.reshape(B, T, -1, self.head_k_dim), k.reshape(B, T, -1, self.head_k_dim), v.reshape(B, T, -1, self.head_v_dim),
+            a, b, layer.recurrent_states[0], indices, self.A_log, self.dt_bias)
+        recurrent = None
+    else:
+        out, recurrent = chunk_gated_delta_rule(
+            q.reshape(B, T, -1, self.head_k_dim), k.reshape(B, T, -1, self.head_k_dim), v.reshape(B, T, -1, self.head_v_dim),
+            g=a, beta=b, initial_state=layer.recurrent_states[0] if previous else None, output_final_state=fill,
+            use_qk_l2norm_in_kernel=True, use_gate_in_kernel=True, A_log=self.A_log, dt_bias=self.dt_bias, use_beta_sigmoid_in_kernel=True)
     if fill:
         if not layer.is_conv_states_initialized[0]: layer.lazy_initialization(conv_states=conv_state, conv_kernel_size=conv_state.shape[-1])
         layer.conv_states[0].copy_(conv_state)   # in place: graph buffers keep their address
@@ -152,4 +160,5 @@ def fuse(lm):
         layer.input_norm_weight = 1.0 + layer.input_layernorm.weight.float()
         layer.post_norm_weight = 1.0 + layer.post_attention_layernorm.weight.float()
         layer.forward = types.MethodType(decoder_forward, layer)
+    lm.indexed_delta_states = True
     return lm
