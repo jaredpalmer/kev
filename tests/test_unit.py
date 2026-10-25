@@ -200,6 +200,37 @@ def test_fused_default_needs_pinned_fla(monkeypatch):
     assert not fused_available()
 
 
+def test_state_scan_tuned_by_width(monkeypatch):
+    """kev.fused_qwen35._TunedByWidth: fla's state scan keeps one autotune cache for passes of WIDE_SCAN or more sequences
+    (counted from cu_seqlens when varlen) and one for the rest, and Triton's disk cache, keyed without the width, is off.
+    fla is stubbed (not in the CI install) and the module loaded from its file, so sys.modules keeps no stubbed copy."""
+    import importlib.util, sys, types
+    from pathlib import Path
+    stub = types.SimpleNamespace(sigmoidglu=None, swiglu=None, causal_conv1d=None, rms_norm_gated=None, rms_norm=None, chunk_gated_delta_rule=None)
+    for name in ("fla", "fla.modules", "fla.modules.activations", "fla.modules.conv", "fla.modules.fused_norm_gate", "fla.modules.layernorm",
+                 "fla.ops", "fla.ops.gated_delta_rule"):
+        monkeypatch.setitem(sys.modules, name, stub)
+    spec = importlib.util.spec_from_file_location("fused_qwen35_stubbed", Path(__file__).parent.parent / "kev" / "fused_qwen35.py")
+    fused = importlib.util.module_from_spec(spec); spec.loader.exec_module(fused)
+
+    class Autotuner:
+        configs, cache_results = ["BV32", "BV64"], True
+        def __init__(self): self.cache = {}
+
+    class Kernel:   # @triton.heuristics around the Autotuner: its first launch per cache "tunes" on that pass
+        def __init__(self): self.fn, self.ran = Autotuner(), []
+        def __getitem__(self, grid):
+            def launch(**kw): self.ran.append(self.fn.cache.setdefault("key", f"tuned on {kw['k'].shape[0]}x{kw['T']}"))
+            return launch
+
+    kernel = Kernel(); scan = fused._TunedByWidth(kernel)
+    assert scan.tuner is kernel.fn and not kernel.fn.cache_results
+    k = lambda n, t: types.SimpleNamespace(shape=(n, t, 16, 128))
+    for n in (1, 16, 3, 32): scan[None](k=k(n, 16), cu_seqlens=None, T=16)
+    scan[None](k=k(1, 64), cu_seqlens=[0, 16, 32, 48, 64], T=64)   # varlen: 4 sequences in one row, wide
+    assert kernel.ran == ["tuned on 1x16", "tuned on 16x16", "tuned on 1x16", "tuned on 16x16", "tuned on 16x16"]
+
+
 def test_head_temperature_scales_logits_at_eval_only():
     """The pointer head divides logits by its temperature in eval mode only; argmax is unchanged; training sees T=1."""
     import torch

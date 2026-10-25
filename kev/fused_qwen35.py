@@ -50,7 +50,37 @@ def _fix_nb():
         if not isinstance(getattr(module, name), _FixedNB): setattr(module, name, _FixedNB(getattr(module, name)))
 
 
-FLA_VERSION = "0.5.2"   # the flash-linear-attention these kernels and _fix_nb were written and measured against
+class _TunedByWidth:
+    """fla's DeltaNet state scan, autotuned separately for wide passes (WIDE_SCAN or more sequences: question rows,
+    batched states) and the rest. Its autotune key has neither the sequence count nor the length, so the config picked
+    on its first call, CudaGraphs' 1 x 16-token probe at load, ran every later pass. On an H100 the wide passes want
+    BV 64 and 2-3 stages, and Kev-4B's probe picked BV 32: 1.2-1.8x slower on 16-32 question rows
+    (runs/scan-config-map-h100-1). Every config gives the same bits."""
+
+    def __init__(self, kernel):
+        self.kernel, self.tuner, self.caches = kernel, kernel, {}
+        while not hasattr(self.tuner, "configs"): self.tuner = self.tuner.fn   # @triton.heuristics wraps the Autotuner
+        self.tuner.cache_results = False   # Triton's disk cache is keyed without the width: it would give both the first one's pick
+
+    def __getitem__(self, grid):
+        launch = self.kernel[grid]
+        def run(**kwargs):
+            n = kwargs["k"].shape[0] if kwargs["cu_seqlens"] is None else len(kwargs["cu_seqlens"]) - 1
+            self.tuner.cache = self.caches.setdefault(n >= WIDE_SCAN, {})
+            return launch(**kwargs)
+        return run
+
+
+WIDE_SCAN = 4   # sequences from which a state scan is tuned as wide (_TunedByWidth)
+
+
+def _tune_scan_by_width():
+    from fla.ops.common import chunk_delta_h as h
+    if not isinstance(h.chunk_gated_delta_rule_fwd_kernel_h_blockdim64, _TunedByWidth):
+        h.chunk_gated_delta_rule_fwd_kernel_h_blockdim64 = _TunedByWidth(h.chunk_gated_delta_rule_fwd_kernel_h_blockdim64)
+
+
+FLA_VERSION = "0.5.2"   # the flash-linear-attention these kernels, _fix_nb and _tune_scan_by_width were written and measured against
 
 
 def _concat(*linears):
@@ -123,7 +153,7 @@ def fuse(lm):
     """Rewrite a Qwen3.5 text backbone (DecisionModel.lm, merged) in place for fused-kernel serving. Contract changes
     against the reference: no backward, and a pass that continues a cached DeltaNet state leaves that state as it was
     (Kev's question rows never continue from each other). Needs flash-linear-attention FLA_VERSION exactly: it patches
-    fla's kernel launches (_fix_nb)."""
+    fla's kernel launches (_fix_nb, _tune_scan_by_width)."""
     import fla
     if fla.__version__ != FLA_VERSION:
         raise RuntimeError(f"kev's fused kernels need flash-linear-attention=={FLA_VERSION}, found {fla.__version__}; "
@@ -131,6 +161,7 @@ def fuse(lm):
     if not all(hasattr(layer.mlp, "gate_proj") for layer in lm.layers):
         raise NotImplementedError("kev's fused kernels cover the dense Qwen3.5 MLP, not mixture-of-experts layers; load with fused=False (KEV_FUSED=0)")
     _fix_nb()
+    _tune_scan_by_width()
     for layer in lm.layers:
         if layer.block_type == "linear_attention":
             m = layer.linear_attn
