@@ -87,10 +87,12 @@ This starts Kev-4B on your machine: CUDA or ROCm if you have a GPU, MLX on Apple
 
 Use `--device cpu` to skip accelerator discovery, or `--device cuda` / `--device mps` to require that accelerator.
 The default, `--device auto`, tests an allocation and matrix multiplication in a separate process before loading weights.
-It tries CUDA (including ROCm) first; if that probe fails, crashes, or times out, it tries MPS, and only then warns and uses CPU.
+It tries CUDA, including ROCm, first, then MPS. When CUDA is absent, the same child probes MPS, and that probe runs once.
+The parent starts a second child for MPS only after the first child has printed that it is checking CUDA or allocating on CUDA.
+When the child dies during the torch import, before it can print, the parent does not start another child.
 An explicitly requested accelerator fails instead of falling back. `kev.train` and `kev.evaluate` take the same `--device` flag
 (`--device cuda` there is probed the same way, and the run stops if the probe fails). `KEV_DEVICE_PROBE_TIMEOUT` is the limit
-for each probe, in seconds (default 30), so a dead CUDA init followed by an MPS attempt can take twice that.
+for each probe, in seconds (default 30). The wait reaches twice that limit only when a CUDA attempt fails and an MPS attempt follows.
 This checks basic runtime support, not every model kernel.
 
 On Apple Silicon, serving a hybrid checkpoint with the default backend uses MLX and does not run the torch MPS probe.
