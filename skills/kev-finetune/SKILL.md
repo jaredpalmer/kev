@@ -48,9 +48,9 @@ Do not generate anything before you can answer these. Ask what you cannot infer;
    Even 50 real rows matter: they become the development set or the style reference for generation. If yes, plan to
    use `convert_data.py`.
 4. **Data source for the rest.** Offer, in this order: (a) convert existing labels; (b) an LLM writes records from the
-   spec (`generate_data.py`; ask which endpoint and key they want to use: OpenAI, Vercel AI Gateway, Ollama, or any
-   OpenAI-compatible URL); (c) you write records yourself from the `--dry-run` prompt in batches of 20 (fine for the
-   first 100, slow beyond).
+   spec (`generate_data.py`; ask which endpoint and key they want to use: OpenAI, Vercel AI Gateway,
+   [Bifrost](https://github.com/maximhq/bifrost), Ollama, or any OpenAI-compatible URL); (c) you write records yourself
+   from the `--dry-run` prompt in batches of 20 (fine for the first 100, slow beyond).
 5. **Base size.** Recommend `jaredpalmer/kev-4b` (~12 min and ~$1 per run for 400 records, ~15 min for 1000).
    `kev-0.8b` for fast loops, `kev-9b` for the final model. Same recipe on all three; a run transfers unchanged.
 6. **Deployment and money.** Modal account ready (`modal setup`)? Budget: each `train` prints a cost bound before it

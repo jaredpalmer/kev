@@ -33,7 +33,7 @@ Then decide what the real rows are for:
 
 ```bash
 export KEV_GEN_API_KEY=...                           # or OPENAI_API_KEY; AI_GATEWAY_API_KEY switches the base URL to the gateway automatically
-export KEV_GEN_BASE_URL=https://api.openai.com/v1    # https://ai-gateway.vercel.sh/v1, http://localhost:11434/v1 (Ollama), any OpenAI-compatible URL
+export KEV_GEN_BASE_URL=https://api.openai.com/v1    # https://ai-gateway.vercel.sh/v1, http://localhost:8080/v1 (Bifrost), http://localhost:11434/v1 (Ollama), any OpenAI-compatible URL
 python3 scripts/generate_data.py workload.json --n 1000 --out data/x.jsonl --model gpt-4.1-mini --examples data/x.real.jsonl
 ```
 
