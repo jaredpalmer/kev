@@ -162,6 +162,53 @@ def test_soft_targets_and_date_facts():
     assert with_date_facts({"case": "one date: May 1, 2026"}) == {"case": "one date: May 1, 2026"}
 
 
+def test_date_facts_dedup_and_serving_cap():
+    """Repeated raw strings (valid or invalid) count once, and the MAX_DATES serving cap refuses a state past it before
+    any sentence is written; the unbounded call is byte-identical to before."""
+    from datetime import date, timedelta
+    from kev.api import MAX_DATES, date_facts
+    dates = [(date(2026, 1, 1) + timedelta(days=i)).isoformat() for i in range(MAX_DATES + 1)]
+    capped = date_facts(" ".join(dates[:MAX_DATES]), MAX_DATES)
+    assert capped == date_facts(" ".join(dates[:MAX_DATES])) and capped.count(".") == MAX_DATES * (MAX_DATES - 1) // 2   # 8,128 sentences
+    with pytest.raises(ValueError, match="more than 128 distinct dates"):
+        date_facts(" ".join(dates), MAX_DATES)
+    assert date_facts(" ".join(dates)).count(".") == 8_256   # unbounded callers (benchmarks, builders) are unchanged
+    assert date_facts("2026-03-05 " * 10_000 + "2026-03-07") == "2026-03-07 is 2 days after 2026-03-05."
+    assert date_facts("2026-13-45 " * 1_000 + "2026-01-01 2026-01-02") == "2026-01-02 is 1 day after 2026-01-01."   # date-shaped but invalid: ignored
+
+
+def _nested(n):
+    """n lists deep, the way a hostile request nests a value."""
+    v = "x"
+    for _ in range(n): v = [v]
+    return v
+
+
+def test_prepare_request_bounds_untrusted_values():
+    """prepare_request is the gate kev.serve and the Space call: a state, instructions or criterion value nested past
+    MAX_DEPTH is refused naming the field (today render RecursionErrors into a 500), and MAX_DATES binds only with
+    date_facts on. Benchmarks and builders stay unbounded."""
+    from datetime import date, timedelta
+    from kev.api import MAX_DATES, MAX_DEPTH, _depth, prepare_request
+    assert [_depth(v) for v in ("x", [], {"a": [1]}, _nested(MAX_DEPTH))] == [0, 1, 2, MAX_DEPTH]
+    req = lambda **over: SystemOneRequest.model_validate({"state": "s", "model": "m", "questions": {"q1": {"type": "choice", "instructions": "Which?", "criteria": {"a": None, "b": None}}}, **over})
+    assert prepare_request(req(state=_nested(MAX_DEPTH))).state == _nested(MAX_DEPTH)
+    cases = [
+        ("the state", {"state": _nested(MAX_DEPTH + 1)}),
+        ("question 'q1' instructions", {"questions": {"q1": {"type": "choice", "instructions": _nested(MAX_DEPTH + 1), "criteria": {"a": None}}}}),
+        ("question 'q1' criterion 'a'", {"questions": {"q1": {"type": "choice", "instructions": "?", "criteria": {"a": _nested(MAX_DEPTH + 1)}}}}),
+        ("question 'q1' criterion 'true'", {"questions": {"q1": {"type": "noul", "instructions": "?", "criteria": {"true": _nested(MAX_DEPTH + 1)}}}}),
+        ("question 'q1' criterion 0", {"questions": {"q1": {"type": "score", "instructions": "?", "criteria": [_nested(MAX_DEPTH + 1)]}}}),
+    ]
+    for name, over in cases:
+        with pytest.raises(ValueError, match=name + " is nested deeper than 32 levels"):
+            prepare_request(req(**over))
+    many = " ".join((date(2026, 1, 1) + timedelta(days=i)).isoformat() for i in range(1_000))
+    assert prepare_request(req(state=many), date_facts=False).state == many           # off: the state is untouched
+    with pytest.raises(ValueError, match="more than 128 distinct dates"):
+        prepare_request(req(state=" ".join((date(2026, 1, 1) + timedelta(days=i)).isoformat() for i in range(MAX_DATES + 1))), date_facts=True)
+
+
 def test_checkpoint_meta_round_trip_and_defaults(tmp_path):
     """head.pt has one schema (kev.checkpoint.Meta): old files get the same defaults everywhere, unknown keys survive a
     read-modify-write, and LoadOptions.from_env is the only place the KEV_* variables are read."""
@@ -500,6 +547,24 @@ def test_serve_refuses_a_long_question_either_way(tiny_serve):
     for truncate in (False, True):
         code, body = tiny_serve(request(2, instructions="which team " * 40), truncate=truncate)
         assert code == 422 and body["detail"].startswith("branch too long") and "KEV_TRUNCATE_STATES" not in body["detail"]
+
+
+def test_serve_refuses_a_too_deeply_nested_state(tiny_serve):
+    """A value nested past api.MAX_DEPTH is a 422 naming the field (api.prepare_request), not the RecursionError 500
+    render would have raised inside to_record."""
+    code, body = tiny_serve({**request(2), "state": _nested(600)})
+    assert code == 422 and body["detail"].startswith("the state is nested deeper than 32 levels")
+
+
+def test_serve_date_facts_refuses_too_many_dates(tiny_serve, monkeypatch):
+    """KEV_DATE_FACTS=1: a state past api.MAX_DATES distinct dates is a 422 naming the cap, raised by prepare_request
+    before admission (it is not the tiny server's over-length message, which the state would also earn)."""
+    from datetime import date, timedelta
+    from kev import serve
+    monkeypatch.setattr(serve, "DATE_FACTS", True)
+    state = " ".join((date(2026, 1, 1) + timedelta(days=i)).isoformat() for i in range(129))
+    code, body = tiny_serve({**request(2), "state": state})
+    assert code == 422 and "more than 128 distinct dates" in body["detail"] and "token limit" not in body["detail"]
 
 
 def test_serve_models_card_reports_the_state_limit(tiny_model, monkeypatch):

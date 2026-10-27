@@ -18,7 +18,7 @@ import gradio as gr  # noqa: E402
 import torch  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
-from kev.api import SystemOneRequest, output_tokens, render, to_answers, to_record, with_date_facts  # noqa: E402
+from kev.api import SystemOneRequest, output_tokens, prepare_request, render, to_answers, to_record  # noqa: E402
 from kev.checkpoint import Checkpoint, LoadOptions  # noqa: E402
 from kev.model import admit  # noqa: E402
 from presets import PRESETS  # noqa: E402
@@ -175,7 +175,8 @@ def decide(state_text, questions_json, model_choice=DEFAULT_MODEL, calibrated=Fa
         Rendered answers, the raw /v1/systemone response(s), and the option-order report.
     """
     req = build_request(state_text, questions_json)
-    if date_facts: req = req.model_copy(update={"state": with_date_facts(req.state)})
+    try: req = prepare_request(req, bool(date_facts))
+    except ValueError as e: raise gr.Error(str(e)) from None
     calibrated = bool(calibrated)
     names = list(MODELS) if model_choice == "Both" else [model_choice]
     responses = {name: systemone(name, req, calibrated) for name in names}

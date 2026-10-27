@@ -316,6 +316,9 @@ Title Case sections, API tables, Authors + License); model cards are formal.
     `usage.state_tokens` / `state_tokens_used` (the SDK ignores the extra fields); a default server's body is unchanged. `/v1/models` reports `max_state_tokens` and
     `truncate_states`. No per-request switch: TypeSafe's own endpoint would ignore it. Benchmarks never truncate (`LocalPredictor` encodes strictly within the suite's context);
     `--remote` turns an endpoint's 400/413/422 into `ContextOverflow` at once (rejected under `skip_overlong`, else a clean stop), retries only 408/429/5xx and connection errors.
+    Before admission, kev.serve (`prepare`) and the Space also run `kev.api.prepare_request`: a state, instruction or criterion nested more than `MAX_DEPTH` = 32
+    levels deep is a 422 (`gr.Error` in the Space; render pads every line by its depth and recurses once per level), and with date facts on so is a state with more
+    than `MAX_DATES` = 128 distinct dates, whose 8,128+ pairwise sentences are past the state limit anyway. Benchmarks and builders call `with_date_facts` unbounded.
   - CUDA: bf16, fused kernels and CUDA graphs by default (`LoadOptions.fused` / `LoadOptions.cuda_graphs`, `KEV_FUSED=0` / `KEV_CUDA_GRAPHS=0` to decline; fused only when fla 0.5.2 is installed, `checkpoint.fused_available`, not in the serve extra). A server pass was
     kernel-launch bound (~60 ms on an H100 at any length). `kev/fused_qwen35.py` rewrites the merged Qwen3.5 layers with fla Triton kernels
     (it needs fla 0.5.2 exactly, pinned in the images, and refuses others: it patches fla's NB-keyed kernel launches; a pass continuing a
