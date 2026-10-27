@@ -55,7 +55,7 @@ the --out directory name.
 The ids and keys also order candidates (deduplication keeps the first by id), so a new version selects different records;
 a version that must keep devtools-v1's evaluation groups out of its training partition has to check that by group_id.
 """
-import argparse, csv, difflib, hashlib, io, json, random, re, subprocess, sys, tarfile, zipfile
+import argparse, csv, difflib, hashlib, io, json, os, random, re, stat, subprocess, sys, tarfile, tempfile, zipfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -286,13 +286,32 @@ def hub_file(repo, revision, filename):
     return Path(hf_hub_download(repo, filename, repo_type="dataset", revision=revision))
 
 
+def private_dir(path):
+    """The directory downloads land in: created 0700 if missing, and on POSIX it must be a real directory (a symlink is
+    refused, not followed) owned by this user with no group/other write bits. A shared or writable cache lets another
+    local user plant a file where a download lands."""
+    path = Path(path)
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name != "posix": return path
+    st = path.lstat()
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o022:
+        raise ValueError(f"{path} is not a private download directory (owner uid {st.st_uid}, mode {stat.filemode(st.st_mode)}): "
+                         f"fix it with chmod go-w {path} or pass --raw <a directory of your own>")
+    return path
+
+
 def fetch(url, path, sha256=None, md5=None):
     path = Path(path)
+    private_dir(path.parent)
     if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
         print(f"downloading {url} -> {path}", flush=True)
-        subprocess.run(["curl", "-sSfL", "-o", str(path) + ".part", url], check=True)
-        Path(str(path) + ".part").rename(path)
+        fd, temp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".part")
+        os.close(fd)
+        try:
+            subprocess.run(["curl", "-sSfL", "-o", temp, url], check=True)
+            os.replace(temp, path)
+        finally:
+            Path(temp).unlink(missing_ok=True)
     if md5 and hashlib.md5(path.read_bytes()).hexdigest() != md5: raise ValueError(f"md5 mismatch: {path}")
     if sha256 and digest(path) != sha256: raise ValueError(f"sha256 mismatch: {path}")
     return path
@@ -734,7 +753,7 @@ def main():
     ap.add_argument("--resolve-licences", action="store_true", help="refresh the CodeReviewer project licences with `gh api` into scripts/devtools_v1_licences.json")
     ap.add_argument("--reproduce-v1", action="store_true", help="rebuild the frozen devtools-v1 byte for byte: its CodeReviewer ids, state keys and admission check (module docstring)")
     a = ap.parse_args()
-    raw = Path(a.raw)
+    raw = private_dir(a.raw)
     if a.resolve_licences: return resolve_licences(raw)
     if not a.out: ap.error("--out is required")
     out = Path(a.out)
