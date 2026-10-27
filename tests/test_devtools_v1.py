@@ -1,7 +1,7 @@
 """The devtools-v1 builder's label mappings and selection rules (scripts/build_devtools_v1.py) on small synthetic inputs.
 No weights, no network. Run: uv run python -m pytest tests/test_devtools_v1.py -q
 """
-import random
+import os, random
 from collections import Counter
 from pathlib import Path
 
@@ -236,3 +236,60 @@ def test_a_new_build_admits_commits_on_their_final_record():
     assert len(labels) >= 6 and sum(labels) == len(labels) // 2
     assert all("message_match" not in x["questions"] and "shown_message" not in x["_meta"] for x in pool)   # a redo starts from clean candidates
     assert choose("commitpackft", commits(), 8, everyone, "seed", final_ok=line_safe)[0] == new
+
+
+POSIX_ONLY = pytest.mark.skipif(os.name != "posix", reason="the download-dir checks are POSIX lstat/mode rules")
+
+
+@POSIX_ONLY
+def test_private_dir_accepts_owned_dirs_and_creates_missing(tmp_path):
+    """A missing directory is created 0700; an existing user-owned directory (even 0755, as older caches were made)
+    passes; a symlink to one does not."""
+    import stat
+    from scripts.build_devtools_v1 import private_dir
+    new = private_dir(tmp_path / "fresh" / "nested")
+    assert new.is_dir() and stat.S_IMODE(new.lstat().st_mode) == 0o700
+    owned = tmp_path / "owned"; owned.mkdir(mode=0o755)
+    assert private_dir(owned) == owned
+    link = tmp_path / "link"; link.symlink_to(owned, target_is_directory=True)
+    with pytest.raises(ValueError, match="not a private download directory"):
+        private_dir(link)
+
+
+@POSIX_ONLY
+def test_fetch_downloads_through_a_private_temp_file(tmp_path):
+    """fetch writes to a securely created .<name>.XXXXXX.part inside the private directory and os.replace()s it over the
+    target: a planted <name>.part symlink is left alone where the old code's curl -o wrote through it onto the victim."""
+    import hashlib
+    from scripts.build_devtools_v1 import fetch
+    src = tmp_path / "src"; src.write_bytes(b"payload")
+    raw = tmp_path / "raw"; raw.mkdir(mode=0o700)
+    victim = tmp_path / "victim"; victim.write_text("keep me", encoding="utf-8")
+    (raw / "data.bin.part").symlink_to(victim)
+    target = fetch(src.as_uri(), raw / "data.bin", sha256=hashlib.sha256(b"payload").hexdigest())
+    assert target.read_bytes() == b"payload"
+    assert victim.read_text(encoding="utf-8") == "keep me" and (raw / "data.bin.part").is_symlink()
+    assert sorted(p.name for p in raw.iterdir()) == ["data.bin", "data.bin.part"]   # no temp files remain
+
+
+@POSIX_ONLY
+def test_fetch_refuses_a_writable_directory(tmp_path):
+    """A group/world-writable download directory is refused before anything is fetched (that is where the planted
+    .part symlink attack lived)."""
+    from scripts.build_devtools_v1 import fetch
+    src = tmp_path / "src"; src.write_bytes(b"payload")
+    shared = tmp_path / "shared"; shared.mkdir(); shared.chmod(0o777)
+    with pytest.raises(ValueError, match="not a private download directory"):
+        fetch(src.as_uri(), shared / "data.bin")
+    assert not list(shared.iterdir())
+
+
+@POSIX_ONLY
+def test_fetch_a_failed_download_leaves_nothing(tmp_path):
+    """curl failing leaves neither the temp file nor the target behind."""
+    import subprocess
+    from scripts.build_devtools_v1 import fetch
+    raw = tmp_path / "raw"; raw.mkdir(mode=0o700)
+    with pytest.raises(subprocess.CalledProcessError):
+        fetch((tmp_path / "missing").as_uri(), raw / "gone.bin")
+    assert not (raw / "gone.bin").exists() and not list(raw.iterdir())
