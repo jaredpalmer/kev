@@ -185,6 +185,22 @@ def test_checkpoint_meta_round_trip_and_defaults(tmp_path):
         LoadOptions.from_env({"KEV_BACKEND": "metal"})
 
 
+def test_read_meta_refuses_a_pickle_payload(tmp_path):
+    """read_meta loads head.pt with weights_only=True: a checkpoint whose head.pt unpickles into code never runs it
+    (the Space vendors checkpoint.py onto ZeroGPU's unpinned torch, where the default was not always safe)."""
+    import pickle
+    from kev.checkpoint import Meta, read_meta, write_meta
+    sentinel = tmp_path / "sentinel"
+    class Payload:
+        def __reduce__(self):
+            return (Path.touch, (sentinel,))
+    meta = Meta.from_dict({"head": {"w": torch.zeros(1)}, "base": "b"}); meta.extra["payload"] = Payload()
+    write_meta(tmp_path, meta)
+    with pytest.raises(pickle.UnpicklingError):
+        read_meta(tmp_path)
+    assert not sentinel.exists()
+
+
 def test_fused_default_needs_pinned_fla(monkeypatch):
     """kev.serve's CUDA fused default (checkpoint.fused_available): on only with flash-linear-attention importable at
     fused_qwen35.FLA_VERSION; it is not in the serve extra, so a plain install serves unfused instead of failing to import fla."""
