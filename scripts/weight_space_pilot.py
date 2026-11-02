@@ -65,14 +65,16 @@ def load_deltas(out):
             raise ValueError(f"published artifact hash mismatch: {name}")
         (out / name).write_bytes(data)
     manifest = read_json(out / "manifest.json")
-    path = hf_hub_download(DONOR, "model.safetensors", revision=DONOR_REVISION)
+    index = read_json(hf_hub_download(DONOR, "model.safetensors.index.json", revision=DONOR_REVISION))["weight_map"]
     deltas, donor_audit = {}, {}
-    with np.load(io.BytesIO((out / "edit.npz").read_bytes()), allow_pickle=False) as archive, safe_open(path, framework="pt") as weights:
+    with np.load(io.BytesIO((out / "edit.npz").read_bytes()), allow_pickle=False) as archive:
         for i, (layer, spec) in enumerate(zip(LAYERS, manifest["tensors"], strict=True)):
             name = f"model.language_model.layers.{layer}.mlp.down_proj.weight"
             if spec["name"] != name or spec["form"] != "sparse" or spec["shape"] != [1024, 3584]:
                 raise ValueError("unexpected published edit layout")
-            base = weights.get_tensor(name)
+            path = hf_hub_download(DONOR, index[name], revision=DONOR_REVISION)
+            with safe_open(path, framework="pt") as weights:
+                base = weights.get_tensor(name)
             delta = sparse_delta(base, spec, archive[f"t{i}_idx"], archive[f"t{i}_val"])
             columns = (delta != 0).any(dim=0).nonzero().flatten().tolist()
             if len(columns) != 64:

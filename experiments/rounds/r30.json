@@ -4,7 +4,8 @@
   "gpu": "H100",
   "app": "kev-r30-weight-space",
   "probe": {
-    "entrypoint": "modal_app.py::script --script weight_space_pilot.py --name r30-weight-space-v1 --gpu H100 --timeout 3600",
+    "entrypoint": "modal_app.py::script --script weight_space_pilot.py --name r30-weight-space-v2 --gpu H100 --timeout 3600",
+    "attempts": "v1 failed before model loading or evaluation: donor uses an indexed shard filename, not model.safetensors. v2 resolves filenames through that index; same hypotheses and reads.",
     "budget_usd": 10,
     "retries": 0,
     "primary": "Full published donor delta added to Kev-Base at shipped temperature; baseline and half dose in the same process. report.json contains the frozen-temperature comparisons.",
@@ -18,22 +19,22 @@
   },
   "parents": {
     "08b": {
-      "trial": "runs/r30-weight-space-v1/baseline",
+      "trial": "runs/r30-weight-space-v2/baseline",
       "checkpoint": "jaredpalmer/kev-0.8b@bf75a6a8848ea6960ff2ed108d9ed44c2941174f",
       "reads": {
-        "hard": "runs/r30-weight-space-v1/baseline/hard",
-        "documents": "runs/r30-weight-space-v1/baseline/documents"
+        "hard": "runs/r30-weight-space-v2/baseline/hard",
+        "documents": "runs/r30-weight-space-v2/baseline/documents"
       }
     }
   },
   "arms": {
     "08b-paper": {
-      "trial": "runs/r30-weight-space-v1/paper", "parent": "08b", "select": false,
-      "reads": {"hard": "runs/r30-weight-space-v1/paper/hard", "documents": "runs/r30-weight-space-v1/paper/documents"}
+      "trial": "runs/r30-weight-space-v2/paper", "parent": "08b", "select": false,
+      "reads": {"hard": "runs/r30-weight-space-v2/paper/hard", "documents": "runs/r30-weight-space-v2/paper/documents"}
     },
     "08b-half": {
-      "trial": "runs/r30-weight-space-v1/half", "parent": "08b", "select": false,
-      "reads": {"hard": "runs/r30-weight-space-v1/half/hard", "documents": "runs/r30-weight-space-v1/half/documents"}
+      "trial": "runs/r30-weight-space-v2/half", "parent": "08b", "select": false,
+      "reads": {"hard": "runs/r30-weight-space-v2/half/hard", "documents": "runs/r30-weight-space-v2/half/documents"}
     }
   },
   "rule": {

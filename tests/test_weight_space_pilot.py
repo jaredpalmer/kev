@@ -1,5 +1,8 @@
 """CPU-only, synthetic tensors: no downloaded weights or evaluation partitions."""
 from types import SimpleNamespace
+import hashlib
+import io
+import json
 
 import numpy as np
 import pytest
@@ -84,3 +87,35 @@ def test_pilot_registration_is_report_only_and_development_only():
     assert all(not arm["select"] for arm in spec["arms"].values())
     assert not spec.get("confirm") and not spec["rule"]["criteria"]
     assert all("--allow-test" not in read.get("flags", "") for read in spec["reads"].values())
+
+
+def test_donor_download_uses_index_and_verifies_sparse_artifacts(tmp_path, monkeypatch):
+    from safetensors.torch import save_file
+    from scripts import weight_space_pilot as pilot
+    base = torch.zeros(1024, 3584, dtype=torch.bfloat16)
+    edited = base.clone()
+    edited[:, :64] = 1
+    indices = (edited != base).flatten().nonzero().flatten().numpy().astype(np.int32)
+    values = edited.view(torch.int16).flatten()[indices.astype(np.int64)].numpy().view(np.uint16)
+    names = [f"model.language_model.layers.{layer}.mlp.down_proj.weight" for layer in LAYERS]
+    manifest = {"tensors": [{"name": name, "form": "sparse", "shape": list(base.shape),
+                             "base_sha256": tensor_hash(base), "edited_sha256": tensor_hash(edited),
+                             "changed_entries": len(indices)} for name in names]}
+    buffer = io.BytesIO()
+    np.savez(buffer, t0_idx=indices, t0_val=values, t1_idx=indices, t1_val=values)
+    artifacts = {"edit.npz": buffer.getvalue(), "manifest.json": json.dumps(manifest).encode()}
+    monkeypatch.setattr(pilot, "FILES", {name: hashlib.sha256(data).hexdigest() for name, data in artifacts.items()})
+    monkeypatch.setattr(pilot.urllib.request, "urlopen", lambda url, **kwargs: io.BytesIO(artifacts[url.rsplit("/", 1)[1]]))
+    shard = "model.safetensors-00001-of-00001.safetensors"
+    save_file({name: base.clone() for name in names}, str(tmp_path / shard))
+    (tmp_path / "model.safetensors.index.json").write_text(json.dumps({"weight_map": dict.fromkeys(names, shard)}), encoding="utf-8")
+    calls = []
+    def download(repo, name, revision):
+        assert repo == pilot.DONOR and revision == pilot.DONOR_REVISION
+        calls.append(name)
+        return str(tmp_path / name)
+    monkeypatch.setattr(pilot, "hf_hub_download", download)
+    deltas, audit = pilot.load_deltas(tmp_path)
+    assert calls == ["model.safetensors.index.json", shard, shard]
+    assert all(torch.equal(delta, edited.float() - base.float()) for delta in deltas.values())
+    assert all(len(entry["columns"]) == 64 for entry in audit.values())

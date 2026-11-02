@@ -3211,7 +3211,7 @@ and passing isolation. Report NLL, selective coverage/AURC, permutation and task
 Null or harmful results stop this pilot; a positive result would only justify a separately registered confirmation.
 
 The custom runner is necessary to apply an in-memory edit; it uses `kev.benchmark`, `kev.experiment.mechanism_checks`
-and `kev.metrics.paired_bootstrap`, not a new evaluator. Artifacts: `runs/r30-weight-space-v1/{baseline,paper,half}`.
+and `kev.metrics.paired_bootstrap`, not a new evaluator. Artifacts: `runs/r30-weight-space-v2/{baseline,paper,half}`.
 `kev.rounds readout experiments/rounds/r30.json` supplies a **secondary** refitted-temperature diagnostic from those
 same saved logits, with both arms `select: false`. Its decision-v7 fit is in-distribution, not held-out calibration or a
 release qualification; only the frozen-temperature comparison tests the edit alone. The parent is re-read in the same
@@ -3220,3 +3220,6 @@ process, not compared to historical numbers from a different kernel set.
 Budget cap **$10**, one H100 call, timeout 3,600 s, retries off; invoke the spec's `probe.entrypoint` through `modal run`.
 No expansion before a successful pilot. Report actual metered spend if available, otherwise runtime-based cost and the
 admission bound separately. No serving changes, Hub writes or release selection.
+
+Pre-read infrastructure correction: attempt v1 stopped before model loading/evaluation because the donor's weight file
+uses an indexed shard name. Attempt v2 resolves the pinned index; the intervention and read plan are unchanged.
