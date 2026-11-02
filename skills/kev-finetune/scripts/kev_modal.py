@@ -471,7 +471,8 @@ def upload_data(name, source, required, optional=()):
     with runs.batch_upload() as batch:
         for part, path in files.items():
             batch.put_file(str(path), f"/{name}/data/{part}.jsonl")
-    return {p: sum(1 for l in f.read_text(encoding="utf-8").splitlines() if l.strip()) for p, f in files.items()}
+    # split on "\n" only: str.splitlines() also breaks on U+2028, U+2029 and U+0085, which json.dumps(ensure_ascii=False) leaves unescaped
+    return {p: sum(1 for l in f.read_text(encoding="utf-8").split("\n") if l.strip()) for p, f in files.items()}
 
 
 def download_run(name, checkpoint=False, into="runs"):
