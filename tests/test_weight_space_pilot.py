@@ -133,7 +133,11 @@ def test_recorded_pilot_metrics_match_saved_rows():
             rows = read_json(root / arm / tag / "rows.json")
             saved = read_json(root / arm / tag / "report.json")
             assert all(row["inference_temperature"] == report["temperature"] for row in rows)
-            assert summarize(rows)["clean"] == saved["clean"] == report["arms"][arm]["reads"][tag]
+            assert saved["clean"] == report["arms"][arm]["reads"][tag]
+            for metric, value in summarize(rows)["clean"].items():
+                expected = saved["clean"][metric]
+                # CPU vector reductions can differ by a last bit; saved rows themselves remain exact.
+                assert value == (pytest.approx(expected, rel=0, abs=1e-12) if isinstance(value, float) else expected)
             coverage = saved["coverage"]
             assert coverage["evaluated_questions"] == coverage["requested_questions"]
             assert not coverage["rejected_records"] and not coverage["truncated_records"]
