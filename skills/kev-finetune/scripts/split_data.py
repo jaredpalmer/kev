@@ -97,7 +97,8 @@ def check_record(record):
 def read_records(path):
     """(valid records, problems) from a JSONL file; problems are strings prefixed with the line number."""
     records, problems = [], []
-    for n, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
+    # split on "\n" only: str.splitlines() also breaks on U+2028, U+2029 and U+0085, which json.dumps(ensure_ascii=False) leaves unescaped
+    for n, line in enumerate(Path(path).read_text(encoding="utf-8").split("\n"), 1):
         if not line.strip(): continue
         try:
             record = json.loads(line)

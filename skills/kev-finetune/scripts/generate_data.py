@@ -173,9 +173,14 @@ def load_spec(path):
     return spec
 
 
+def read_jsonl(path):
+    # split on "\n" only: str.splitlines() also breaks on U+2028, U+2029 and U+0085, which json.dumps(ensure_ascii=False) leaves unescaped
+    return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").split("\n") if line.strip()]
+
+
 def existing_records(path):
     if not Path(path).exists(): return []
-    return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+    return read_jsonl(path)
 
 
 def main():
@@ -195,7 +200,7 @@ def main():
     a = ap.parse_args()
     spec = load_spec(a.spec)
     rng = random.Random(a.seed)
-    examples = [json.loads(l) for l in Path(a.examples).read_text(encoding="utf-8").splitlines() if l.strip()] if a.examples else []
+    examples = read_jsonl(a.examples) if a.examples else []
     counts = {qid: Counter() for qid in spec["questions"]}
     have = existing_records(a.out) if a.out else []
     seen = set()
