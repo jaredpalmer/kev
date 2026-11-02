@@ -129,6 +129,8 @@ def main():
     if meta.base != "Qwen/Qwen3.5-0.8B-Base" or meta.base_revision != "dc7cdfe2ee4154fa7e30f5b51ca41bfa40174e68":
         raise ValueError("unexpected Kev base")
     model = predictor.model
+    if not isinstance(model, torch.nn.Module):
+        raise ValueError("the weight edit requires the torch backend")
     targets = target_weights(model)
     originals = {layer: weight.detach().clone() for layer, weight in targets.items()}
     initial_hashes = parameter_hashes(model)

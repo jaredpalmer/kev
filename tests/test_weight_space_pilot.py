@@ -18,7 +18,7 @@ def fixture_edit():
     edited = base.clone()
     edited[0, 1] = -2
     spec = {"shape": [2, 2], "base_sha256": tensor_hash(base), "edited_sha256": tensor_hash(edited), "changed_entries": 1}
-    return base, edited, spec, np.array([1], dtype=np.int32), np.array([edited.view(torch.int16)[0, 1].item() & 0xffff], dtype=np.uint16)
+    return base, edited, spec, np.array([1], dtype=np.int32), np.array([int(edited.view(torch.int16)[0, 1].item()) & 0xffff], dtype=np.uint16)
 
 
 def test_sparse_edit_rebuilds_bf16_bits():
@@ -69,16 +69,15 @@ def test_bad_edit_fails_before_any_parameter_changes():
 
 
 def test_targets_are_base_layers_not_lora_parameters():
-    layers = torch.nn.ModuleList([torch.nn.Module() for _ in range(20)])
+    layers = torch.nn.ModuleDict()
+    bases = {i: torch.nn.Linear(2, 2, bias=False) for i in LAYERS}
     for i in LAYERS:
-        layers[i].mlp = torch.nn.Module()
-        layers[i].mlp.down_proj = torch.nn.Module()
-        layers[i].mlp.down_proj.base_layer = torch.nn.Linear(2, 2, bias=False)
-        layers[i].mlp.down_proj.lora_A = torch.nn.Linear(2, 1, bias=False)
+        projection = torch.nn.ModuleDict({"base_layer": bases[i], "lora_A": torch.nn.Linear(2, 1, bias=False)})
+        layers[str(i)] = torch.nn.ModuleDict({"mlp": torch.nn.ModuleDict({"down_proj": projection})})
     lm = torch.nn.Module()
-    lm.layers = layers
+    lm.add_module("layers", layers)
     targets = target_weights(SimpleNamespace(lm=lm))
-    assert all(targets[i] is layers[i].mlp.down_proj.base_layer.weight for i in LAYERS)
+    assert all(targets[i] is bases[i].weight for i in LAYERS)
 
 
 def test_pilot_registration_is_report_only_and_development_only():
