@@ -3223,3 +3223,25 @@ admission bound separately. No serving changes, Hub writes or release selection.
 
 Pre-read infrastructure correction: attempt v1 stopped before model loading/evaluation because the donor's weight file
 uses an indexed shard name. Attempt v2 resolves the pinned index; the intervention and read plan are unchanged.
+
+### Round 30 result - no meaningful gain; keep Kev-0.8B unchanged
+
+Full dose versus baseline, shipped T unchanged, development-only clean knowable questions:
+
+| Panel | n | Baseline accuracy | Edited accuracy | Accuracy delta, pp [paired 95% CI] | Brier baseline -> edited |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| transfer-v4 | 656 | 64.787% | 64.634% | -0.152 [-0.457, 0.000] | 0.429775 -> 0.429920 |
+| hard-v1 | 1,083 | 59.372% | 59.280% | -0.092 [-0.552, +0.369] | 0.530870 -> 0.531040 |
+| documents-v1 | 920 | 84.239% | 84.348% | +0.109 [0.000, +0.333] | 0.235893 -> 0.235660 |
+
+Half dose has the same three accuracy deltas. Full dose's transfer ECE falls 0.048954 -> 0.043526, but its paired delta
+interval crosses zero; its Brier is slightly worse. The small documents Brier/NLL improvement does not rescue the failed
+primary. Full coverage, unchanged permutation flip rate, passing isolation, 130,188 modified values confined to the two
+intended matrices, all other parameter hashes unchanged, exact original-weight restoration. The canonical secondary
+readout refits the same T=2.3510958125672174 for all three arms; both candidates remain report-only (`null` selection).
+
+Executed on H100 at `32472dc`, script wall time 888.20 s; no training, locked reads, publishing or further search.
+Metered app compute: $1.2124 including the failed pre-read attempt, below the $10 cap (storage/egress separate).
+Complete evidence: `runs/r30-weight-space-v2/REPORT.md`, `report.json`, per-arm suite rows/reports and `cost.json`;
+secondary diagnostic: `runs/r30-readout/round30.json`. This is a negative transfer result for the paper's instruction-model
+edit, not evidence that all direct edits of Kev fail. Future work would need a Kev-specific decision-error target.

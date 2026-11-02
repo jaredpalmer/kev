@@ -118,3 +118,23 @@ def test_donor_download_uses_index_and_verifies_sparse_artifacts(tmp_path, monke
     assert calls == ["model.safetensors.index.json", shard, shard]
     assert all(torch.equal(delta, edited.float() - base.float()) for delta in deltas.values())
     assert all(len(entry["columns"]) == 64 for entry in audit.values())
+
+
+def test_recorded_pilot_metrics_match_saved_rows():
+    from pathlib import Path
+    from kev.benchmark import summarize
+    from scripts.weight_space_pilot import ARMS, SUITES
+    root = Path(__file__).resolve().parents[1] / "runs/r30-weight-space-v2"
+    report = read_json(root / "report.json")
+    assert report["restored_exactly"]
+    for arm in ARMS:
+        assert sum(v["changed_entries"] for v in report["arms"][arm]["weights"].values()) == (0 if arm == "baseline" else 130188)
+        for tag in SUITES:
+            rows = read_json(root / arm / tag / "rows.json")
+            saved = read_json(root / arm / tag / "report.json")
+            assert all(row["inference_temperature"] == report["temperature"] for row in rows)
+            assert summarize(rows)["clean"] == saved["clean"] == report["arms"][arm]["reads"][tag]
+            coverage = saved["coverage"]
+            assert coverage["evaluated_questions"] == coverage["requested_questions"]
+            assert not coverage["rejected_records"] and not coverage["truncated_records"]
+    assert report["comparisons"]["paper"]["transfer"]["acc"]["ci95"][1] <= 0
