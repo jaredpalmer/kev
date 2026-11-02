@@ -3245,3 +3245,46 @@ Metered app compute: $1.2124 including the failed pre-read attempt, below the $1
 Complete evidence: `runs/r30-weight-space-v2/REPORT.md`, `report.json`, per-arm suite rows/reports and `cost.json`;
 secondary diagnostic: `runs/r30-readout/round30.json`. This is a negative transfer result for the paper's instruction-model
 edit, not evidence that all direct edits of Kev fail. Future work would need a Kev-specific decision-error target.
+
+## Round 31 - one-shot analytic pointer-channel edit (registered before fitting or evaluation)
+
+**Why.** Round 30 transferred a generation-loop intervention to a prefill-only model and found essentially no effect.
+The follow-up targets the mechanism Kev actually uses: its pointer score is `sum_j q_j * k_j / sqrt(d) / T`.
+Reweighting those existing feature products can change decisions without altering the backbone, tokenizer, LoRA or
+inference graph. Unlike a scalar temperature, unequal channel gains can change option ordering. This is an exploratory
+repair of hard decisions, not a claim to teach missing reasoning skills. LoRA scaling/WiSE-FT, head-capacity changes,
+reliability heads and calibration losses have prior negative results; this is a different, bounded 255-dimensional
+post-hoc reweighting of the released head, not a repeat of those recipes.
+
+**Intervention.** Starting from the same pinned Kev-0.8B release as round 30, collect its exact pointer inputs on 512
+training records from each of decision-v7, hard-v1 and documents-v1 (1,536 total). Within each suite, source-balanced
+round-robin over SHA256-sorted IDs; clean variants only, one record per original group. Exclude IDs, original groups and
+normalized exact states present in any evaluation panel or already selected in another training suite. Canonical
+`validate_training` rejects eval-only sources. Each suite has equal mass, each record equal mass within a suite, each
+question equal mass within its record. Honor canonical soft targets when present. No development labels fit the edit.
+
+Accumulate the analytic softmax-log-loss gradient and Hessian with respect to channel gains at the shipped temperature,
+then solve once with ridge = 0.1 * trace(H)/d and constraint sum(delta)=0. Rescale the entire solution, if needed, so
+max(abs(delta)) <= 0.25. There is no iterative optimizer, autograd or backbone update, but this **is supervised fitting**,
+not a data-free or literally derivative-free method. Fold gains (1+delta) into the rows of `head.q.weight` and its bias;
+every other parameter must remain hash-identical. Save the gains and fit statistics before any evaluation inference.
+
+**Arms.** Baseline; full learned edit (primary); half edit (exploratory); seed-0 coordinate permutation of the learned
+gains (control with the same gain multiset/mean/L2 norm, not claimed to match the weight-space norm). No dose, ridge,
+training-mixture or direction search after results. Temperature remains the shipped 2.3510958125672174 for the primary.
+Run all arms in one process with fresh baseline reads; verify packing/sibling isolation and restore exact original weights
+in a finally block. Raw logits, kernel environment, training selection hashes and script/source provenance are saved.
+
+**Reads and success.** Development-only decision-v7 (diagnostic), transfer-v4, hard-v1 and documents-v1. Primary is now
+hard-v1 because this intervention explicitly targets hard-decision repair, not the old donor-transfer hypothesis.
+Learned minus baseline: hard accuracy paired 95% CI lower > 0, hard Brier upper <= 0, hard ECE upper <= 0.01;
+transfer/documents accuracy lower >= -0.02 and Brier upper <= 0.01. Learned minus shuffled control hard accuracy lower > 0.
+Complete coverage and passing isolation required. Paired record/source-clustered 2,000-resample bootstrap, seed 0,
+micro aggregation. All arms are report-only; full success would justify separate confirmation, not shipping.
+The canonical round readout's decision-v7 temperature refit is an explicitly in-distribution diagnostic only, not the
+primary, a held-out calibration fit or release qualification. Half/control cannot replace a failed primary.
+
+**Budget and scope.** One H100 call, 3,600 seconds, retries disabled, via `modal_app.py::script --script head_weight_edit.py
+--name r31-head-edit-v1 --gpu H100 --timeout 3600`. Conservative call compute bound $5.6752 plus round 30's $1.2124 metered
+compute stays under the original $10 total cap; check live billing before launch. No publication, locked-test reads,
+large-model work or follow-on search. Stop after this pilot if the primary is null or harmful.

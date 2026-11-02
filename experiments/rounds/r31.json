@@ -1,0 +1,45 @@
+{
+  "round": 31,
+  "registered": "PLAN.md > Round 31 - one-shot analytic pointer-channel edit; committed before fitting/evaluation. Report only, no release selection.",
+  "gpu": "H100",
+  "app": "kev-r31-head-edit",
+  "probe": {
+    "entrypoint": "modal_app.py::script --script head_weight_edit.py --name r31-head-edit-v1 --gpu H100 --timeout 3600",
+    "budget_usd": 10,
+    "budget_scope": "Total including round 30; r31 one-hour conservative bound 5.6752 USD, retries=0.",
+    "fit": "512 train records each from decision-v7, hard-v1, documents-v1; source-balanced hash-ID selection; original groups and normalized exact states disjoint from evaluation; per-suite/record/question weights.",
+    "intervention": "One supervised Newton solve for mean-zero head channel gains, ridge=0.1*trace(H)/d, max absolute change 0.25; no autograd/backbone updates. Fold into head.q.weight and head.q.bias only.",
+    "primary": "Full learned edit at unchanged shipped temperature versus fresh baseline; hard-decision repair. report.json contains frozen-temperature comparisons.",
+    "secondary": "Half dose exploratory; seed-0 coordinate-shuffled gains attribution control. Canonical kev.rounds temperature refit on decision-v7 development is diagnostic only, not held-out calibration or release selection.",
+    "success": "Hard acc CI95 lower > 0, Brier upper <= 0, ECE upper <= 0.01; transfer/documents acc lower >= -0.02, Brier upper <= 0.01; learned-vs-shuffled hard acc lower > 0; complete coverage and isolation. Full dose is the only primary.",
+    "scope": "Supervised analytic head fitting, not a data-free edit. No test partition, publication, release change or adaptive follow-up after null/harm. Gain/statistic artifacts only."
+  },
+  "reads": {
+    "hard": {"suite": "evals/hard-v1"},
+    "documents": {"suite": "evals/documents-v1"}
+  },
+  "parents": {
+    "08b": {
+      "trial": "runs/r31-head-edit-v1/baseline",
+      "checkpoint": "jaredpalmer/kev-0.8b@bf75a6a8848ea6960ff2ed108d9ed44c2941174f",
+      "reads": {"hard": "runs/r31-head-edit-v1/baseline/hard", "documents": "runs/r31-head-edit-v1/baseline/documents"}
+    }
+  },
+  "arms": {
+    "08b-learned": {"trial": "runs/r31-head-edit-v1/learned", "parent": "08b", "select": false,
+      "reads": {"hard": "runs/r31-head-edit-v1/learned/hard", "documents": "runs/r31-head-edit-v1/learned/documents"}},
+    "08b-half": {"trial": "runs/r31-head-edit-v1/half", "parent": "08b", "select": false,
+      "reads": {"hard": "runs/r31-head-edit-v1/half/hard", "documents": "runs/r31-head-edit-v1/half/documents"}},
+    "08b-shuffled": {"trial": "runs/r31-head-edit-v1/shuffled", "parent": "08b", "select": false,
+      "reads": {"hard": "runs/r31-head-edit-v1/shuffled/hard", "documents": "runs/r31-head-edit-v1/shuffled/documents"}}
+  },
+  "rule": {
+    "panels": {
+      "transfer": {"reads": ["transfer"], "metrics": ["acc", "brier", "ece", "nll"], "report": ["aurc", "coverage_at_5pct_error"]},
+      "hard": {"reads": ["hard"], "metrics": ["acc", "brier", "ece", "nll"], "report": ["aurc", "coverage_at_5pct_error"]},
+      "documents": {"reads": ["documents"], "metrics": ["acc", "brier", "ece", "nll"], "report": ["aurc", "coverage_at_5pct_error"]}
+    },
+    "criteria": {},
+    "rank": []
+  }
+}
