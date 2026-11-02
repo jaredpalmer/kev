@@ -3183,3 +3183,40 @@ Older milestones, all in `A:PLAN.md` (sections named in parentheses):
   (Kev-9B locked 0.852), temperature built into `head.pt`, `date_facts` opt-in, 35B-A3B not shipped.
 - **Round 3 calibration audit** (2026-09-21/22; "Round 3 autoresearch"): metric v2 (tie-aware coverage, AURC, full-statistic
   bootstrap); the matched loss screen selected nothing; the binding diagnostic showed the date gap is subtraction, not binding.
+
+## Round 30 - weight-space programming transfer pilot (registered before reads)
+
+Does the [Weight-Space Programming](https://rikiyat.github.io/blog/weight-space-programming/) Experiment 8 edit improve
+Kev-0.8B's decisions without training? Its donor is **instruction-tuned Qwen3.5-0.8B**, whereas Kev uses **Qwen3.5-0.8B-Base**
+with a LoRA adapter and pointer head. The paper mainly rescues generation loops; Kev does not generate. This is an
+explicitly speculative transfer experiment, not a reproduction of the paper's math result.
+
+Registered in `experiments/rounds/r30.json`. `scripts/weight_space_pilot.py` reconstructs the published bf16 sparse edits
+bit for bit against the pinned donor tensor hashes, then adds **edited donor minus original donor** to Kev's fp32 base
+weights in layers 15 and 19 (`mlp.down_proj`, 64 columns each). Never copy donor columns over Kev-Base. Keep Kev's adapter,
+head and tokenizer unchanged; verify hashes of every non-target parameter. Baseline, full delta (primary) and half delta
+(exploratory, not a replacement primary) run sequentially in one H100 process. Restore original weights between doses and
+verify exact restoration at the end. No optimizer, gradients, direction search, model publishing or checkpoint replacement.
+
+Pin Kev `bf75a6a8848ea6960ff2ed108d9ed44c2941174f` (v1.0), its base
+`dc7cdfe2ee4154fa7e30f5b51ca41bfa40174e68`, donor `2fc06364715b967f1860aea9cf38778875588b17`, and edit logs
+`4d09ba6d6a7e891dd8063974dfe81b3d78e3494f`. The runner checksums both published edit artifacts, records source hashes,
+kernel environment, tensor hashes and coverage, and saves all logits and the reusable sparse donor delta.
+
+Read **development only**: transfer-v4 (primary), hard-v1 and documents-v1 (guards); decision-v7 for a secondary diagnostic
+temperature refit. The primary read freezes the shipped T=2.3510958125672174 for all arms and uses the canonical paired
+source-stratified record-cluster bootstrap (2,000 resamples, seed 0, micro). Require full dose's transfer accuracy CI95
+lower > 0, Brier upper <= 0, ECE upper <= 0.01; guard accuracy lower >= -0.02 and Brier upper <= 0.01, complete coverage
+and passing isolation. Report NLL, selective coverage/AURC, permutation and task breakdowns too. No locked/test reads.
+Null or harmful results stop this pilot; a positive result would only justify a separately registered confirmation.
+
+The custom runner is necessary to apply an in-memory edit; it uses `kev.benchmark`, `kev.experiment.mechanism_checks`
+and `kev.metrics.paired_bootstrap`, not a new evaluator. Artifacts: `runs/r30-weight-space-v1/{baseline,paper,half}`.
+`kev.rounds readout experiments/rounds/r30.json` supplies a **secondary** refitted-temperature diagnostic from those
+same saved logits, with both arms `select: false`. Its decision-v7 fit is in-distribution, not held-out calibration or a
+release qualification; only the frozen-temperature comparison tests the edit alone. The parent is re-read in the same
+process, not compared to historical numbers from a different kernel set.
+
+Budget cap **$10**, one H100 call, timeout 3,600 s, retries off; invoke the spec's `probe.entrypoint` through `modal run`.
+No expansion before a successful pilot. Report actual metered spend if available, otherwise runtime-based cost and the
+admission bound separately. No serving changes, Hub writes or release selection.
