@@ -1,0 +1,41 @@
+{
+  "round": 32,
+  "registered": "PLAN.md > Round 32 - teacher-verified error repair; committed before inference or training. Report only, no release selection.",
+  "gpu": "H100",
+  "app": "kev-r32-error-repair",
+  "probe": {
+    "entrypoint": "modal_app.py::script --script error_repair_pilot.py; mine then local label then train, separate immutable output names",
+    "budget_usd": 5,
+    "budget_scope": "Additional authorization, including teacher API. Mining 600 s + training/reads 1800 s, retries=0, conservative 5.6752 USD/h = 3.78347 USD; teacher <=1 USD; total admission 4.78347 USD. Check metered spend before each launch; no automatic retry.",
+    "teacher": "deepseek/deepseek-v4-pro through Vercel AI Gateway. Open-weight reference deepseek-ai/DeepSeek-V4-Pro@b5968e9190ef611bbf34a7229255be88a0e937c1, MIT; reference is NOT a pin of hosted API weights. No closed-model or Jev targets.",
+    "fit": "Mine 768 hard-v1 train records; deterministic source-balanced hash selection, original group hash partition reserves a disjoint ordinary pool of 768 before mining. Exclude all available calibration/development IDs, groups and normalized exact states. Only states <=6000 JSON UTF-8 bytes. At most one error question per record, hash chosen, round-robin by source (not confidence-ranked).",
+    "teacher_gate": "First 20 calls require >=17 exact agreements with programmatic gold; accept 128 errors where blind teacher agrees, at most 256 calls and 1 USD. Invalid/disagreeing labels excluded, never replace solver gold. Stop on unknown charge, HTTP error, insufficient accepted records or unmatchable control. Single concurrent call with persisted pessimistic reservation, no retries.",
+    "intervention": "Two independent warm starts from released Kev-0.8B: 128 verified errors vs 128 ordinary hard-v1 records with identical source counts; each adds identical 64 decision-v7 + 64 documents-v1 replay records. One question per record. Rank16 LoRA plus pointer head, one epoch, 256 records/32 steps, batch4 accum2, seed0, lr/head_lr 2e-5, bf16 autocast/fp32 weights. No none/distractor augmentation, normal option shuffling retained.",
+    "primary": "Targeted continuation versus fresh baseline and ordinary continuation at unchanged shipped temperature 2.3510958125672174. Hard accuracy CI95 lower >0 vs both; vs baseline hard Brier upper <=0 and ECE upper <=0.01; transfer/documents accuracy lower >=-0.02 and Brier upper <=0.01. Complete coverage and isolation required.",
+    "interpretation": "Tests the error-selection plus teacher-verification package, not teacher versus gold-label learning in isolation: accepted hard labels equal solver gold. Equal records/questions/steps, not equal tokens or wall time. One seed and reused development panels make this exploratory, never release qualification.",
+    "scope": "No test partition, temperature fitting, Hub write, publication, main commit, adaptive dose/lr/data-size search, or automatic follow-on after null/harm. Teacher responses and training text stay out of git; publish hashes, IDs, metrics and development rows only. GPU launch waits for teacher API access."
+  },
+  "reads": {
+    "hard": {"suite": "evals/hard-v1"},
+    "documents": {"suite": "evals/documents-v1"}
+  },
+  "parents": {
+    "08b": {"trial": "runs/r32-error-repair-v1/baseline", "checkpoint": "jaredpalmer/kev-0.8b@bf75a6a8848ea6960ff2ed108d9ed44c2941174f",
+      "reads": {"hard": "runs/r32-error-repair-v1/baseline/hard", "documents": "runs/r32-error-repair-v1/baseline/documents"}}
+  },
+  "arms": {
+    "08b-targeted": {"trial": "runs/r32-error-repair-v1/targeted", "parent": "08b", "select": false,
+      "reads": {"hard": "runs/r32-error-repair-v1/targeted/hard", "documents": "runs/r32-error-repair-v1/targeted/documents"}},
+    "08b-ordinary": {"trial": "runs/r32-error-repair-v1/ordinary", "parent": "08b", "select": false,
+      "reads": {"hard": "runs/r32-error-repair-v1/ordinary/hard", "documents": "runs/r32-error-repair-v1/ordinary/documents"}}
+  },
+  "rule": {
+    "panels": {
+      "transfer": {"reads": ["transfer"], "metrics": ["acc", "brier", "ece", "nll"], "report": ["aurc", "coverage_at_5pct_error"]},
+      "hard": {"reads": ["hard"], "metrics": ["acc", "brier", "ece", "nll"], "report": ["aurc", "coverage_at_5pct_error"]},
+      "documents": {"reads": ["documents"], "metrics": ["acc", "brier", "ece", "nll"], "report": ["aurc", "coverage_at_5pct_error"]}
+    },
+    "criteria": {},
+    "rank": []
+  }
+}

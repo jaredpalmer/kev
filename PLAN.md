@@ -3300,3 +3300,57 @@ accuracy gain or a passing primary. No hyperparameter search or additional GPU w
 `runs/r31-head-edit-v1/REPORT.md`; canonical diagnostic readout selects no candidate. R31 app compute $1.03453412 across
 two UTC billing days; combined R30+R31 $2.24693682, below $10 (storage/egress separate). This does not rule out every
 Kev-specific edit: it rejects this bounded channel-reweighting intervention as a quality upgrade.
+
+## Round 32 - teacher-verified error repair (registered before model reads or training)
+
+**Why.** After the two null weight edits, Jared approved a small error-targeted LoRA pilot with an ordinary-training
+control and **$5 additional compute**. Earlier rounds found data interventions more promising than head-capacity changes,
+but also found regressions from skills deltas and teacher soft targets. This is ordinary supervised continuation, not
+weight-space programming. It tests whether selecting independently verified mistakes helps more than another small
+amount of ordinary training. A negative pilot does not rule out a larger data intervention.
+
+**Selection, before inference.** `scripts/error_repair_pilot.py` uses only frozen train partitions of hard-v1, decision-v7
+and documents-v1. Exclude IDs, original groups and normalized exact states in every available calibration/development
+partition of the four evaluation suites; never open a locked test. Keep states with at most 6,000 bytes in their JSON
+encoding. A deterministic hash of original group separates hard-v1 into mining and ordinary pools; independently select
+768 clean, source-balanced records per pool, one per original group. The ordinary pool is reserved before predictions
+are known. Read unchanged Kev on the mining pool. Choose at most one wrong question per record by question-ID hash;
+round-robin candidates by source in record-ID hash order, not by confidence. Correct/unknowable questions do not qualify.
+
+**Teacher.** DeepSeek-V4-Pro through Vercel AI Gateway, blind to Kev predictions, labels and record metadata. Its open
+weights `deepseek-ai/DeepSeek-V4-Pro@b5968e9190ef611bbf34a7229255be88a0e937c1` have the MIT licence (verified on the Hub);
+this is a provenance reference, not a claim that the hosted API pins that revision. No closed-model or Jev labels.
+Require at least 17/20 first calls to match hard-v1's programmatic label, then retain 128 verified error records with an
+exactly matching teacher answer, at most 256 calls. No teacher disagreement overwrites solver gold. Invalid output is a
+disagreement. Unknown charge, HTTP error, insufficient accepted examples or unmatchable control stops the experiment.
+This is **teacher-verified hard-label error repair**, not soft-probability distillation; accepted targets equal solver
+gold, so it cannot isolate the teacher's contribution from error selection. Training text, rendered prompts/responses and API
+credentials stay out of git; committed evidence contains selection IDs, hashes, summaries and development rows.
+
+**Arms.** Fresh unchanged baseline; ordinary continuation; targeted continuation. Both continuations start independently
+from `jaredpalmer/kev-0.8b@bf75a6a8848ea6960ff2ed108d9ed44c2941174f`, train 128 hard records plus the **same** 64 decision-v7
+and 64 documents-v1 replay records, and use one question per record. Ordinary hard examples match the targeted source
+counts, selected by the existing deterministic order without using predictions. Rank-16 LoRA and the pointer head, one
+epoch, 256 records and 32 optimizer steps, batch 4 / accumulation 2, seed 0, lr/head_lr 2e-5, bf16 autocast with fp32 weights,
+canonical `kev.train` and its one-cycle schedule. No none/distractor augmentation; normal option shuffling stays on.
+Tokens and wall time can differ: the matched budget is records/questions/steps, not FLOPs. No hyperparameter or dose sweep.
+
+**Primary.** Full development reads of decision-v7 (diagnostic), transfer-v4, hard-v1 and documents-v1 through the canonical
+evaluator, all at shipped T=2.3510958125672174, no temperature fitting. Targeted hard accuracy paired record-bootstrap
+95% lower bound must be >0 against **both** baseline and ordinary continuation; against baseline, hard Brier upper <=0,
+hard ECE upper <=0.01, transfer/documents accuracy lower >=-0.02 and Brier upper <=0.01. Complete coverage and passing
+packing/sibling isolation required. Report Brier, ECE, NLL, selective metrics and task/source breakdowns, including control
+regressions. `experiments/rounds/r32.json` is report-only; the script's frozen-temperature `primary_passed` implements the
+registered gate. One seed, already-used development panels and a tiny training budget: no release qualification even if
+it passes. No test reads, Hub writes, publication, changes to the release or automatic follow-on after null/harm.
+
+**Admission and execution.** One H100 mining call, timeout 600 s; one H100 call for both continuations and all reads,
+timeout 1,800 s; retries disabled. Reserve a conservative $5.6752/hour for the script container (more than its requested
+2 CPUs/128 GiB maximum), or $3.78347 for the two timeouts, plus $1 for the teacher; total $4.78347 below the additional
+$5 authorization. Recheck actual spend and outstanding bounds before each launch. API calls are sequential and reserve
+a byte/token-based upper bound on disk before dispatch; ambiguous charges stay reserved and are not retried. API rate
+bound is twice the published regional price at registration (peak included); stop if an actual charge exceeds it.
+No paid calls until teacher API access is available. GPU work uses `modal_app.py::script --script error_repair_pilot.py`
+with `--phase mine` / `--phase train`; `--phase label` runs locally between them. Outputs have distinct immutable names;
+the verified data is copied to the runs volume before the second call. We keep the adapters privately on that volume,
+not in git or on the Hub.
