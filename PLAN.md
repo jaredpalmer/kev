@@ -3183,3 +3183,174 @@ Older milestones, all in `A:PLAN.md` (sections named in parentheses):
   (Kev-9B locked 0.852), temperature built into `head.pt`, `date_facts` opt-in, 35B-A3B not shipped.
 - **Round 3 calibration audit** (2026-09-21/22; "Round 3 autoresearch"): metric v2 (tie-aware coverage, AURC, full-statistic
   bootstrap); the matched loss screen selected nothing; the binding diagnostic showed the date gap is subtraction, not binding.
+
+## Round 30 - weight-space programming transfer pilot (registered before reads)
+
+Does the [Weight-Space Programming](https://rikiyat.github.io/blog/weight-space-programming/) Experiment 8 edit improve
+Kev-0.8B's decisions without training? Its donor is **instruction-tuned Qwen3.5-0.8B**, whereas Kev uses **Qwen3.5-0.8B-Base**
+with a LoRA adapter and pointer head. The paper mainly rescues generation loops; Kev does not generate. This is an
+explicitly speculative transfer experiment, not a reproduction of the paper's math result.
+
+Registered in `experiments/rounds/r30.json`. `scripts/weight_space_pilot.py` reconstructs the published bf16 sparse edits
+bit for bit against the pinned donor tensor hashes, then adds **edited donor minus original donor** to Kev's fp32 base
+weights in layers 15 and 19 (`mlp.down_proj`, 64 columns each). Never copy donor columns over Kev-Base. Keep Kev's adapter,
+head and tokenizer unchanged; verify hashes of every non-target parameter. Baseline, full delta (primary) and half delta
+(exploratory, not a replacement primary) run sequentially in one H100 process. Restore original weights between doses and
+verify exact restoration at the end. No optimizer, gradients, direction search, model publishing or checkpoint replacement.
+
+Pin Kev `bf75a6a8848ea6960ff2ed108d9ed44c2941174f` (v1.0), its base
+`dc7cdfe2ee4154fa7e30f5b51ca41bfa40174e68`, donor `2fc06364715b967f1860aea9cf38778875588b17`, and edit logs
+`4d09ba6d6a7e891dd8063974dfe81b3d78e3494f`. The runner checksums both published edit artifacts, records source hashes,
+kernel environment, tensor hashes and coverage, and saves all logits and the reusable sparse donor delta.
+
+Read **development only**: transfer-v4 (primary), hard-v1 and documents-v1 (guards); decision-v7 for a secondary diagnostic
+temperature refit. The primary read freezes the shipped T=2.3510958125672174 for all arms and uses the canonical paired
+source-stratified record-cluster bootstrap (2,000 resamples, seed 0, micro). Require full dose's transfer accuracy CI95
+lower > 0, Brier upper <= 0, ECE upper <= 0.01; guard accuracy lower >= -0.02 and Brier upper <= 0.01, complete coverage
+and passing isolation. Report NLL, selective coverage/AURC, permutation and task breakdowns too. No locked/test reads.
+Null or harmful results stop this pilot; a positive result would only justify a separately registered confirmation.
+
+The custom runner is necessary to apply an in-memory edit; it uses `kev.benchmark`, `kev.experiment.mechanism_checks`
+and `kev.metrics.paired_bootstrap`, not a new evaluator. Artifacts: `runs/r30-weight-space-v2/{baseline,paper,half}`.
+`kev.rounds readout experiments/rounds/r30.json` supplies a **secondary** refitted-temperature diagnostic from those
+same saved logits, with both arms `select: false`. Its decision-v7 fit is in-distribution, not held-out calibration or a
+release qualification; only the frozen-temperature comparison tests the edit alone. The parent is re-read in the same
+process, not compared to historical numbers from a different kernel set.
+
+Budget cap **$10**, one H100 call, timeout 3,600 s, retries off; invoke the spec's `probe.entrypoint` through `modal run`.
+No expansion before a successful pilot. Report actual metered spend if available, otherwise runtime-based cost and the
+admission bound separately. No serving changes, Hub writes or release selection.
+
+Pre-read infrastructure correction: attempt v1 stopped before model loading/evaluation because the donor's weight file
+uses an indexed shard name. Attempt v2 resolves the pinned index; the intervention and read plan are unchanged.
+
+### Round 30 result - no meaningful gain; keep Kev-0.8B unchanged
+
+Full dose versus baseline, shipped T unchanged, development-only clean knowable questions:
+
+| Panel | n | Baseline accuracy | Edited accuracy | Accuracy delta, pp [paired 95% CI] | Brier baseline -> edited |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| transfer-v4 | 656 | 64.787% | 64.634% | -0.152 [-0.457, 0.000] | 0.429775 -> 0.429920 |
+| hard-v1 | 1,083 | 59.372% | 59.280% | -0.092 [-0.552, +0.369] | 0.530870 -> 0.531040 |
+| documents-v1 | 920 | 84.239% | 84.348% | +0.109 [0.000, +0.333] | 0.235893 -> 0.235660 |
+
+Half dose has the same three accuracy deltas. Full dose's transfer ECE falls 0.048954 -> 0.043526, but its paired delta
+interval crosses zero; its Brier is slightly worse. The small documents Brier/NLL improvement does not rescue the failed
+primary. Full coverage, unchanged permutation flip rate, passing isolation, 130,188 modified values confined to the two
+intended matrices, all other parameter hashes unchanged, exact original-weight restoration. The canonical secondary
+readout refits the same T=2.3510958125672174 for all three arms; both candidates remain report-only (`null` selection).
+
+Executed on H100 at `32472dc`, script wall time 888.20 s; no training, locked reads, publishing or further search.
+Metered app compute: $1.2124 including the failed pre-read attempt, below the $10 cap (storage/egress separate).
+Complete evidence: `runs/r30-weight-space-v2/REPORT.md`, `report.json`, per-arm suite rows/reports and `cost.json`;
+secondary diagnostic: `runs/r30-readout/round30.json`. This is a negative transfer result for the paper's instruction-model
+edit, not evidence that all direct edits of Kev fail. Future work would need a Kev-specific decision-error target.
+
+## Round 31 - one-shot analytic pointer-channel edit (registered before fitting or evaluation)
+
+**Why.** Round 30 transferred a generation-loop intervention to a prefill-only model and found essentially no effect.
+The follow-up targets the mechanism Kev actually uses: its pointer score is `sum_j q_j * k_j / sqrt(d) / T`.
+Reweighting those existing feature products can change decisions without altering the backbone, tokenizer, LoRA or
+inference graph. Unlike a scalar temperature, unequal channel gains can change option ordering. This is an exploratory
+repair of hard decisions, not a claim to teach missing reasoning skills. LoRA scaling/WiSE-FT, head-capacity changes,
+reliability heads and calibration losses have prior negative results; this is a different, bounded 255-dimensional
+post-hoc reweighting of the released head, not a repeat of those recipes.
+
+**Intervention.** Starting from the same pinned Kev-0.8B release as round 30, collect its exact pointer inputs on 512
+training records from each of decision-v7, hard-v1 and documents-v1 (1,536 total). Within each suite, source-balanced
+round-robin over SHA256-sorted IDs; clean variants only, one record per original group. Exclude IDs, original groups and
+normalized exact states present in any evaluation panel or already selected in another training suite. Canonical
+`validate_training` rejects eval-only sources. Each suite has equal mass, each record equal mass within a suite, each
+question equal mass within its record. Honor canonical soft targets when present. No development labels fit the edit.
+
+Accumulate the analytic softmax-log-loss gradient and Hessian with respect to channel gains at the shipped temperature,
+then solve once with ridge = 0.1 * trace(H)/d and constraint sum(delta)=0. Rescale the entire solution, if needed, so
+max(abs(delta)) <= 0.25. There is no iterative optimizer, autograd or backbone update, but this **is supervised fitting**,
+not a data-free or literally derivative-free method. Fold gains (1+delta) into the rows of `head.q.weight` and its bias;
+every other parameter must remain hash-identical. Save the gains and fit statistics before any evaluation inference.
+
+**Arms.** Baseline; full learned edit (primary); half edit (exploratory); seed-0 coordinate permutation of the learned
+gains (control with the same gain multiset/mean/L2 norm, not claimed to match the weight-space norm). No dose, ridge,
+training-mixture or direction search after results. Temperature remains the shipped 2.3510958125672174 for the primary.
+Run all arms in one process with fresh baseline reads; verify packing/sibling isolation and restore exact original weights
+in a finally block. Raw logits, kernel environment, training selection hashes and script/source provenance are saved.
+
+**Reads and success.** Development-only decision-v7 (diagnostic), transfer-v4, hard-v1 and documents-v1. Primary is now
+hard-v1 because this intervention explicitly targets hard-decision repair, not the old donor-transfer hypothesis.
+Learned minus baseline: hard accuracy paired 95% CI lower > 0, hard Brier upper <= 0, hard ECE upper <= 0.01;
+transfer/documents accuracy lower >= -0.02 and Brier upper <= 0.01. Learned minus shuffled control hard accuracy lower > 0.
+Complete coverage and passing isolation required. Paired record/source-clustered 2,000-resample bootstrap, seed 0,
+micro aggregation. All arms are report-only; full success would justify separate confirmation, not shipping.
+The canonical round readout's decision-v7 temperature refit is an explicitly in-distribution diagnostic only, not the
+primary, a held-out calibration fit or release qualification. Half/control cannot replace a failed primary.
+
+**Budget and scope.** One H100 call, 3,600 seconds, retries disabled, via `modal_app.py::script --script head_weight_edit.py
+--name r31-head-edit-v1 --gpu H100 --timeout 3600`. Conservative call compute bound $5.6752 plus round 30's $1.2124 metered
+compute stays under the original $10 total cap; check live billing before launch. No publication, locked-test reads,
+large-model work or follow-on search. Stop after this pilot if the primary is null or harmful.
+
+**Result: stop; not selected.** Fit 255 effective gains from 2,177 questions in 1,536 train records. The full edit changes
+only head.q (weight relative norm 6.60%, bias 6.13%); restoration is exact, all coverage/isolation checks pass, and fresh
+baseline rows are byte-identical to round 30 on all four panels. At shipped T, hard accuracy 59.372% -> 59.464%
+(+0.092 pp, CI [0.000, +0.279]); transfer 64.787% and documents 84.239% are unchanged. Half and shuffled control have the
+same accuracy as full. Learned-vs-shuffled hard accuracy is exactly zero: the primary accuracy and attribution gates fail.
+Hard Brier 0.530870 -> 0.529890 (delta CI [-0.001157, -0.000808]), NLL 0.973454 -> 0.971386; documents Brier/NLL also improve
+slightly, but the shuffled control improves them too. These probability improvements are measurable, not a meaningful
+accuracy gain or a passing primary. No hyperparameter search or additional GPU work. Committed evidence and reproduction:
+`runs/r31-head-edit-v1/REPORT.md`; canonical diagnostic readout selects no candidate. R31 app compute $1.03453412 across
+two UTC billing days; combined R30+R31 $2.24693682, below $10 (storage/egress separate). This does not rule out every
+Kev-specific edit: it rejects this bounded channel-reweighting intervention as a quality upgrade.
+
+## Round 32 - teacher-verified error repair (registered before model reads or training)
+
+**Why.** After the two null weight edits, Jared approved a small error-targeted LoRA pilot with an ordinary-training
+control and **$5 additional compute**. Earlier rounds found data interventions more promising than head-capacity changes,
+but also found regressions from skills deltas and teacher soft targets. This is ordinary supervised continuation, not
+weight-space programming. It tests whether selecting independently verified mistakes helps more than another small
+amount of ordinary training. A negative pilot does not rule out a larger data intervention.
+
+**Selection, before inference.** `scripts/error_repair_pilot.py` uses only frozen train partitions of hard-v1, decision-v7
+and documents-v1. Exclude IDs, original groups and normalized exact states in every available calibration/development
+partition of the four evaluation suites; never open a locked test. Keep states with at most 6,000 bytes in their JSON
+encoding. A deterministic hash of original group separates hard-v1 into mining and ordinary pools; independently select
+768 clean, source-balanced records per pool, one per original group. The ordinary pool is reserved before predictions
+are known. Read unchanged Kev on the mining pool. Choose at most one wrong question per record by question-ID hash;
+round-robin candidates by source in record-ID hash order, not by confidence. Correct/unknowable questions do not qualify.
+
+**Teacher.** DeepSeek-V4-Pro through Vercel AI Gateway, blind to Kev predictions, labels and record metadata. Its open
+weights `deepseek-ai/DeepSeek-V4-Pro@b5968e9190ef611bbf34a7229255be88a0e937c1` have the MIT licence (verified on the Hub);
+this is a provenance reference, not a claim that the hosted API pins that revision. No closed-model or Jev labels.
+Require at least 17/20 first calls to match hard-v1's programmatic label, then retain 128 verified error records with an
+exactly matching teacher answer, at most 256 calls. No teacher disagreement overwrites solver gold. Invalid output is a
+disagreement. Unknown charge, HTTP error, insufficient accepted examples or unmatchable control stops the experiment.
+This is **teacher-verified hard-label error repair**, not soft-probability distillation; accepted targets equal solver
+gold, so it cannot isolate the teacher's contribution from error selection. Training text, rendered prompts/responses and API
+credentials stay out of git; committed evidence contains selection IDs, hashes, summaries and development rows.
+
+**Arms.** Fresh unchanged baseline; ordinary continuation; targeted continuation. Both continuations start independently
+from `jaredpalmer/kev-0.8b@bf75a6a8848ea6960ff2ed108d9ed44c2941174f`, train 128 hard records plus the **same** 64 decision-v7
+and 64 documents-v1 replay records, and use one question per record. Ordinary hard examples match the targeted source
+counts, selected by the existing deterministic order without using predictions. Rank-16 LoRA and the pointer head, one
+epoch, 256 records and 32 optimizer steps, batch 4 / accumulation 2, seed 0, lr/head_lr 2e-5, bf16 autocast with fp32 weights,
+canonical `kev.train` and its one-cycle schedule. No none/distractor augmentation; normal option shuffling stays on.
+Tokens and wall time can differ: the matched budget is records/questions/steps, not FLOPs. No hyperparameter or dose sweep.
+
+**Primary.** Full development reads of decision-v7 (diagnostic), transfer-v4, hard-v1 and documents-v1 through the canonical
+evaluator, all at shipped T=2.3510958125672174, no temperature fitting. Targeted hard accuracy paired record-bootstrap
+95% lower bound must be >0 against **both** baseline and ordinary continuation; against baseline, hard Brier upper <=0,
+hard ECE upper <=0.01, transfer/documents accuracy lower >=-0.02 and Brier upper <=0.01. Complete coverage and passing
+packing/sibling isolation required. Report Brier, ECE, NLL, selective metrics and task/source breakdowns, including control
+regressions. `experiments/rounds/r32.json` is report-only; the script's frozen-temperature `primary_passed` implements the
+registered gate. One seed, already-used development panels and a tiny training budget: no release qualification even if
+it passes. No test reads, Hub writes, publication, changes to the release or automatic follow-on after null/harm.
+
+**Admission and execution.** One H100 mining call, timeout 600 s; one H100 call for both continuations and all reads,
+timeout 1,800 s; retries disabled. Reserve a conservative $5.6752/hour for the script container (more than its requested
+2 CPUs/128 GiB maximum), or $3.78347 for the two timeouts, plus $1 for the teacher; total $4.78347 below the additional
+$5 authorization. Recheck actual spend and outstanding bounds before each launch. API calls are sequential and reserve
+a byte/token-based upper bound on disk before dispatch; ambiguous charges stay reserved and are not retried. API rate
+bound is twice the published regional price at registration (peak included); stop if an actual charge exceeds it.
+No paid calls until teacher API access is available. GPU work uses `modal_app.py::script --script error_repair_pilot.py`
+with `--phase mine` / `--phase train`; `--phase label` runs locally between them. Outputs have distinct immutable names;
+the verified data is copied to the runs volume before the second call. We keep the adapters privately on that volume,
+not in git or on the Hub.

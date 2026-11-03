@@ -1,0 +1,49 @@
+{
+  "round": 30,
+  "registered": "PLAN.md > Round 30 - weight-space programming transfer pilot; committed before any model read. Report only, no release selection.",
+  "gpu": "H100",
+  "app": "kev-r30-weight-space",
+  "probe": {
+    "entrypoint": "modal_app.py::script --script weight_space_pilot.py --name r30-weight-space-v2 --gpu H100 --timeout 3600",
+    "attempts": "v1 failed before model loading or evaluation: donor uses an indexed shard filename, not model.safetensors. v2 resolves filenames through that index; same hypotheses and reads.",
+    "budget_usd": 10,
+    "retries": 0,
+    "primary": "Full published donor delta added to Kev-Base at shipped temperature; baseline and half dose in the same process. report.json contains the frozen-temperature comparisons.",
+    "secondary": "kev.rounds readout refits T on each arm's decision-v7 development rows, for diagnosis only; not a held-out calibration fit or release qualification.",
+    "success": "Full dose: transfer accuracy paired CI95 lower > 0; transfer Brier upper <= 0 and ECE upper <= 0.01; hard/documents accuracy lower >= -0.02, Brier upper <= 0.01; complete coverage and isolation passed. Half dose is exploratory, never a replacement primary.",
+    "scope": "No training, test partition, checkpoint publishing or release change. Delta artifacts only; no mutable Hub revisions. Failure or null result stops this pilot. No direction search."
+  },
+  "reads": {
+    "hard": {"suite": "evals/hard-v1"},
+    "documents": {"suite": "evals/documents-v1"}
+  },
+  "parents": {
+    "08b": {
+      "trial": "runs/r30-weight-space-v2/baseline",
+      "checkpoint": "jaredpalmer/kev-0.8b@bf75a6a8848ea6960ff2ed108d9ed44c2941174f",
+      "reads": {
+        "hard": "runs/r30-weight-space-v2/baseline/hard",
+        "documents": "runs/r30-weight-space-v2/baseline/documents"
+      }
+    }
+  },
+  "arms": {
+    "08b-paper": {
+      "trial": "runs/r30-weight-space-v2/paper", "parent": "08b", "select": false,
+      "reads": {"hard": "runs/r30-weight-space-v2/paper/hard", "documents": "runs/r30-weight-space-v2/paper/documents"}
+    },
+    "08b-half": {
+      "trial": "runs/r30-weight-space-v2/half", "parent": "08b", "select": false,
+      "reads": {"hard": "runs/r30-weight-space-v2/half/hard", "documents": "runs/r30-weight-space-v2/half/documents"}
+    }
+  },
+  "rule": {
+    "panels": {
+      "transfer": {"reads": ["transfer"], "metrics": ["acc", "brier", "ece", "nll"], "report": ["aurc", "coverage_at_5pct_error", "coverage_at_1pct_error"]},
+      "hard": {"reads": ["hard"], "metrics": ["acc", "brier", "ece", "nll"], "report": ["aurc", "coverage_at_5pct_error", "coverage_at_1pct_error"]},
+      "documents": {"reads": ["documents"], "metrics": ["acc", "brier", "ece", "nll"], "report": ["aurc", "coverage_at_5pct_error", "coverage_at_1pct_error"]}
+    },
+    "criteria": {},
+    "rank": []
+  }
+}
