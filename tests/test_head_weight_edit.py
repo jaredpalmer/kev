@@ -131,3 +131,47 @@ def test_round31_is_preregistered_report_only():
     spec = load(path)
     assert not validate(spec, root, rows=False).problems
     assert all(not arm["select"] for arm in read_json(path)["arms"].values())
+
+
+def test_recorded_head_fit_and_readouts_reproduce():
+    from pathlib import Path
+    from safetensors.torch import load_file
+    from kev.metrics import paired_bootstrap
+    from kev.benchmark import summarize
+    from kev.suite import digest
+    root = Path(__file__).resolve().parents[1]
+    out = root / "runs/r31-head-edit-v1"
+    report = read_json(out / "report.json")
+    fit = load_file(str(out / "fit.safetensors"))
+    delta, damping = solve_gains(fit["rhs"], fit["hessian"])
+    assert torch.allclose(delta, fit["delta"], rtol=0, atol=1e-12)
+    assert damping == pytest.approx(report["fit"]["damping"], abs=1e-15)
+    assert digest(out / "fit-selection.json") == report["fit"]["selection_sha256"]
+    assert digest(out / "fit.safetensors") == report["fit"]["statistics_sha256"]
+    assert report["restored_exactly"]
+    for arm, data in report["arms"].items():
+        assert data["changed_parameters"] == ([] if arm == "baseline" else ["head.q.bias", "head.q.weight"])
+        for tag in data["reads"]:
+            path = out / arm / tag
+            rows = read_json(path / "rows.json")
+            saved = read_json(path / "report.json")
+            assert saved["clean"] == data["reads"][tag]
+            for metric, value in summarize(rows)["clean"].items():
+                expected = saved["clean"][metric]
+                assert value == (pytest.approx(expected, rel=0, abs=1e-12) if isinstance(value, float) else expected)
+            coverage = saved["coverage"]
+            assert coverage["requested_questions"] == coverage["evaluated_questions"]
+            assert coverage["rejected_records"] == coverage["truncated_records"] == 0
+            if tag == "transfer":
+                assert saved["mechanism_checks"]["passed"]
+            if arm == "baseline":
+                assert digest(path / "rows.json") == digest(root / "runs/r30-weight-space-v2/baseline" / tag / "rows.json")
+            elif tag != "development":
+                baseline = read_json(out / "baseline" / tag / "rows.json")
+                for metric, expected in report["comparisons"][arm][tag].items():
+                    actual = paired_bootstrap(rows, baseline, samples=2000, seed=0, metric=metric, aggregation="micro")
+                    assert actual["ci95"] == pytest.approx(expected["ci95"], rel=0, abs=1e-12)
+                    assert actual[f"micro_{metric}_delta"] == pytest.approx(expected[f"micro_{metric}_delta"], rel=0, abs=1e-12)
+    actual = paired_bootstrap(read_json(out / "learned/hard/rows.json"), read_json(out / "shuffled/hard/rows.json"),
+                              samples=2000, seed=0, metric="acc", aggregation="micro")
+    assert actual == report["learned_vs_shuffled_hard"]

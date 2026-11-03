@@ -3288,3 +3288,15 @@ primary, a held-out calibration fit or release qualification. Half/control canno
 --name r31-head-edit-v1 --gpu H100 --timeout 3600`. Conservative call compute bound $5.6752 plus round 30's $1.2124 metered
 compute stays under the original $10 total cap; check live billing before launch. No publication, locked-test reads,
 large-model work or follow-on search. Stop after this pilot if the primary is null or harmful.
+
+**Result: stop; not selected.** Fit 255 effective gains from 2,177 questions in 1,536 train records. The full edit changes
+only head.q (weight relative norm 6.60%, bias 6.13%); restoration is exact, all coverage/isolation checks pass, and fresh
+baseline rows are byte-identical to round 30 on all four panels. At shipped T, hard accuracy 59.372% -> 59.464%
+(+0.092 pp, CI [0.000, +0.279]); transfer 64.787% and documents 84.239% are unchanged. Half and shuffled control have the
+same accuracy as full. Learned-vs-shuffled hard accuracy is exactly zero: the primary accuracy and attribution gates fail.
+Hard Brier 0.530870 -> 0.529890 (delta CI [-0.001157, -0.000808]), NLL 0.973454 -> 0.971386; documents Brier/NLL also improve
+slightly, but the shuffled control improves them too. These probability improvements are measurable, not a meaningful
+accuracy gain or a passing primary. No hyperparameter search or additional GPU work. Committed evidence and reproduction:
+`runs/r31-head-edit-v1/REPORT.md`; canonical diagnostic readout selects no candidate. R31 app compute $1.03453412 across
+two UTC billing days; combined R30+R31 $2.24693682, below $10 (storage/egress separate). This does not rule out every
+Kev-specific edit: it rejects this bounded channel-reweighting intervention as a quality upgrade.
