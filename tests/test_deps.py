@@ -1,105 +1,79 @@
-"""The transformers version guard (issue #280): an ImportError naming pyproject's range, and other import errors left alone.
+"""kev.model names pyproject's transformers range when that import fails on an older release (issue #280).
 
-Runs without a usable transformers: kev.deps reads the distribution metadata and never imports transformers. The two
-subprocess cases build a fake transformers (and its metadata) on PYTHONPATH.
+A release inside the range, and an install with no distribution metadata, keep the original ImportError.
+The fake transformers trees run in a subprocess so they do not replace the transformers this process imported.
 Run: uv run python -m pytest tests/test_deps.py -q
 """
-
 import os
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
 import pytest
 
-from kev import deps
+from kev.model import _TRANSFORMERS_REQUIREMENT, _transformers_outside_range
 
 ROOT = Path(__file__).resolve().parents[1]
-MESSAGE = (
-    "Kev requires transformers>=5.17,<6; found {found}. "
-    "Install with `pip install 'transformers>=5.17,<6'`."
-)
 
 
-@pytest.mark.parametrize("found", ["5.17", "5.17.0", "5.17.0+cpu", "5.18.2", "5.99.0"])
-def test_declared_range_is_accepted(found):
-    assert deps.transformers_problem(found) is None
+@pytest.mark.parametrize("found,outside", [
+    ("4.57.6", True), ("5.2.0", True), ("5.2.0+cu124", True), ("5.16.9", True),
+    ("5.17", False), ("5.17.0", False), ("5.17.0+cu124", False), ("5.17.0rc1", False), ("5.99.0", False),
+    ("6", True), ("6.0.0", True),
+])
+def test_range_edges(found, outside):
+    assert _transformers_outside_range(found) is outside
 
 
-@pytest.mark.parametrize("found", ["4.57.6", "5.2.0", "5.16.9", "6.0.0", "6.1.0"])
-def test_outside_the_range_names_the_requirement(found):
-    assert deps.transformers_problem(found) == MESSAGE.format(found=found)
+def test_pyproject_declares_the_requirement_the_error_names():
+    """The error names the pyproject dependency, and the numeric check is that same range.
+    `_transformers_outside_range` writes >=5.17,<6 as tuples; this fails if those tuples drift from the string."""
+    declared = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert f'"{_TRANSFORMERS_REQUIREMENT}"' in declared
+    low, high = _TRANSFORMERS_REQUIREMENT.removeprefix("transformers>=").split(",<")
+    assert _transformers_outside_range(low) is False
+    assert _transformers_outside_range(high) is True
+    major, minor = (int(part) for part in low.split("."))
+    assert _transformers_outside_range(f"{major}.{minor - 1}.9") is True
 
 
-def test_require_transformers_raises_import_error():
-    with pytest.raises(ImportError) as err:
-        deps.require_transformers("5.2.0")
-    assert str(err.value) == MESSAGE.format(found="5.2.0")
-    assert deps.require_transformers("5.17.0") is None
-
-
-def test_reads_installed_metadata_and_skips_when_transformers_is_absent(monkeypatch):
-    monkeypatch.setattr(deps, "version", lambda name: "5.2.0")
-    assert "found 5.2.0" in deps.transformers_problem()
-
-    def missing(name):
-        raise deps.PackageNotFoundError(name)
-
-    monkeypatch.setattr(deps, "version", missing)
-    assert (
-        deps.transformers_problem() is None
-    )  # the import that needs transformers raises its own ModuleNotFoundError
-
-
-def test_pyproject_declares_the_range_the_guard_enforces():
-    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert deps.TRANSFORMERS_REQUIREMENT in pyproject["project"]["dependencies"]
-
-
-def fake_transformers(tmp_path, version, symbol=True):
-    """A PYTHONPATH tree with transformers' metadata at `version` and a stub package. Without `symbol`, cache_utils has no
-    LinearAttentionCacheLayerMixin, which is what kev.model sees in 5.2.0."""
-    (tmp_path / "transformers").mkdir()
-    stub = "class AutoModel: pass\nclass AutoModelForCausalLM: pass\nclass AutoTokenizer: pass\nclass DynamicCache: pass\n"
+def _fake(tmp_path, version, symbol, metadata):
+    package = tmp_path / "transformers"
+    package.mkdir()
+    init = "class AutoModel: pass\nclass AutoModelForCausalLM: pass\nclass AutoTokenizer: pass\nclass DynamicCache: pass\n"
+    (package / "__init__.py").write_text(init, encoding="utf-8")
     mixin = "class LinearAttentionCacheLayerMixin: pass\n" if symbol else ""
-    files = {
-        "__init__.py": stub,
-        "cache_utils.py": "class DynamicCache: pass\n" + mixin,
-    }
-    for name, text in files.items():
-        (tmp_path / "transformers" / name).write_text(text, encoding="utf-8")
+    (package / "cache_utils.py").write_text("class DynamicCache: pass\n" + mixin, encoding="utf-8")
+    if not metadata:
+        return
     dist = tmp_path / f"transformers-{version}.dist-info"
     dist.mkdir()
-    meta = f"Metadata-Version: 2.1\nName: transformers\nVersion: {version}\n"
-    (dist / "METADATA").write_text(meta, encoding="utf-8")
-    return tmp_path
+    (dist / "METADATA").write_text(f"Metadata-Version: 2.1\nName: transformers\nVersion: {version}\n", encoding="utf-8")
 
 
-def run_import(tmp_path):
-    env = {
-        **os.environ,
-        "PYTHONPATH": os.pathsep.join(
-            [str(tmp_path), str(ROOT), os.environ.get("PYTHONPATH", "")]
-        ),
-    }
-    return subprocess.run(
-        [sys.executable, "-c", "import kev.model"],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+def _import(tmp_path):
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(tmp_path), str(ROOT)])}
+    return subprocess.run([sys.executable, "-c", "import kev.model"], cwd=ROOT, env=env, capture_output=True, text=True)
 
 
-def test_import_names_the_requirement_before_the_symbol_import(tmp_path):
-    proc = run_import(fake_transformers(tmp_path, "5.2.0", symbol=False))
-    assert proc.returncode != 0
-    assert MESSAGE.format(found="5.2.0") in proc.stderr
-
-
-def test_import_does_not_mask_other_errors_when_the_version_is_allowed(tmp_path):
-    proc = run_import(fake_transformers(tmp_path, "5.17.0", symbol=False))
+@pytest.mark.parametrize("version,symbol,metadata,expect", [
+    ("5.2.0", False, True, "requirement"),   # the bundled env in issue #280
+    ("6.0.0", False, True, "requirement"),   # the other side of the pin, when the name is gone
+    ("5.17.0", False, True, "raw"),          # inside the range: do not mask a real import error
+    ("5.2.0", False, False, "raw"),          # no distribution metadata: the missing name is not rewritten
+    ("5.17.0", True, True, "ok"),
+    ("6.0.0", True, True, "ok"),             # a release that still imports is not refused here
+])
+def test_import(tmp_path, version, symbol, metadata, expect):
+    _fake(tmp_path, version, symbol, metadata)
+    proc = _import(tmp_path)
+    if expect == "ok":
+        assert proc.returncode == 0, proc.stderr
+        return
     assert proc.returncode != 0
     assert "cannot import name 'LinearAttentionCacheLayerMixin'" in proc.stderr
-    assert "Kev requires transformers" not in proc.stderr
+    named = f"Kev requires {_TRANSFORMERS_REQUIREMENT} (found {version}). Use Python 3.12 or 3.13 and run `uv sync`."
+    if expect == "requirement":
+        assert named in proc.stderr
+    else:
+        assert "Kev requires" not in proc.stderr

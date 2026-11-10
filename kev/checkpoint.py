@@ -8,7 +8,7 @@ save_pretrained wrote to config.json). The tokenizer always comes from the base 
 
 This is the one place that knows the layout of `head.pt` and how a checkpoint becomes a `DecisionModel`:
 `kev.serve`, `kev.benchmark`, `kev.train --init_from`, `kev.publish`, the scripts and the Hugging Face Space all go
-through it. The Space vendors this file next to `model.py`, `deps.py` and `api.py` (scripts/publish_space.sh), so it must not
+through it. The Space vendors this file next to `model.py` and `api.py` (scripts/publish_space.sh), so it must not
 import the data or suite modules at import time.
 
     ck = Checkpoint("jaredpalmer/kev-4b")          # or a local run directory; `@tag` pins a Hub revision

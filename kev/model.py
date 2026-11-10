@@ -1,15 +1,43 @@
 """Decision model: causal LM backbone + block-causal branch mask + pointer readout."""
 import copy, math, os, re
-
-from .deps import require_transformers
-
-require_transformers()   # name pyproject's transformers range before the cache_utils import below fails on an older release (#280)
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer, DynamicCache
-from transformers.cache_utils import LinearAttentionCacheLayerMixin
+
+# pyproject.toml [project].dependencies. LinearAttentionCacheLayerMixin is the name 5.17 added.
+_TRANSFORMERS_REQUIREMENT = "transformers>=5.17,<6"
+
+
+def _transformers_outside_range(found):
+    """True when `found` is outside `_TRANSFORMERS_REQUIREMENT`. Only the numeric release prefix is compared:
+    5.17.0+cu124 counts as 5.17.0, and a non-numeric suffix stops the prefix (5.17.0rc1 counts as 5.17)."""
+    release = []
+    for part in found.split("+", 1)[0].split("."):
+        if not part.isdigit():
+            break
+        release.append(int(part))
+    release = tuple(release)
+    # The release prefix of _TRANSFORMERS_REQUIREMENT: >=5.17 and <6. Slice so 5.17.0 is not less than 5.17.
+    return not (release[:2] >= (5, 17) and release[:1] < (6,))
+
+
+# transformers 5.2.0 raises "cannot import name 'LinearAttentionCacheLayerMixin'" here, which reads as a bug in
+# kev even though the install is outside the range above (issue #280). Rewrite that case. A missing install, and
+# this name missing from a release inside the range, keep their own error.
+try:
+    from transformers.cache_utils import LinearAttentionCacheLayerMixin
+except ImportError as error:
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        found = version("transformers")
+    except PackageNotFoundError:
+        found = None
+    if found and _transformers_outside_range(found):
+        raise ImportError(
+            f"Kev requires {_TRANSFORMERS_REQUIREMENT} (found {found}). Use Python 3.12 or 3.13 and run `uv sync`."
+        ) from error
+    raise
 
 # Reuse existing rarely-used Qwen special tokens as delimiters (state, q, opt, /opt, decide) so no
 # embedding rows need to be added/trained; LoRA adapts their meaning.
