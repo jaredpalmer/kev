@@ -1,4 +1,5 @@
 import json
+import sys
 from collections import Counter
 from copy import deepcopy
 from pathlib import Path
@@ -6,8 +7,12 @@ from pathlib import Path
 import pytest
 
 from kev.benchmark import prediction_rows
+from kev.data import load_records
+from kev.experiment import train_args, validated_trial
+from kev.model import MAX_STATE, fits, load_tokenizer, training_context
 from kev.rounds import validate
-from kev.suite import digest, read_json, record_digest, write_json
+from kev.suite import digest, read_json, record_digest, write_json, write_jsonl
+from kev.train import parse_args, training_requests
 from scripts import error_repair_pilot as pilot
 from scripts.head_weight_edit import identities
 
@@ -16,6 +21,50 @@ def record(i, source="a"):
     return {"state": f"State {i}", "questions": {"q": {"type": "choice", "instructions": "Pick one",
             "criteria": {"a": "A", "b": "B"}, "label": "a", "src": source}},
             "_meta": {"id": str(i), "group_id": str(i), "source": source, "variant": "clean", "split": "train"}}
+
+
+@pytest.fixture(scope="module")
+def tokenizer():
+    return load_tokenizer(pilot.TRAINING["base"], revision=pilot.TRAINING["base_revision"])
+
+
+def test_continuation_keeps_long_custom_records(tmp_path, monkeypatch, tokenizer):
+    short, long = record(0), record(1)
+    long["state"] = "word " * (MAX_STATE + 100)
+    assert not fits(pilot.materialize(long), tokenizer, **training_context())
+    data = tmp_path / "data.jsonl"
+    write_jsonl(data, [short, long])
+    suite = pilot.SUITES["development"]
+    manifest = pilot.read_manifest(suite)
+    config = validated_trial(pilot.TRAINING, manifest)
+    config["data"] = str(data)
+    argv = train_args(config, suite, tmp_path, "cuda")
+    monkeypatch.setattr(sys, "argv", argv[argv.index("kev.train"):])
+    args = parse_args()
+    assert args.max_state == pilot.TRAINING["max_state"]
+    expected = load_records(data)
+    assert training_requests(args, tokenizer, manifest, []) == expected
+    args.max_state = MAX_STATE
+    assert training_requests(args, tokenizer, manifest, []) == expected[:1]
+
+
+def test_overflow_aborts_before_baseline_or_training(tmp_path, monkeypatch, tokenizer):
+    r = record(0)
+    r["state"] = "word " * (pilot.TRAINING["max_state"] + 1)
+    pools = {"hard": [r]}
+    expected = {arm: [r] for arm in ("ordinary", "targeted")}
+    monkeypatch.setattr(pilot, "train_pools", lambda: pools)
+    monkeypatch.setattr(pilot, "matched_data", lambda pools, accepted: expected)
+    monkeypatch.setattr(pilot, "load_tokenizer", lambda *a, **kw: tokenizer)
+    monkeypatch.setattr(pilot, "LocalPredictor", lambda *a, **kw: pytest.fail("model loaded before context check"))
+    monkeypatch.setattr(pilot, "train_checkpoint", lambda *a, **kw: pytest.fail("trained before context check"))
+    for arm, records in expected.items():
+        write_jsonl(tmp_path / f"{arm}.jsonl", records)
+    write_json(tmp_path / "teacher-ledger.json", {"complete": True, "teacher": pilot.TEACHER, "total": 0,
+               "accepted": [pilot.selection_record(r)],
+               "files": {arm: digest(tmp_path / f"{arm}.jsonl") for arm in expected}})
+    with pytest.raises(ValueError, match="ordinary records exceed the training context"):
+        pilot.train(tmp_path / "out", tmp_path)
 
 
 def test_singleton_is_label_independent_and_does_not_mutate():
@@ -163,7 +212,7 @@ def test_registration_is_report_only_and_fits_additional_cap():
     assert pilot.REPAIR_RECORDS + 2 * pilot.REPLAY_PER_SUITE == 256
 
 
-def test_real_training_pools_are_disjoint_and_exclude_all_available_eval_partitions():
+def test_real_training_pools_are_disjoint_and_exclude_all_available_eval_partitions(tokenizer):
     needed = [Path(path) / f"{split}.jsonl" for path in pilot.SUITES.values()
               for split in ("train", "calibration", "development")
               if f"{split}.jsonl" in pilot.read_manifest(path)["files"]]
@@ -176,6 +225,8 @@ def test_real_training_pools_are_disjoint_and_exclude_all_available_eval_partiti
             keys = identities(r)
             assert not keys & seen
             seen |= keys
+            for qid in r["questions"]:
+                assert fits(pilot.materialize(pilot.singleton(r, qid)), tokenizer, **training_context(pilot.TRAINING["max_state"]))
     for path in pilot.SUITES.values():
         manifest = pilot.read_manifest(path)
         for split in ("calibration", "development"):

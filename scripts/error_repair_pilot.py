@@ -31,6 +31,7 @@ from kev.experiment import (
     validated_trial,
 )
 from kev.metrics import paired_bootstrap
+from kev.model import SERVE_MAX_STATE_8K, fits, load_tokenizer, training_context
 from kev.predictors import LocalPredictor
 from kev.suite import (
     digest,
@@ -58,6 +59,7 @@ ARMS = ("baseline", "ordinary", "targeted")
 TRAINING = {"base": "Qwen/Qwen3.5-0.8B-Base", "base_revision": "dc7cdfe2ee4154fa7e30f5b51ca41bfa40174e68",
             "init_from": CHECKPOINT, "epochs": 1, "seed": 0, "lr": 2e-5, "head_lr": 2e-5,
             "lora": 16, "batch": 4, "accum": 2, "dtype": "bf16", "weights_dtype": "fp32",
+            "max_state": SERVE_MAX_STATE_8K,
             "checkpointing": 1, "p_none": 0, "p_none_distract": 0, "p_distract": 0, "p_none_pair": 0}
 
 
@@ -239,9 +241,13 @@ def train(out, data):
     pools = train_pools()
     accepted = {r["_meta"]["id"]: r for r in pools["hard"][:POOL_RECORDS]}
     expected = matched_data(pools, [singleton(accepted[c["id"]], c["question"]) for c in ledger["accepted"]])
+    tok = load_tokenizer(TRAINING["base"], revision=TRAINING["base_revision"])
     for arm, records in expected.items():
         if digest(data / f"{arm}.jsonl") != ledger["files"][arm] or read_jsonl(data / f"{arm}.jsonl") != records:
             raise ValueError("training data differs from the registered selection")
+        overlong = [r["_meta"]["id"] for r in records if not fits(materialize(r), tok, **training_context(TRAINING["max_state"]))]
+        if overlong:
+            raise ValueError(f"{arm} records exceed the training context: {overlong}")
     manifest = read_manifest(SUITES["development"])
     report = {"checkpoint": CHECKPOINT, "temperature": TEMPERATURE, "kev_source_hashes": source_hashes(),
               "script_sha256": digest(Path(__file__)), "teacher_ledger_sha256": digest(data / "teacher-ledger.json"),

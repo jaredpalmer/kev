@@ -3332,7 +3332,9 @@ from `jaredpalmer/kev-0.8b@bf75a6a8848ea6960ff2ed108d9ed44c2941174f`, train 128 
 and 64 documents-v1 replay records, and use one question per record. Ordinary hard examples match the targeted source
 counts, selected by the existing deterministic order without using predictions. Rank-16 LoRA and the pointer head, one
 epoch, 256 records and 32 optimizer steps, batch 4 / accumulation 2, seed 0, lr/head_lr 2e-5, bf16 autocast with fp32 weights,
-canonical `kev.train` and its one-cycle schedule. No none/distractor augmentation; normal option shuffling stays on.
+canonical `kev.train` and its one-cycle schedule, `max_state=8192` with canonical lifted branch/packed limits. Check every
+selected training record with `fits` before the baseline or either continuation; fail rather than silently drop records.
+No none/distractor augmentation; normal option shuffling stays on.
 Tokens and wall time can differ: the matched budget is records/questions/steps, not FLOPs. No hyperparameter or dose sweep.
 
 **Primary.** Full development reads of decision-v7 (diagnostic), transfer-v4, hard-v1 and documents-v1 through the canonical
@@ -3354,3 +3356,9 @@ No paid calls until teacher API access is available. GPU work uses `modal_app.py
 with `--phase mine` / `--phase train`; `--phase label` runs locally between them. Outputs have distinct immutable names;
 the verified data is copied to the runs volume before the second call. We keep the adapters privately on that volume,
 not in git or on the Hub.
+
+**Pre-execution correction from review.** The custom-data trainer defaults to a 384-token state limit, not the input
+suites' larger contexts. A CPU tokenizer audit found 34/64 document replay records and 107/1,536 reserved hard records
+would be dropped (for example `cfpb/3646882`, 988 state tokens). Register the explicit 8,192-token limit for both arms;
+all selected singleton records fit it. Selection, steps, budget and evaluation policy are unchanged. No predictions,
+teacher calls or training preceded this correction.
