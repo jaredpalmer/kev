@@ -519,6 +519,52 @@ def test_convert_jsonl_keeps_choice_and_noul(tmp_path, monkeypatch):
     assert row["questions"]["frustration"]["label"] == 0
 
 
+def test_jsonl_readers_keep_unicode_line_separators(tmp_path, monkeypatch, capsys):
+    """U+2028, U+2029 and U+0085 stay inside one JSONL record, and a later broken line keeps its line number."""
+    separators = ("\u2028", "\u2029", "\u0085")
+    records = [record(f"alpha{sep}beta") for sep in separators]
+    body = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records)
+    path = tmp_path / "rows.jsonl"
+    path.write_text(body + "not json\n", encoding="utf-8")
+
+    got, problems = split_data.read_records(path)
+    assert [r["state"] for r in got] == [r["state"] for r in records]
+    assert problems == ["line 4: not JSON (Expecting value)"]
+
+    monkeypatch.setattr(sys, "argv", ["split_data.py", str(path)])
+    assert split_data.main() == 0
+    captured = capsys.readouterr()
+    assert "line 4: not JSON" in captured.err
+    assert "line 1:" not in captured.err and "line 2:" not in captured.err and "line 3:" not in captured.err
+    assert "3 valid records (1 invalid lines" in captured.out
+
+    valid = tmp_path / "valid.jsonl"
+    valid.write_text(body, encoding="utf-8")
+    assert [row["state"] for row in convert_data.rows_from(valid)] == [r["state"] for r in records]
+    assert generate_data.existing_records(valid) == records
+
+    monkeypatch.setattr(sys, "argv", ["generate_data.py", str(SKILL / "assets/workload.example.json"),
+                                      "--dry-run", "--examples", str(valid), "--n-examples", "3", "--seed", "0"])
+    assert generate_data.main() == 0
+    prompt = capsys.readouterr().out
+    for sep in separators:
+        assert f"alpha{sep}beta" in prompt
+
+    # upload_data's record count uses the same split. The volume upload is not called.
+    import kev_modal
+    class Batch:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def put_file(self, src, dst): pass
+    monkeypatch.setattr(kev_modal.runs, "batch_upload", lambda: Batch())
+    assert kev_modal.upload_data("unused", valid, ()) == {"development": 3}
+
+    # "\r\n" stays one record: split("\n") leaves the CR, and json.loads treats it as whitespace.
+    crlf = tmp_path / "crlf.jsonl"
+    crlf.write_bytes((json.dumps(record("plain")) + "\r\n").encode())
+    assert split_data.read_records(crlf)[0] == [record("plain")]
+
+
 def test_parse_records_rejects_near_integer_score():
     fraction = '{"records":[{"state":{"note":0.25},"labels":{"department":"billing","escalate":true,"frustration":0.99999999999999999}}]}'
     item = generate_data.parse_records(fraction)[0]
