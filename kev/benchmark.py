@@ -157,10 +157,11 @@ def evaluate_records(records, predictor, directory, temperature=1.0, heldout_sou
                 print(f"evaluated {coverage['evaluated_records']}/{len(records)}", flush=True)
     write_json(directory / "rows.json", rows)
     if rejected: write_json(directory / "rejected.json", rejected)
-    report = summarize(rows, temperature, heldout_sources)
-    report.update(coverage=coverage, latency_ms={"median": float(np.median(latencies)), "p95": float(np.quantile(latencies, .95))},
+    report = summarize(rows, temperature, heldout_sources) if rows else {"objective": None, "clean": None}
+    report.update(coverage=coverage, latency_ms={"median": float(np.median(latencies)) if latencies else None,
+                                                 "p95": float(np.quantile(latencies, .95)) if latencies else None},
                   calibration={"inference_temperature": getattr(predictor, "temperature", None),
-                               "additional_temperature": temperature, "logits_recorded": all("logits" in r for r in rows)})
+                               "additional_temperature": temperature, "logits_recorded": bool(rows) and all("logits" in r for r in rows)})
     long = [r for r in rows if "kernels" in r]
     if long:   # absent when every row ran the exact kernels, so such reports are unchanged
         report["long_rows"] = {"count": len(long), "records": len({r["id"] for r in long}), "kernels": sorted({r["kernels"] for r in long}), "threshold": ROW_PASS_TOKENS}

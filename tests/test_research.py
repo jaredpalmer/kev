@@ -142,6 +142,29 @@ def test_failed_prediction_cannot_produce_partial_score(tmp_path):
     assert not (out / "report.json").exists()
 
 
+def test_all_rejected_records_write_coverage_without_scores(tmp_path):
+    from kev.suite import read_json
+    from kev.benchmark import evaluate_records
+    from kev.model import ContextOverflow
+
+    def reject(record):
+        raise ContextOverflow("state is over the serving context")
+
+    out = tmp_path / "evaluation"
+    report, rows = evaluate_records([frozen_request(0), frozen_request(1)], reject, out, skip_overlong=True)
+
+    assert rows == []
+    assert report["coverage"] == {"requested_records": 2, "requested_questions": 2,
+                                   "evaluated_records": 0, "evaluated_questions": 0,
+                                   "rejected_records": 2, "truncated_records": 0}
+    assert report["objective"] is None and report["clean"] is None
+    assert report["latency_ms"] == {"median": None, "p95": None}
+    assert report["calibration"]["logits_recorded"] is False
+    assert read_json(out / "report.json") == report
+    assert read_json(out / "rows.json") == []
+    assert [item["id"] for item in read_json(out / "rejected.json")] == ["item-0", "item-1"]
+
+
 def test_overlong_records_are_rejected_only_for_suites_scored_as_published(tmp_path):
     """ContextOverflow from the encoder (any of its three limits) is a counted rejection under skip_overlong and an abort
     otherwise; every other ValueError still aborts either way."""
