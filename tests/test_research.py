@@ -232,12 +232,16 @@ def test_jev_entrypoint_reports_nullable_scores_and_preserves_accounting(tmp_pat
     (("item-0",), 1),
 ], ids=["all-rejected", "scored", "mixed"])
 def test_breadth_reads_entrypoint_reports_nullable_accuracy_and_coverage(tmp_path, monkeypatch, capsys, system, rejected_ids, evaluated):
-    from kev.suite import read_json
+    from kev.suite import read_json, write_json
     from scripts import breadth_reads
 
     records = [frozen_request(0), frozen_request(1)]
     predictor = FixturePredictor(rejected_ids)
     out = tmp_path / f"breadth-{system}"
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    write_json(suite / "manifest.json", {"holdout_sources": []})
+    monkeypatch.setattr(breadth_reads, "SUITE", suite)
     monkeypatch.setattr(breadth_reads, "load_split", lambda *args, **kwargs: records)
     monkeypatch.setattr(breadth_reads, "PatientJev", lambda *args, **kwargs: predictor)
     monkeypatch.setattr(breadth_reads, "AutoJev", lambda *args, **kwargs: predictor)
