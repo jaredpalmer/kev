@@ -1,6 +1,8 @@
 import copy
+import json
 import pathlib
 import random
+import sys
 
 import pytest
 import torch
@@ -58,6 +60,29 @@ def frozen_request(i=0):
     r = choice_request()
     r["_meta"] = {"id": f"item-{i}", "group_id": f"item-{i}", "source": "fixture", "variant": "clean"}
     return r
+
+
+class FixturePredictor:
+    def __init__(self, rejected_ids=()):
+        self.rejected_ids = set(rejected_ids)
+        self.calls = 0
+        self.closed = False
+        self.served_model = "fixture-model"
+
+    def __call__(self, record):
+        self.calls += 1
+        if record["_meta"]["id"] in self.rejected_ids:
+            from kev.model import ContextOverflow
+            raise ContextOverflow("fixture context rejection")
+        qid, question = next(iter(record["questions"].items()))
+        return {"probabilities": {qid: {key: 0.8 if key == question["label"] else 0.1 for key in question["criteria"]}},
+                "latency_ms": 1.0}
+
+    def accounting(self):
+        return {"calls": self.calls, "refusals": len(self.rejected_ids)}
+
+    def close(self):
+        self.closed = True
 
 
 def test_contrast_cases_preserve_groups_and_relabel():
@@ -163,6 +188,107 @@ def test_all_rejected_records_write_coverage_without_scores(tmp_path):
     assert read_json(out / "report.json") == report
     assert read_json(out / "rows.json") == []
     assert [item["id"] for item in read_json(out / "rejected.json")] == ["item-0", "item-1"]
+
+
+@pytest.mark.parametrize("rejected_ids, evaluated", [
+    (("item-0", "item-1"), 0),
+    ((), 2),
+    (("item-0",), 1),
+], ids=["all-rejected", "scored", "mixed"])
+def test_jev_entrypoint_reports_nullable_scores_and_preserves_accounting(tmp_path, monkeypatch, capsys, rejected_ids, evaluated):
+    from kev import jev
+    from kev.suite import read_json, write_json
+
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    write_json(suite / "manifest.json", {"holdout_sources": []})
+    records = [frozen_request(0), frozen_request(1)]
+    predictor = FixturePredictor(rejected_ids)
+    out = tmp_path / "jev"
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "fixture-key")
+    monkeypatch.setattr(jev, "load_split", lambda *args, **kwargs: records)
+    monkeypatch.setattr(jev, "JevPredictor", lambda *args, **kwargs: predictor)
+    monkeypatch.setattr(sys, "argv", ["kev.jev", "--suite", str(suite), "--out", str(out), "--count-refusals"])
+
+    jev.main()
+
+    report = read_json(out / "report.json")
+    stdout = json.loads(capsys.readouterr().out)
+    assert stdout == {"clean": report["clean"], "variants": report.get("variants"), "provider": report["provider"]}
+    assert report["coverage"]["evaluated_records"] == evaluated
+    assert report["coverage"]["rejected_records"] == 2 - evaluated
+    assert len(read_json(out / "rows.json")) == evaluated
+    assert predictor.closed and read_json(out / "usage.json") == predictor.accounting()
+    if not evaluated:
+        assert report["objective"] is None and report["clean"] is None
+    if rejected_ids:
+        assert [item["id"] for item in read_json(out / "rejected.json")] == list(rejected_ids)
+
+
+@pytest.mark.parametrize("system", ["jev", "autojev"])
+@pytest.mark.parametrize("rejected_ids, evaluated", [
+    (("item-0", "item-1"), 0),
+    ((), 2),
+    (("item-0",), 1),
+], ids=["all-rejected", "scored", "mixed"])
+def test_breadth_reads_entrypoint_reports_nullable_accuracy_and_coverage(tmp_path, monkeypatch, capsys, system, rejected_ids, evaluated):
+    from kev.suite import read_json, write_json
+    from scripts import breadth_reads
+
+    records = [frozen_request(0), frozen_request(1)]
+    predictor = FixturePredictor(rejected_ids)
+    out = tmp_path / f"breadth-{system}"
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    write_json(suite / "manifest.json", {"holdout_sources": []})
+    monkeypatch.setattr(breadth_reads, "SUITE", suite)
+    monkeypatch.setattr(breadth_reads, "load_split", lambda *args, **kwargs: records)
+    monkeypatch.setattr(breadth_reads, "PatientJev", lambda *args, **kwargs: predictor)
+    monkeypatch.setattr(breadth_reads, "AutoJev", lambda *args, **kwargs: predictor)
+    monkeypatch.setattr(breadth_reads, "wait_ready", lambda *args, **kwargs: {"data": [{"id": "fixture-model"}]})
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "fixture-key")
+    monkeypatch.setenv("KEV_REMOTE_API_KEY", "fixture-key")
+    args = ["breadth_reads.py", system, "--out", str(out)]
+    if system == "autojev":
+        args += ["--url", "http://fixture.invalid"]
+    monkeypatch.setattr(sys, "argv", args)
+
+    breadth_reads.main()
+
+    report = read_json(out / "report.json")
+    stdout = json.loads(capsys.readouterr().out)
+    expected_acc = report["clean"]["acc"] if report["clean"] is not None else None
+    assert stdout == {"acc": expected_acc, "coverage": report["coverage"]}
+    assert report["coverage"]["evaluated_records"] == evaluated
+    assert report["coverage"]["rejected_records"] == 2 - evaluated
+    assert len(read_json(out / "rows.json")) == evaluated
+    if system == "jev":
+        assert predictor.closed and (out / "usage.json").exists()
+    if rejected_ids:
+        assert [item["id"] for item in read_json(out / "rejected.json")] == list(rejected_ids)
+
+
+def test_jev_default_refusal_still_aborts(tmp_path, monkeypatch):
+    from kev import jev
+    from kev.model import ContextOverflow
+    from kev.suite import read_json, write_json
+
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    write_json(suite / "manifest.json", {"holdout_sources": []})
+    predictor = FixturePredictor(("item-0",))
+    out = tmp_path / "jev"
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "fixture-key")
+    monkeypatch.setattr(jev, "load_split", lambda *args, **kwargs: [frozen_request(0)])
+    monkeypatch.setattr(jev, "JevPredictor", lambda *args, **kwargs: predictor)
+    monkeypatch.setattr(sys, "argv", ["kev.jev", "--suite", str(suite), "--out", str(out)])
+
+    with pytest.raises(ContextOverflow, match="fixture context rejection"):
+        jev.main()
+
+    assert read_json(out / "failure.json")["coverage"]["rejected_records"] == 1
+    assert not (out / "report.json").exists()
+    assert predictor.closed and read_json(out / "usage.json") == predictor.accounting()
 
 
 def test_overlong_records_are_rejected_only_for_suites_scored_as_published(tmp_path):

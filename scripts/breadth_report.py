@@ -139,10 +139,11 @@ def score_system(records, rows, manifest):
 def markdown(systems, manifest):
     names = list(systems)
     head = "| | " + " | ".join(f"{n} acc / index / ECE" for n in names) + " |\n|---|" + "---|" * len(names) + "\n"
-    fmt = lambda a, s, e: f"{a:.3f} / {100 * s:.1f} / {e:.3f}" if e is not None else f"{a:.3f} / {100 * s:.1f} / -"
+    fmt_ece = lambda e: f"{e:.3f}" if e is not None else "-"
+    fmt = lambda a, s, e: f"{a:.3f} / {100 * s:.1f} / {fmt_ece(e)}"
     lines = [f"| {spec['label']} | " + " | ".join(fmt(systems[n]["areas"][area]["score"], systems[n]["areas"][area]["skill"], systems[n]["areas"][area]["calibration"]["ece"]) for n in names) + " |"
              for area, spec in manifest["areas"].items()]
-    lines.append("| **Overall** | " + " | ".join(f"{systems[n]['overall']['raw_index'] / 100:.3f} / **{systems[n]['overall']['index']:.1f}** / {systems[n]['overall']['calibration']['ece']:.3f} ({systems[n]['overall']['mean_dataset_ece']:.3f})" for n in names) + " |")
+    lines.append("| **Overall** | " + " | ".join(f"{systems[n]['overall']['raw_index'] / 100:.3f} / **{systems[n]['overall']['index']:.1f}** / {fmt_ece(systems[n]['overall']['calibration']['ece'])} ({fmt_ece(systems[n]['overall']['mean_dataset_ece'])})" for n in names) + " |")
     table = head + "\n".join(lines)
     detail = "| dataset (area, metric, chance) | " + " | ".join(f"{n} score / skill / answered / ECE" for n in names) + " |\n|---|" + "---|" * len(names) + "\n"
     for d, spec in manifest["datasets"].items():
@@ -151,7 +152,7 @@ def markdown(systems, manifest):
         for n in names:
             x = systems[n]["datasets"][d]
             ece = x["calibration"]["ece"]
-            cells.append(f"{x['score']:.3f} / {100 * x['skill']:.1f} / {x['answered']:.2f} / " + (f"{ece:.3f}" if ece is not None else "-"))
+            cells.append(f"{x['score']:.3f} / {100 * x['skill']:.1f} / {x['answered']:.2f} / {fmt_ece(ece)}")
         detail += f"| {d} ({spec['area']}, {spec['metric']}, {first['chance']:.3f}) | " + " | ".join(cells) + " |\n"
     return ("Areas: raw score (coverage-adjusted) / chance-corrected index (0-100) / ECE of the area's pooled rows. Overall: raw index / Decision-Index-style index / pooled ECE (mean of the 14 dataset ECEs).\n\n"
             + table + "\n\n" + detail)
