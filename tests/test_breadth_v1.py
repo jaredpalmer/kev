@@ -4,13 +4,14 @@ Run: uv run python -m pytest tests/test_breadth_v1.py -q
 """
 import random
 import struct
+import sys
 from pathlib import Path
 
 import pytest
 
 from kev.benchmark import labels
 from kev.data import materialize
-from kev.suite import PRIVATE_DATASET, load_split, read_json
+from kev.suite import PRIVATE_DATASET, load_split, read_json, write_json
 from scripts import breadth_report as br
 from scripts.build_breadth_v1 import (AREAS, BM25, DATASETS, MAX_OPTIONS, OOS, SGD_NONE, apibank_parse, ascii_board, bag_records, bfcl_candidate, cfcolor_record,
                                       chance, check_invariants, chess_options, clinc_options, contractnli_questions, decode_action_value, describe_move,
@@ -257,6 +258,46 @@ def test_score_system_areas_and_index():
     assert out["overall"]["index"] == pytest.approx(75.0) and out["overall"]["raw_index"] == pytest.approx(75.0)
     assert out["datasets"]["y"]["calibration"]["n"] == 1 and "_rows" not in out["datasets"]["x"]
     assert "| One |" in br.markdown({"S": out}, manifest)
+
+
+def test_breadth_report_cli_writes_empty_and_scored_systems(tmp_path, monkeypatch, capsys):
+    manifest = {"datasets": {"fixture": {"area": "area", "metric": "accuracy"}},
+                "areas": {"area": {"label": "Area", "datasets": ["fixture"]}}, "scoring": {"rule": "unanswered is wrong"}}
+    q = {"type": "choice", "criteria": {"a": None, "b": None}, "label": "a"}
+    records = [_record(f"r{i}", "fixture", {"q": q}) for i in range(2)]
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    write_json(suite / "manifest.json", manifest)
+    monkeypatch.setattr(br, "load_split", lambda *args, **kwargs: records)
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    write_json(empty / "rows.json", [])
+    write_json(empty / "report.json", {"run": "empty"})
+    scored = tmp_path / "scored"
+    scored.mkdir()
+    write_json(scored / "rows.json", [_row(r["_meta"]["id"], "q", q, [0.9, 0.1]) for r in records])
+    write_json(scored / "report.json", {"run": "scored"})
+    out = tmp_path / "report"
+    monkeypatch.setattr(sys, "argv", ["breadth_report.py", "--suite", str(suite), "--result", f"empty={empty}",
+                                       "--result", f"scored={scored}", "--out", str(out)])
+
+    br.main()
+
+    report = read_json(out / "report.json")
+    empty_result = report["systems"]["empty"]
+    scored_result = report["systems"]["scored"]
+    assert empty_result["overall"]["index"] == 0
+    assert empty_result["overall"]["answered_questions"] == 0 and empty_result["overall"]["questions"] == 2
+    assert empty_result["overall"]["calibration"]["ece"] is None
+    assert empty_result["datasets"]["fixture"]["score"] == 0
+    assert empty_result["datasets"]["fixture"]["answered"] == 0
+    assert empty_result["datasets"]["fixture"]["accuracy_answered"] is None
+    assert scored_result["overall"]["index"] == 100 and scored_result["overall"]["answered_questions"] == 2
+    markdown = (out / "report.md").read_text(encoding="utf-8")
+    assert "0.000 / **0.0** / - (-)" in markdown
+    assert "1.000 / **100.0** / " in markdown
+    assert "**Overall**" in capsys.readouterr().out
 
 # ---------------------------------------------------------------- the frozen suite
 

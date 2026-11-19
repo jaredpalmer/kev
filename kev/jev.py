@@ -52,7 +52,7 @@ def main():
         report, _ = evaluate_records(records, predictor, a.out, heldout_sources=tuple(heldout), skip_overlong=a.count_refusals)
         report.update(suite_sha256=digest(Path(a.suite) / "manifest.json"), split="development", provider=predictor.accounting())
         write_json(Path(a.out) / "report.json", report)
-        print(json.dumps({"clean": report["clean"], "variants": report["variants"], "provider": report["provider"]}, indent=2))
+        print(json.dumps({"clean": report["clean"], "variants": report.get("variants"), "provider": report["provider"]}, indent=2))
     finally:
         predictor.close()
         if Path(a.out).exists():

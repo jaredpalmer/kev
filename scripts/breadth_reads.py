@@ -114,7 +114,7 @@ def main():
             report["remote"] = {"base_url": a.url, "requested_model": "jev-latest", "served_model": predictor.served_model, "concurrency": 1,
                                 "weights": "denis-pplx/autojev-27b@6f5b557e037f5edb25c7dc92dbc6553e5a19c015", "server": "github.com/denis-pplx/autojev@ee63c1515980491a742f0bd0685c8dc5ca1f00c3", **extra}
         write_json(Path(a.out) / "report.json", report)
-        print(json.dumps({"acc": report["clean"]["acc"], "coverage": report["coverage"]}))
+        print(json.dumps({"acc": report["clean"]["acc"] if report["clean"] is not None else None, "coverage": report["coverage"]}))
     finally:
         if a.system == "jev":
             predictor.close()
