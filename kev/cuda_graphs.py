@@ -12,8 +12,8 @@ Two sets of buffers, shared by every graph:
   the end, and the DeltaNet conv/recurrent states. The state pass writes new states into it; cached states are copied in.
   One fixed layout, so a row pass reads any state the same way whatever state pass wrote it.
 - the row buffers: [rows, heads, Sr + Lb, dim] per attention layer and the DeltaNet states per question row. The row pass
-  starts by gathering each row's state from the bank (one index_select per tensor, inside the graph), then writes the
-  row's own keys after it.
+  gathers each row's attention and convolution state, then writes the row's own keys after it. Fused DeltaNet rows
+  read their recurrent state directly from the bank by index; unfused rows also gather the recurrent state.
 Both are flat buffers viewed at the graph's shape, so memory is fixed however many shapes appear. Graph keys are kept
 coarse because a batch's shape changes with the traffic: state passes by (states, state bucket), row passes by (rows,
 row bucket, Sr = the longest state rounded up to a power of two, which only lengthens attention).
@@ -187,12 +187,14 @@ class CudaGraphs:
         self.rowbuf = Buffers(probe, GRAPH_TOKENS, GRAPH_ROWS, self.device)
         self.hidden = torch.zeros(GRAPH_ROWS * GRAPH_ROW * lm.config.hidden_size, dtype=self.dtype, device=self.device)
 
-    def _cache(self, views, filled, previous):
+    def _cache(self, views, filled, previous, state_indices=None):
         """A DynamicCache over buffer views: attention layers hold `filled` cached positions, DeltaNet layers the states."""
         cache = DynamicCache(config=self.lm.config)
         for i, (layer, v) in enumerate(zip(cache.layers, views)):
             if is_attention(layer): cache.layers[i] = BufferKV(*v, filled)
-            else: set_linear(layer, *v, previous)
+            else:
+                set_linear(layer, *v, previous)
+                if state_indices is not None: layer.state_indices = state_indices
         return cache
 
     def _mask(self, allow):
@@ -360,15 +362,19 @@ class CudaGraphs:
         def body(buf):   # buf rows = [ids | positions | row length | state length | bank entry]
             rowlen, plen, entry = buf[:, 2 * Lb:2 * Lb + 1], buf[:, 2 * Lb + 1:2 * Lb + 2], buf[:, 2 * Lb + 2]
             views = self.rowbuf.views(Nb, T)
-            for (attention, *_), dst, src in zip(self.bank.slots, views, self.bank_views):   # each row's state, from the bank
-                for d, s in zip(dst, src):
-                    if attention: d[:, :, :Sr].copy_(s[:, :, BANK_WIDTH - Sr:].index_select(0, entry))
-                    else: d.copy_(s.index_select(0, entry))
+            indexed = getattr(self.lm, "indexed_delta_states", False)
+            for i, ((attention, *_), dst, src) in enumerate(zip(self.bank.slots, views, self.bank_views)):
+                if attention:
+                    for d, s in zip(dst, src): d[:, :, :Sr].copy_(s[:, :, BANK_WIDTH - Sr:].index_select(0, entry))
+                else:
+                    dst[0].copy_(src[0].index_select(0, entry))   # convolution state stays row-local
+                    if indexed: views[i] = (dst[0], src[1])     # recurrent state stays in the read-only bank
+                    else: dst[1].copy_(src[1].index_select(0, entry))
             q = torch.arange(Lb, device=self.device)[None, :, None]
             k = torch.arange(T, device=self.device)[None, None, :]
             allow = ((k < Sr) & (k >= Sr - plen[:, :, None])) | ((k >= Sr) & (k - Sr <= q) & (k - Sr < rowlen[:, :, None])) | (k - Sr == q)
             linear = (torch.arange(Lb, device=self.device)[None] < rowlen).long()
-            hidden.copy_(self._forward(buf[:, :Lb], buf[:, Lb:2 * Lb], self._mask(allow), linear, self._cache(views, Sr, True)))
+            hidden.copy_(self._forward(buf[:, :Lb], buf[:, Lb:2 * Lb], self._mask(allow), linear, self._cache(views, Sr, True, entry if indexed else None)))
 
         uploads = [list(r.ids) + [self.pad_id] * (Lb - len(r.ids)) + list(r.pos) + [0] * (Lb - len(r.pos)) + [len(r.ids), r.state_len, r.entry] for r in rows]
         self._replay(("rows", Nb, Lb, Sr), body, uploads + [[self.pad_id] * Lb + [0] * Lb + [0, 0, 0]] * (Nb - len(rows)))
