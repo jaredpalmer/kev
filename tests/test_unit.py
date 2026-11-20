@@ -37,6 +37,33 @@ def test_to_record_maps_all_three_types():
     assert [m["keys"] for m in meta] == [["false", "true"], ["calm", "angry"], ["0", "1"]] and meta[2]["legend"] == {"0": "can wait", "1": "today"}
 
 
+@pytest.mark.parametrize("leading", ["  leading", "\tleading", "\nleading", " \t\n"])
+def test_to_record_preserves_leading_whitespace_in_array_strings(leading):
+    req = SystemOneRequest.model_validate({
+        "state": {
+            "examples": [leading, "ordinary state"],
+            "objects": [{"name": "first"}, {"name": "second"}],
+            "nested": [["first", "second"]],
+        },
+        "questions": {"q": {"type": "choice", "instructions": "  scalar instruction", "criteria": {
+            "plain": "description",
+            "nested": {"examples": ["ordinary option", "another option"]},
+        }}},
+    })
+
+    rec, _ = to_record(req)
+
+    assert rec["questions"][0]["instr"] == "  scalar instruction"
+    assert "\n  - ordinary state\n" in rec["state"]
+    assert "\nobjects:\n  - name: first\n  - name: second\n" in rec["state"]
+    assert "\nnested:\n  - - first\n    - second" in rec["state"]
+    assert rec["questions"][0]["options"] == [
+        "plain: description",
+        "nested: examples:\n  - ordinary option\n  - another option",
+    ]
+    assert rec["state"].startswith(f"examples:\n  - {leading}\n  - ordinary state\n")
+
+
 def test_to_answers_shapes_and_formulas():
     _, meta = to_record(SystemOneRequest.model_validate({"state": "s", "model": "m", "questions": {
         "n": {"type": "noul", "instructions": "i"},
