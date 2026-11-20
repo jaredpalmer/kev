@@ -74,7 +74,7 @@ class Meta:
 
 
 def read_meta(run):
-    return Meta.from_dict(torch.load(f"{run}/head.pt", map_location="cpu"))
+    return Meta.from_dict(torch.load(f"{run}/head.pt", map_location="cpu", weights_only=True))
 
 
 def write_meta(run, meta):
