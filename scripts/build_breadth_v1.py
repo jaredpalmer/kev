@@ -35,7 +35,7 @@ sys.path.insert(0, str(ROOT))
 from kev.data import materialize  # noqa: E402
 from kev.model import fits, load_tokenizer, user_tokens  # noqa: E402
 from kev.suite import ADMISSION_TOKENIZER as TOKENIZER, GIT_LIMIT, SERVING_CONTEXT_8K as SERVING_CONTEXT, digest, normalise_text, read_json, read_jsonl, text_digest, write_json, write_jsonl  # noqa: E402
-from scripts.build_devtools_v1 import deal_groups, fetch, hub_file, line_safe, parquet_rows, round_robin, state_key  # noqa: E402
+from scripts.build_devtools_v1 import deal_groups, fetch, hub_file, line_safe, parquet_rows, private_dir, round_robin, state_key  # noqa: E402
 
 VERSION = SEED = "breadth-v1"
 PARTITIONS = ("development", "test")
@@ -915,7 +915,7 @@ def main():
     ap.add_argument("--only", help="comma-separated datasets (a dry run: prints counts, writes nothing)")
     a = ap.parse_args()
     out, raw = Path(a.out), Path(a.raw)
-    raw.mkdir(parents=True, exist_ok=True)
+    raw = private_dir(raw)
     if out.exists(): raise FileExistsError(out)
     tok = load_tokenizer(*TOKENIZER)
     only = set(a.only.split(",")) if a.only else None
