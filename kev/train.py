@@ -17,7 +17,7 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 from . import full_ft
-from .checkpoint import Checkpoint, Meta, write_meta
+from .checkpoint import Checkpoint, Meta, directory_digest, write_meta
 from .device import DEVICE_HELP, DEVICES, allocated_bytes, empty_cache, select, sync
 from .data import EVAL_ONLY, build, augment, load_records, materialize, none_pair, source_seed
 from .suite import SYNTHETIC_SOURCES, digest, load_split, read_json, read_manifest, validate_training, write_json
@@ -548,7 +548,8 @@ def main():
     model.lm.config.use_cache = False
     # what this run will save as head.pt; also the architecture a warm start must match
     meta = Meta(base=a.base, base_revision=revision, lora=0 if a.full_ft else a.lora, head_dim=a.head_dim, option_isolation=bool(a.option_isolation),
-                special_embeddings=bool(a.special_embeddings), weights_dtype=a.weights_dtype, holdout=holdout, weights="full" if a.full_ft else "lora")
+                special_embeddings=bool(a.special_embeddings), weights_dtype=a.weights_dtype, holdout=holdout, weights="full" if a.full_ft else "lora",
+                base_digest=directory_digest(a.base))   # content identity; warm_start compares it instead of the path
     init_source = None
     if a.init_from:
         # delta mode (PR #9, Radexito): start from an already trained adapter (or full backbone) + pointer head instead of the
