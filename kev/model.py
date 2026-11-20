@@ -21,6 +21,8 @@ SERVE_MAX_PACKED = SERVE_MAX_STATE + SERVE_MAX_BRANCH
 # tokens one inference pass holds (rows_per_pass), and the longest request an attention-only backbone runs packed
 # (rows_form: its block-causal mask is L x L); longer ones run as rows
 ROW_PASS_TOKENS = 16384
+# row_groups: a row joins an eager pass while its attended length (cached prefix + row) is at most this times the pass's shortest
+ROW_BUCKET_RATIO = 1.5
 # the longest state a checkpoint may be trained on (kev.train --max_state): the longest one served, which still leaves
 # every question its training branch budget (training_context(MAX_TRAIN_STATE)["max_branch"] <= SERVE_MAX_BRANCH)
 MAX_TRAIN_STATE = SERVE_MAX_STATE
@@ -39,12 +41,34 @@ def training_context(max_state=MAX_STATE):
 
 
 def rows_per_pass(rows, prefix_len=0, budget=ROW_PASS_TOKENS):
-    """How many causal rows one inference forward pass takes: as many as fit `budget` tokens counting the cached state
-    each row carries (prefix_len) plus its own tokens, at least one. Memory per pass is bounded by one maximal row however
-    many questions a request has, and the rows are independent, so the answers do not depend on the split. Kev-4B on MLX,
-    a 4.8k-token state with 64 questions: 24.7 GB peak in one pass, 8.9 GB one row at a time (and faster: the cost was
-    64 copies of the state cache)."""
+    """How many of these rows one forward pass can hold: as many as fit `budget` tokens counting the cached state each
+    row carries (prefix_len) plus its own tokens, at least one. The count uses the longest row given, so row_groups asks
+    again for each pass it builds. Memory per pass is bounded by one maximal row however many questions a request has,
+    and the rows are independent, so the answers do not depend on the split. Kev-4B on MLX, a 4.8k-token state with 64
+    questions: 24.7 GB peak in one pass, 8.9 GB one row at a time (and faster: the cost was 64 copies of the state cache)."""
     return max(1, budget // (prefix_len + max(len(r) for r in rows)))
+
+
+def row_groups(lengths, prefix_len=0, budget=ROW_PASS_TOKENS):
+    """Indices of `lengths` per eager forward pass. Sorted by attended length (the cached prefix plus the row), a pass
+    takes the next row while that row is at most ROW_BUCKET_RATIO times the pass's shortest attended length and the rows
+    still fit `budget` (rows_per_pass, counted on this pass's own rows). Equal lengths keep their original order, so a
+    request whose rows are the same length batches exactly as chunking by one rows_per_pass count does. Training does
+    not call this: it forwards one batch in the given order. Pads are masked and sit after the real tokens, so which
+    rows share a pass does not change the answers."""
+    order = sorted(range(len(lengths)), key=lambda i: lengths[i])   # stable: equal lengths stay in request order
+    passes, i = [], 0
+    while i < len(order):
+        group = [order[i]]
+        i += 1
+        while i < len(order):
+            nxt = order[i]
+            if prefix_len + lengths[nxt] > ROW_BUCKET_RATIO * (prefix_len + lengths[group[0]]): break
+            trial = group + [nxt]
+            if len(trial) > rows_per_pass([range(lengths[j]) for j in trial], prefix_len, budget): break
+            group.append(nxt); i += 1
+        passes.append(group)
+    return passes
 
 
 class ContextOverflow(ValueError):
@@ -333,14 +357,15 @@ class DecisionModel(nn.Module):
         return self.hybrid or any(len(e["ids"]) > ROW_PASS_TOKENS for e in encs)
 
     def _rows_hidden(self, rows, cache=None, prefix_len=0):
-        """Hidden states of causal token rows, one [L_i, d] tensor per row. In eval mode the rows go through the backbone
-        rows_per_pass at a time; training keeps one batch (its batches are small and autograd needs the whole graph anyway).
+        """Hidden states of causal token rows, one [L_i, d] tensor per row. In eval mode each pass is one group from
+        row_groups (similar attended lengths, the token budget counted on that pass). Training keeps one batch in the
+        given order (its batches are small and autograd needs the whole graph anyway).
         With `cache`, the rows are branches continuing the cached state: in eager mode the cache is replicated once per
-        chunk, leaving the caller's prefix pristine, and the cached tokens are marked real in the attention mask."""
-        chunk = len(rows) if self.training else rows_per_pass([ids for ids, _ in rows], prefix_len)
-        out = []
-        for start in range(0, len(rows), chunk):
-            part = rows[start:start + chunk]
+        pass, leaving the caller's prefix pristine, and the cached tokens are marked real in the attention mask."""
+        passes = [list(range(len(rows)))] if self.training else row_groups([len(ids) for ids, _ in rows], prefix_len)
+        out = [None] * len(rows)
+        for idx in passes:
+            part = [rows[i] for i in idx]
             ids, pos, att = self._pad_rows(part)
             past = {}
             if cache is not None:
@@ -358,7 +383,7 @@ class DecisionModel(nn.Module):
                 att = torch.cat([torch.ones((len(part), prefix_len), dtype=torch.long, device=self.device), att], 1)
                 past = {"past_key_values": replica, "use_cache": True}
             h = self.lm(input_ids=ids, position_ids=pos, attention_mask=att, **past).last_hidden_state.float()
-            out += [h[i, : len(row_ids)] for i, (row_ids, _) in enumerate(part)]
+            for j, i in enumerate(idx): out[i] = h[j, : len(part[j][0])]
         return out
 
     def forward_rows_batch(self, encs, shared_prefix=False):
