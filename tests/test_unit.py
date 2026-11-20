@@ -407,15 +407,371 @@ def test_rows_hidden_replicates_cache_without_changing_prefix(monkeypatch):
 
 
 def test_bearer_auth_and_request_id(monkeypatch):
-    """KEV_API_KEY (kev.serve.API_KEY) gates /v1/*; every response carries the request id the TypeSafe clients read."""
+    """KEV_API_KEY (kev.serve.API_KEY) gates /v1/*; every response carries the request id the TypeSafe clients read,
+    including the 401, and the plain ASGI middleware keeps that body and those headers."""
+    import re
     from fastapi.testclient import TestClient
     from kev import serve
     with TestClient(serve.app) as client:
-        assert client.get("/openapi.json").headers["x-typesafe-request-id"]
+        openapi = client.get("/openapi.json", headers={"x-typesafe-request-id": "caller-1", "origin": "https://example.com"})
+        assert openapi.status_code == 200
+        assert openapi.headers["x-typesafe-request-id"] == "caller-1"
+        assert re.fullmatch(r"app;dur=\d+\.\d", openapi.headers["server-timing"])
+        assert openapi.headers["access-control-allow-origin"] == "*"   # CORS stays outside the auth short-circuit on a permitted request
         monkeypatch.setattr(serve, "API_KEY", "secret")
-        assert client.get("/v1/models").status_code == 401
+        denied = client.get("/v1/models")
+        assert denied.status_code == 401
+        assert denied.content == b'{"detail":"missing or invalid API key; send Authorization: Bearer <KEV_API_KEY>"}'
+        assert denied.headers["www-authenticate"] == "Bearer"
+        assert re.fullmatch(r"[0-9a-f]{32}", denied.headers["x-typesafe-request-id"])
+        assert re.fullmatch(r"app;dur=\d+\.\d", denied.headers["server-timing"])
         assert client.get("/v1/models", headers={"authorization": "Bearer wrong"}).status_code == 401
+        posted = client.post("/v1/systemone", json={"state": "hi", "questions": {}}, headers={"authorization": "Bearer no"})
+        assert posted.status_code == 401 and posted.content == denied.content   # a body on the denied request does not hang
         assert client.get("/openapi.json").status_code == 200   # only /v1 is gated
+        echoed = client.get("/openapi.json", headers={"X-Typesafe-Request-Id": "Caller-2"})
+        assert echoed.headers["x-typesafe-request-id"] == "Caller-2"
+
+
+def _prob():
+    class P:
+        def tolist(self): return [1.0]
+    return P()
+
+
+def _queued(tag):
+    return {"ids": [tag], "seg": [0], "state_tokens": 1}
+
+
+class _BatchModel:
+    """A stand-in for DecisionModel: probs_batch is the whole model thread, graphs is None or a capture_due stub."""
+    def __init__(self, probs_batch, graphs=None):
+        self._probs_batch, self.graphs, self.prefix_min_tokens = probs_batch, graphs, 0
+
+    def probs_batch(self, encs, prefixes, keep):
+        return self._probs_batch(encs, prefixes, keep)
+
+
+def _parked_server(monkeypatch, model):
+    """A Server whose model thread is held before its loop, so a test can fill the queue, then let it run."""
+    import threading
+    from kev import serve
+    entered, release = threading.Event(), threading.Event()
+    work = serve.Server._work
+
+    def parked(self):
+        entered.set()
+        release.wait()
+        work(self)
+
+    monkeypatch.setattr(serve.Server, "_work", parked)
+    server = serve.Server(SimpleNamespace(release_date=lambda: "2026-01-01"), None, model, "cpu")
+    assert entered.wait(2)
+    return server, release
+
+
+def _patch_async_answer(monkeypatch):
+    """answer_async without a tokenizer: admission and the response body are fixed, and the disconnect poll is short."""
+    from kev import serve
+    monkeypatch.setattr(serve, "QUEUE_POLL_S", 0.01)
+    monkeypatch.setattr(serve, "prepare", lambda req: req)
+    monkeypatch.setattr(serve, "to_record", lambda req: (object(), {}))
+    monkeypatch.setattr(serve, "admit", lambda model, tok, rec, truncate=False: _queued(1))
+    monkeypatch.setattr(serve.Server, "_body", lambda self, req, meta, ps, m: {"ok": True, "latency_ms": m["latency_ms"]})
+
+
+def test_eager_server_answers_each_request_as_it_finishes_and_skips_a_cancelled_one(monkeypatch):
+    """Without CUDA graphs a grabbed queue is still run one request at a time, and each future is set when that request
+    finishes. A future cancelled while an earlier request runs is not scored."""
+    import threading
+    from concurrent.futures import Future
+    calls, started, release_first = [], threading.Event(), threading.Event()
+
+    def probs_batch(encs, prefixes, keep):
+        calls.append(encs[0]["ids"][0])
+        if calls == [1]:
+            started.set()
+            assert release_first.wait(5)
+        elif calls == [1, 3]:
+            assert first.done() and not third.done()
+        return [[_prob()] for _ in encs], [None] * len(encs)
+
+    server, release = _parked_server(monkeypatch, _BatchModel(probs_batch))
+    first, second, third = Future(), Future(), Future()
+    try:
+        for fut, tag in ((first, 1), (second, 2), (third, 3)): server.queue.put((_queued(tag), fut))
+        release.set()
+        assert started.wait(2)
+        assert not first.done() and not third.done()
+        second.cancel()
+        release_first.set()
+        assert first.result(timeout=2)[1]["tokens"] == 1
+        assert third.result(timeout=2)[1]["tokens"] == 1
+        assert second.cancelled() and calls == [1, 3] and server.abandoned == 1 and server.batches == 2
+    finally:
+        release.set(); release_first.set(); server.close()
+
+
+def test_cuda_graph_batch_answers_together_and_skips_a_cancelled_request(monkeypatch):
+    """A model with CUDA graphs still runs one batch and answers it at the end. A future already cancelled is left out."""
+    import threading
+    from concurrent.futures import Future
+    calls, started, release_run = [], threading.Event(), threading.Event()
+
+    def probs_batch(encs, prefixes, keep):
+        calls.append([e["ids"][0] for e in encs])
+        started.set()
+        assert release_run.wait(5)
+        return [[_prob()] for _ in encs], [None] * len(encs)
+
+    graphs = SimpleNamespace(capture_due=lambda idle: False)
+    server, release = _parked_server(monkeypatch, _BatchModel(probs_batch, graphs))
+    first, second, third = Future(), Future(), Future()
+    second.cancel()
+    try:
+        for fut, tag in ((first, 1), (second, 2), (third, 3)): server.queue.put((_queued(tag), fut))
+        release.set()
+        assert started.wait(2)
+        assert not first.done() and not third.done() and calls == [[1, 3]]
+        release_run.set()
+        assert first.result(timeout=2) and third.result(timeout=2)
+        assert second.cancelled() and server.abandoned == 1 and server.batches == 1
+    finally:
+        release.set(); release_run.set(); server.close()
+
+
+def test_close_fails_queued_requests_and_ignores_one_already_cancelled(monkeypatch):
+    from concurrent.futures import Future
+    from kev import serve
+    monkeypatch.setattr(serve.Server, "_work", lambda self: None)
+    server = serve.Server(SimpleNamespace(release_date=lambda: "2026-01-01"), None, _BatchModel(lambda *a: None), "cpu")
+    server.thread.join(2)
+    cancelled, pending = Future(), Future()
+    cancelled.cancel()
+    server.queue.put((_queued(1), cancelled))
+    server.queue.put((_queued(2), pending))
+    server.close()
+    assert cancelled.cancelled() and str(pending.exception()) == "the server stopped"
+
+
+def test_answer_async_cancels_a_queued_request_whose_client_left(monkeypatch):
+    import asyncio, threading
+    from fastapi import HTTPException
+    _patch_async_answer(monkeypatch)
+    ran = threading.Event()
+    server, release = _parked_server(monkeypatch, _BatchModel(lambda *a: ran.set()))
+
+    async def gone(): return True
+
+    async def go():
+        with pytest.raises(HTTPException) as exc:
+            await server.answer_async(SimpleNamespace(model="m"), gone)
+        assert exc.value.status_code == 499 and exc.value.detail == "client disconnected before its request ran"
+
+    try:
+        asyncio.run(go())
+        assert not ran.is_set()
+    finally:
+        release.set(); server.close()
+
+
+def test_answer_async_returns_when_the_client_stays(monkeypatch):
+    import asyncio
+    from kev import serve
+    _patch_async_answer(monkeypatch)
+    server = serve.Server(SimpleNamespace(release_date=lambda: "2026-01-01"), None,
+                          _BatchModel(lambda encs, prefixes, keep: ([[_prob()] for _ in encs], [None] * len(encs))), "cpu")
+
+    async def stay(): return False
+
+    try:
+        assert asyncio.run(server.answer_async(SimpleNamespace(model="m"), stay))["ok"] is True
+        assert server.abandoned == 0
+    finally:
+        server.close()
+
+
+def test_answer_async_drops_the_queue_slot_when_its_task_is_cancelled(monkeypatch):
+    import asyncio, threading
+    _patch_async_answer(monkeypatch)
+    ran = threading.Event()
+    server, release = _parked_server(monkeypatch, _BatchModel(lambda *a: ran.set()))
+
+    async def stay(): return False
+
+    async def go():
+        task = asyncio.create_task(server.answer_async(SimpleNamespace(model="m"), stay))
+        while server.queue.qsize() == 0 and not task.done(): await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError): await task
+
+    try:
+        asyncio.run(go())
+        release.set()
+        server.queue.join()
+        assert not ran.is_set() and server.abandoned == 1
+    finally:
+        release.set(); server.close()
+
+
+def test_a_request_the_model_has_claimed_still_answers_after_the_client_leaves(monkeypatch):
+    """set_running_or_notify_cancel wins the race: cancel() then returns false and the answer is delivered."""
+    import asyncio, threading
+    _patch_async_answer(monkeypatch)
+    started, saw = threading.Event(), threading.Event()
+
+    def probs_batch(encs, prefixes, keep):
+        started.set()
+        assert saw.wait(5)
+        return [[_prob()] for _ in encs], [None] * len(encs)
+
+    server, release = _parked_server(monkeypatch, _BatchModel(probs_batch))
+
+    async def leave_once_running():
+        if started.is_set():
+            saw.set(); return True
+        return False
+
+    async def go():
+        task = asyncio.create_task(server.answer_async(SimpleNamespace(model="m"), leave_once_running))
+        release.set()
+        return await task
+
+    try:
+        assert asyncio.run(go())["ok"] is True and server.abandoned == 0
+    finally:
+        release.set(); saw.set(); server.close()
+
+
+def _http_scope(path, headers):
+    return {"type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"}, "http_version": "1.1", "method": "POST",
+            "scheme": "http", "path": path, "raw_path": path.encode(), "query_string": b"", "headers": headers,
+            "client": ("127.0.0.1", 123), "server": ("127.0.0.1", 80)}
+
+
+def test_typesafe_middleware_sees_disconnect_stamps_headers_and_passes_lifespan():
+    """The endpoint's Request.is_disconnected sees http.disconnect. BaseHTTPMiddleware, which @app.middleware("http")
+    installs, does not. A start message with no headers still gets the request id, and lifespan is not treated as HTTP."""
+    import asyncio, re
+    from fastapi import Request
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from kev.serve import TypeSafeMiddleware
+
+    async def observe(app):
+        ready, release, seen = asyncio.Event(), asyncio.Event(), {}
+
+        async def inner(scope, receive, send):
+            request = Request(scope, receive)
+            assert await request.body() == b"{}"
+            seen["before"] = await request.is_disconnected()
+            ready.set()
+            await release.wait()
+            seen["after"] = await request.is_disconnected()
+            await send({"type": "http.response.start", "status": 200, "headers": [(b"content-type", b"text/plain")]})
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        wrapped = app(inner)
+        incoming, sent = asyncio.Queue(), []
+        await incoming.put({"type": "http.request", "body": b"{}", "more_body": False})
+
+        async def receive(): return await incoming.get()
+
+        async def send(message): sent.append(message)
+
+        task = asyncio.create_task(wrapped(_http_scope("/v1/systemone", [(b"content-type", b"application/json")]), receive, send))
+        await asyncio.wait_for(ready.wait(), 2)
+        await incoming.put({"type": "http.disconnect"})
+        release.set()
+        await task
+        return seen, sent
+
+    async def run():
+        async def passthrough(request, call_next):
+            return await call_next(request)
+
+        plain, _ = await observe(TypeSafeMiddleware)
+        hidden, _ = await observe(lambda inner: BaseHTTPMiddleware(inner, dispatch=passthrough))
+        async def bare_app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 204})
+
+        sent = []
+
+        async def collect(message):
+            sent.append(message)
+
+        await TypeSafeMiddleware(bare_app)(_http_scope("/health", []), _request_end, collect)
+        lifespan_sent = []
+        incoming = asyncio.Queue(); await incoming.put({"type": "lifespan.startup"})
+
+        async def lifespan_app(scope, receive, send):
+            assert scope["type"] == "lifespan"
+            assert (await receive())["type"] == "lifespan.startup"
+            await send({"type": "lifespan.startup.complete"})
+            assert (await receive())["type"] == "lifespan.shutdown"
+            await send({"type": "lifespan.shutdown.complete"})
+
+        async def send(message):
+            lifespan_sent.append(message)
+            if message["type"] == "lifespan.startup.complete": await incoming.put({"type": "lifespan.shutdown"})
+
+        await TypeSafeMiddleware(lifespan_app)({"type": "lifespan", "asgi": {"version": "3.0"}}, incoming.get, send)
+        async def explode(scope, receive, send):
+            raise RuntimeError("boom")
+
+        raised = False
+        try:
+            await TypeSafeMiddleware(explode)(_http_scope("/v1/systemone", []), _request_end, collect)
+        except RuntimeError as e:
+            raised = str(e) == "boom"
+        return plain, hidden, sent, lifespan_sent, raised
+
+    async def _request_end(): return {"type": "http.request", "body": b"", "more_body": False}
+
+    plain, hidden, bare_sent, lifespan_sent, raised = asyncio.run(run())
+    assert plain == {"before": False, "after": True}
+    assert hidden == {"before": False, "after": False}
+    headers = {k.decode(): v.decode() for k, v in bare_sent[0]["headers"]}
+    assert re.fullmatch(r"[0-9a-f]{32}", headers["x-typesafe-request-id"]) and re.fullmatch(r"app;dur=\d+\.\d", headers["server-timing"])
+    assert [m["type"] for m in lifespan_sent] == ["lifespan.startup.complete", "lifespan.shutdown.complete"] and raised
+
+
+def test_systemone_answers_499_when_the_client_disconnects_while_queued(monkeypatch):
+    """The route, the middleware and the model thread together: a disconnect after the body is read cancels the queued
+    future, the response is 499 with the same request-id header, and the model never runs."""
+    import asyncio, json, re, threading
+    from kev import serve
+    _patch_async_answer(monkeypatch)
+    ran = threading.Event()
+    server, release = _parked_server(monkeypatch, _BatchModel(lambda *a: ran.set()))
+    serve.app.state.server = server
+    body = json.dumps({"state": "hi", "model": "kev-latest", "questions": {
+        "team": {"type": "choice", "instructions": "which", "criteria": {"a": None, "b": None}}}}).encode()
+
+    async def run():
+        incoming, sent = asyncio.Queue(), []
+        await incoming.put({"type": "http.request", "body": body, "more_body": False})
+        await incoming.put({"type": "http.disconnect"})
+
+        async def receive(): return await incoming.get()
+
+        async def send(message): sent.append(message)
+
+        headers = [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode()), (b"x-typesafe-request-id", b"req-9")]
+        await serve.app(_http_scope("/v1/systemone", headers), receive, send)
+        return sent
+
+    try:
+        sent = asyncio.run(run())
+        start = next(m for m in sent if m["type"] == "http.response.start")
+        headers = {k.decode(): v.decode() for k, v in start["headers"]}
+        payload = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+        assert start["status"] == 499 and payload == b'{"detail":"client disconnected before its request ran"}'
+        assert headers["x-typesafe-request-id"] == "req-9" and re.fullmatch(r"app;dur=\d+\.\d", headers["server-timing"])
+        release.set(); server.queue.join()
+        assert not ran.is_set() and server.abandoned == 1
+    finally:
+        release.set(); server.close()
+        if getattr(serve.app.state, "server", None) is server: del serve.app.state.server
 
 
 # --- serving admission (kev.model.admit through kev.serve.Server.submit): refuse an over-length state, never cut it silently
@@ -512,6 +868,7 @@ def test_serve_models_card_reports_the_state_limit(tiny_model, monkeypatch):
         with TestClient(serve.app) as client:
             card = client.get("/v1/models").json()["models"][0]
         assert card["max_state_tokens"] == 65536 and card["truncate_states"] is False
+        assert card["batches"] == {"count": 0, "requests": 0, "queued": 0, "abandoned": 0}
     finally:
         s.close()
 
