@@ -53,11 +53,17 @@ def nll_at_temperature(row, temperature=1.0):
     return -math.log(max(float(probabilities_at_temperature(row, temperature)[row["label"]]), EPSILON))
 
 
+def _onehot(k, y):
+    """The label as a length-k one-hot float vector: what np.eye(k)[y] built, without the k x k matrix."""
+    t = np.zeros(k); t[y] = 1.0
+    return t
+
+
 def _row_scores(row):
     """The additive per-question quantities whose means metrics() reports (used by the paired bootstrap)."""
     p = np.asarray(row["p"], dtype=float); y = row["label"]
     conf, ok = float(p.max()), bool(p.argmax() == y)
-    return {"acc": float(ok), "nll": nll_at_temperature(row), "brier": float(((p - np.eye(len(p))[y]) ** 2).sum()), "mean_conf": conf,
+    return {"acc": float(ok), "nll": nll_at_temperature(row), "brier": float(((p - _onehot(len(p), y)) ** 2).sum()), "mean_conf": conf,
             "confident_error_rate": float(conf >= 0.9 and not ok), "coverage_at_0_9": float(conf >= 0.9), "confidence_bias": conf - float(ok)}
 
 
@@ -68,7 +74,7 @@ def metrics(rows, temperature=1.0):
     for row in rows:
         p = probabilities_at_temperature(row, temperature)
         y = row["label"]
-        target = np.eye(len(p))[y]
+        target = _onehot(len(p), y)
         nll.append(nll_at_temperature(row, temperature))
         acc.append(int(p.argmax() == y)); conf.append(float(p.max()))
         brier.append(float(((p - target) ** 2).sum()))
