@@ -7,6 +7,7 @@ import httpx, pytest
 pytestmark = pytest.mark.server
 
 BASE = os.environ.get("KEV_BASE_URL", "http://127.0.0.1:8008")
+MAX_PROBE_TOKENS = 1 << 20   # largest advertised state limit over_length probes; a bigger one is skipped, not allocated
 
 DEPARTMENT = {"returns": "Exchanges, refunds, wrong or damaged items", "shipping": "Delivery status, delays, lost packages", "billing": "Charges, invoices, payment problems"}
 
@@ -129,7 +130,10 @@ def card():
 
 def over_length():
     """A request whose state is past the server's limit (/v1/models max_state_tokens): every word is at least one token."""
-    return {"state": "word " * (card()["max_state_tokens"] + 16), "model": "kev-latest",
+    limit = card()["max_state_tokens"]
+    assert type(limit) is int and limit > 0, f"/v1/models must advertise max_state_tokens as an int > 0, got {limit!r}"
+    if limit > MAX_PROBE_TOKENS: pytest.skip(f"max_state_tokens {limit:,} is over the {MAX_PROBE_TOKENS:,}-word probe the local allocation budget allows")
+    return {"state": "word " * (limit + 16), "model": "kev-latest",
             "questions": {"billing": {"type": "noul", "instructions": "Is this about billing?"}}}
 
 

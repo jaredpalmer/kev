@@ -283,7 +283,7 @@ There's a [chess demo](http://localhost:3001/chess), too. The board is the input
 
 For Choice with `K > 1` options, confidence is `(p_max − 1/K) / (1 − 1/K)`. A single option has confidence 1. Score confidence is `max(0, 1 − E|level − mode| / D)`: `mode` is the most likely level and `D` is the mean distance of a uniform distribution over the levels from its middle (2/3 for three levels), so all probability on one level gives 1 and a uniform or wider spread gives 0. Both formulas are the ones in TypeSafe's reference adapter ([`system-one-adapter`](https://github.com/typesafe-ai/system-one-adapter-python) 0.2.1). Neither field is a measured accuracy rate.
 
-Objects and arrays are converted to labeled text. Delimiter-like strings in user input are escaped before tokenization. Invalid requests return `422`, and so does a state longer than 65,536 tokens: the server never drops part of a document silently, and the error gives the state's token count and the limit. `usage.output_tokens` counts tokens in the serialized answers, not generated tokens.
+Objects and arrays are converted to labeled text. Delimiter-like strings in user input are escaped before tokenization. Invalid requests return `422`, and so does a state longer than 65,536 tokens: the server never drops part of a document silently, and the error gives the state's token count and the limit. A state, instruction or option description nested more than 32 levels deep is refused the same way. `usage.output_tokens` counts tokens in the serialized answers, not generated tokens.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -296,7 +296,7 @@ A request may carry any number of questions. The server runs them a token budget
 | Variable | Effect |
 |---|---|
 | `KEV_TEMPERATURE=1.0` | Return raw probabilities instead of the calibrated ones |
-| `KEV_DATE_FACTS=1` | Append the number of days between any two dates in the state (see [Benchmarks](#benchmarks)) |
+| `KEV_DATE_FACTS=1` | Append the number of days between any two dates in the state (see [Benchmarks](#benchmarks)); a state with more than 128 different dates gets a 422 |
 | `KEV_TRUNCATE_STATES=1` | Read the first 65,536 tokens of a longer state instead of refusing it; every response then has `truncated` and `usage.state_tokens` / `state_tokens_used` |
 | `KEV_DTYPE=fp32` | Serve the exact fp32 path the evaluations use (bf16 is the default on GPUs) |
 | `KEV_API_KEY` | Require a bearer key |

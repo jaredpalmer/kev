@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field, model_validator
 
 JSONContent = Union[str, dict, list, int, float, bool, None]
 MAX_OPTIONS = 255
+MAX_DEPTH = 32    # container levels inside one value (state, instructions, a criterion) a server accepts; deepest in any local suite is 4, and render recurses per level (RecursionError -> a 500 past ~500)
+MAX_DATES = 128   # distinct dates date_facts pairs on a server; 8,128 sentences is already past the 65,536-token state limit, so no admissible state is refused
 
 
 class Noul(BaseModel):
@@ -63,16 +65,23 @@ MONTHS = "January|February|March|April|May|June|July|August|September|October|No
 _DATE = re.compile(rf"\b(?:{MONTHS}) \d{{1,2}}, \d{{4}}\b|\b\d{{4}}-\d{{2}}-\d{{2}}\b")
 
 
-def date_facts(text: str) -> str:
+def date_facts(text: str, max_dates: int | None = None) -> str:
     """Deterministic date arithmetic for the model: every pair of absolute dates found in `text`, as one sentence each
     ("August 3, 2026 is 12 days after July 22, 2026."). The model cannot subtract dates reliably (issue #8); it can use a
-    stated day count. Returns "" when fewer than two dates are found. Dates are listed in order of first appearance."""
-    found = []
+    stated day count. Returns "" when fewer than two dates are found. Dates are listed in order of first appearance.
+    With `max_dates` (the serving bound, MAX_DATES), more distinct dates than that raise ValueError before any sentence
+    is written: N dates make N(N-1)/2 sentences, and at the cap they are already longer than any state the server admits."""
+    seen, found = set(), []
     for m in _DATE.finditer(text):
         raw = m.group(0)
+        if raw in seen: continue
+        seen.add(raw)
         try: d = datetime.strptime(raw, "%B %d, %Y") if "," in raw else datetime.strptime(raw, "%Y-%m-%d")
         except ValueError: continue
-        if raw not in [r for r, _ in found]: found.append((raw, d))
+        found.append((raw, d))
+        if max_dates is not None and len(found) > max_dates:
+            raise ValueError(f"the state has more than {max_dates:,} distinct dates; date_facts writes a sentence for every pair of them "
+                             f"({max_dates * (max_dates - 1) // 2:,} at {max_dates:,}), longer than any state the server admits: remove dates or turn date_facts off")
     facts = []
     for i in range(len(found)):
         for j in range(i + 1, len(found)):
@@ -81,14 +90,43 @@ def date_facts(text: str) -> str:
     return " ".join(facts)
 
 
-def with_date_facts(state):
+def with_date_facts(state, max_dates=None):
     """State with a `date_facts` field (object states) or an appended paragraph (string states) when two or more absolute
     dates appear. Opt-in preprocessing (KEV_DATE_FACTS=1 in kev.serve, --date_facts in kev.benchmark)."""
-    facts = date_facts(render(state))
+    facts = date_facts(render(state), max_dates)
     if not facts: return state
     if isinstance(state, dict): return {**state, "date_facts": facts}
     if isinstance(state, list): return state + [{"date_facts": facts}]
     return f"{state}\n\ndate_facts: {facts}"
+
+
+def _depth(v) -> int:
+    """Container levels nested inside one JSONContent value, computed without recursion: scalar 0, [] 1, {"a": [1]} 2."""
+    best, stack = 0, [(v, 0)]
+    while stack:
+        x, d = stack.pop()
+        if isinstance(x, (dict, list)):
+            d += 1
+            best = max(best, d)
+            stack.extend((w, d) for w in (x.values() if isinstance(x, dict) else x))
+    return best
+
+
+def prepare_request(req: SystemOneRequest, date_facts: bool = False) -> SystemOneRequest:
+    """The gate untrusted requests pass before `to_record` (kev.serve and the Space call it, nothing else). A state,
+    instructions or criterion nested deeper than MAX_DEPTH is refused: render pads every line by its depth and recurses
+    once per level, so nesting multiplies the text and, past ~500 levels, raises RecursionError. With `date_facts` the
+    state gets with_date_facts capped at MAX_DATES distinct dates. Raises ValueError. Benchmarks and builders read trusted
+    data, so they call with_date_facts directly and stay unbounded."""
+    fields = [("the state", req.state)]
+    for qid, q in req.questions.items():
+        fields.append((f"question {qid!r} instructions", q.instructions))
+        if q.type == "score": fields += [(f"question {qid!r} criterion {i}", c) for i, c in enumerate(q.criteria)]
+        else: fields += [(f"question {qid!r} criterion {k!r}", v) for k, v in (q.criteria or {}).items()]
+    for name, v in fields:
+        if _depth(v) > MAX_DEPTH:
+            raise ValueError(f"{name} is nested deeper than {MAX_DEPTH} levels, the most a server accepts: flatten it and retry")
+    return req.model_copy(update={"state": with_date_facts(req.state, MAX_DATES)}) if date_facts else req
 
 
 def question_keys(qtype: str, criteria) -> list[str]:
