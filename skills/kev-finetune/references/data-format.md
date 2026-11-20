@@ -31,7 +31,8 @@ This is the same shape the deployed endpoint accepts, minus the labels, so what 
 | `target` (optional) | Soft label: `{option key: weight}`; keys are option names / `"true"`,`"false"` / level indices as strings. Use `{"false": 0.5, "true": 0.5}` for records whose evidence was deliberately removed, to teach "no evidence, no confidence". |
 
 Whole request (state + all questions + options) must fit 2048 tokens; each question branch 1024. Records that do not
-fit are dropped by the trainer with a printed count; `kev_modal.py::validate` reports them beforehand.
+fit are dropped by the trainer, which prints how many, the `--max_state` that would keep them and the longest one, and
+records them under `dropped` in the run's `training_config.json`; `kev_modal.py::validate` reports them beforehand.
 
 ## What good training data looks like
 
