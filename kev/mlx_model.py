@@ -37,7 +37,14 @@ PREFILL_CHUNK = 1024    # state tokens per prefix pass (MLXDecisionModel.prefix)
 
 
 def load_base(base_dir):
-    """mlx-lm's model of a Hub base snapshot, weights as stored (bf16 for the Qwen3.5 bases); the LoRA path merges into it."""
+    """mlx-lm's model of a Hub base snapshot, weights as stored (bf16 for the Qwen3.5 bases); the LoRA path merges into it.
+    A config.json that names a `model_file` is refused: mlx-lm 0.31's load_model imports and runs that module to build
+    the model (0.32.2 asks for trust_remote_code first), and the base is whatever the checkpoint's head.pt names, so a
+    checkpoint could choose code to run. Kev's bases are mlx-lm's built-in architectures; the torch backend ignores the field."""
+    config = json.loads((Path(base_dir) / "config.json").read_text(encoding="utf-8"))
+    if config.get("model_file") is not None:
+        raise ValueError(f"{base_dir}: config.json names model_file {config['model_file']!r}, model code mlx-lm would import and run; "
+                         "the MLX backend loads only mlx-lm's built-in architectures. Load this checkpoint with backend=torch (KEV_BACKEND=torch), which ignores the field")
     mx.set_cache_limit(CACHE_LIMIT)
     return load_model(Path(base_dir))[0]
 
