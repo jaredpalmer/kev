@@ -655,8 +655,10 @@ def test_full_weight_checkpoint_round_trip(tiny_base, tmp_path, monkeypatch):
     from safetensors.torch import load_file
     from kev.checkpoint import Checkpoint, LoadOptions, mlx_available, read_meta
     from kev.data import load_records, materialize
+    from kev.suite import read_json
     train_tiny(tiny_base, tmp_path / "full", *FULL, "--max_steps", "3", monkeypatch=monkeypatch)
     files = {p.name for p in (tmp_path / "full").iterdir()}
+    assert "dropped" not in read_json(tmp_path / "full/training_config.json")        # nothing over the context: no drop record
     assert {"config.json", "model.safetensors", "head.pt", "tokenizer.json", "tokenizer_config.json"} <= files and "adapter_config.json" not in files
     meta = read_meta(tmp_path / "full")
     assert (meta.weights, meta.lora, meta.weights_dtype, meta.base) == ("full", 0, "bf16", str(tiny_base / "base")) and set(meta.head) == {"q.weight", "q.bias", "k.weight", "k.bias"}
@@ -694,6 +696,136 @@ def test_full_weight_dtype_must_match_config(tiny_base, tmp_path, monkeypatch):
     meta.weights_dtype = "bf16"; write_meta(tmp_path / "full", meta)
     config.write_text(json.dumps({k: v for k, v in json.loads(config.read_text(encoding="utf-8")).items() if k != "dtype"}), encoding="utf-8")
     assert Checkpoint(tmp_path / "full").load("cpu")[1].dtype == "bfloat16"  # no recorded dtype: head.pt decides
+
+
+def long_state_data(tiny_base, path, *extra_words):
+    """A --data file: the tiny base's first record once per entry of `extra_words`, its state replaced by that many
+    words (one token each in the word-level tokenizer, so a state of n words is n + 1 state tokens), then the tiny base's
+    second record unchanged."""
+    import json
+    rows = (tiny_base / "data.jsonl").read_text(encoding="utf-8").splitlines()
+    long = [{**json.loads(rows[0]), "state": " ".join(["it"] * n)} for n in extra_words]
+    path.write_text("".join(json.dumps(r) + "\n" for r in long) + rows[1] + "\n", encoding="utf-8")
+    return path
+
+
+def test_dropped_data_records_are_named_with_the_max_state_that_keeps_them(tiny_base, tmp_path, monkeypatch, capsys):
+    """A --data record over the training context is dropped and the run goes on (issue #5's rule for records that were not
+    filtered when a suite was frozen). The drop line names the --max_state that keeps every dropped record and the record
+    that sets it, and training_config.json records the drop, so a detached run that lost records shows it after the fact
+    (issue #155). Which records train is still whatever fits the training context."""
+    import sys
+    from kev import train
+    from kev.model import MAX_STATE
+    from kev.suite import read_json
+    data = long_state_data(tiny_base, tmp_path / "long.jsonl", MAX_STATE + 21)   # 406 state tokens at the 384 default
+    monkeypatch.setattr(sys, "argv", ["kev.train", "--base", str(tiny_base / "base"), "--data", str(data), "--device", "cpu", "--batch", "2",
+                                      "--lr", "1e-3", "--max_steps", "1", "--out", str(tmp_path / "run")])
+    train.main()
+    out = capsys.readouterr().out
+    line = next(l for l in out.splitlines() if l.startswith("dropped "))
+    assert line == (f"dropped 1 of 2 records that exceed the training context (384 state / 1024 branch / 2048 packed tokens); "
+                    f"--max_state {MAX_STATE + 22} keeps them (custom/0 has {MAX_STATE + 22} state tokens)")
+    assert "1 training requests" in out
+    assert read_json(tmp_path / "run/training_config.json")["dropped"] == {
+        "count": 1, "of": 2, "ids": ["custom/0"], "max_state": MAX_STATE + 22, "over_any_context": 0,
+        "limit_id": "custom/0", "limit": "state", "limit_tokens": MAX_STATE + 22}
+
+
+def _requests(tiny_base, data):
+    from types import SimpleNamespace
+    from kev.model import MAX_STATE, load_tokenizer
+    from kev.train import training_requests
+    a = SimpleNamespace(data=None if data is None else str(data), replay=0, suite=None, seed=0, n_per_source=1, max_state=MAX_STATE,
+                        train_sources="", public_frac=1, synthetic_repeat=1)
+    return training_requests(a, load_tokenizer(str(tiny_base / "base")), None, [])
+
+
+def test_drop_line_names_the_limit_that_sets_max_state(tiny_base, tmp_path, capsys):
+    """The record that sets --max_state is the one whose overflow is largest, not the one with the longest state: a short
+    state with a long question row outranks a longer state, and the line says row. A state past every training context is
+    counted apart, and the record that sets the number is kept even when it is past the first 20 ids."""
+    import json
+    from kev.data import load_records, materialize
+    from kev.model import MAX_BRANCH, MAX_PACKED, MAX_STATE, MAX_TRAIN_STATE, fits, load_tokenizer, training_context
+    short = {"team": {"type": "choice", "instructions": "which team", "criteria": {"billing": None, "shipping": None}, "label": "billing"}}
+    wide = {"q": {"type": "choice", "instructions": "which team", "label": "billing",
+                  "criteria": {"billing": None, "shipping": None, " ".join(["it"] * 1100): None}}}
+    def write(name, rows):
+        path = tmp_path / name
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        return path
+    def run(name, rows):
+        result = _requests(tiny_base, write(name, rows))
+        lines = [l for l in capsys.readouterr().out.splitlines() if l.startswith("dropped ")]
+        return *result, lines
+    state = " ".join(["it"] * (MAX_STATE + 21))
+    kept = {"state": "the customer is charged twice", "questions": short}
+    reqs, dropped, lines = run("mixed.jsonl", [{"state": state, "questions": short}, {"state": " ".join(["it"] * 8), "questions": wide}, kept])
+    tok, c = load_tokenizer(str(tiny_base / "base")), training_context(MAX_STATE)
+    raw = load_records(tmp_path / "mixed.jsonl")
+    assert [r["_meta"]["id"] for r in reqs] == [r["_meta"]["id"] for r in raw if fits(materialize(r), tok, **c)] == ["custom/2"]
+    assert dropped["limit"] == "row" and dropped["limit_id"] == "custom/1" and dropped["max_state"] > MAX_STATE + 22
+    assert dropped["max_state"] == MAX_STATE + (dropped["limit_tokens"] - MAX_BRANCH)
+    assert lines == [f"dropped 2 of 3 records that exceed the training context (384 state / 1024 branch / 2048 packed tokens); "
+                     f"--max_state {dropped['max_state']} keeps them (custom/1 has a row of {dropped['limit_tokens']} tokens)"]
+    question = {"type": "choice", "instructions": "which team", "label": "billing",
+                "criteria": {"billing": None, "shipping": None, " ".join(["it"] * 680): None}}
+    _, dropped, _ = run("packed.jsonl", [{"state": " ".join(["it"] * 8), "questions": {f"q{i}": {**question} for i in range(3)}}, kept])
+    assert dropped["limit"] == "packed" and dropped["max_state"] == MAX_STATE + (dropped["limit_tokens"] - MAX_PACKED)
+    _, dropped, lines = run("over.jsonl", [{"state": state, "questions": short},
+                                           {"state": " ".join(["it"] * MAX_TRAIN_STATE), "questions": short}, kept])
+    assert dropped == {"count": 2, "of": 3, "ids": ["custom/0", "custom/1"], "max_state": MAX_STATE + 22, "over_any_context": 1,
+                       "limit_id": "custom/0", "limit": "state", "limit_tokens": MAX_STATE + 22}
+    assert lines == [f"dropped 2 of 3 records that exceed the training context (384 state / 1024 branch / 2048 packed tokens); "
+                     f"--max_state {MAX_STATE + 22} keeps 1 of them (custom/0 has {MAX_STATE + 22} state tokens); "
+                     f"1 record fits no training context ({MAX_TRAIN_STATE:,} state tokens at most)"]
+    _, dropped, lines = run("none.jsonl", [{"state": " ".join(["it"] * MAX_TRAIN_STATE), "questions": short}, kept])
+    assert lines == [f"dropped 1 of 2 records that exceed the training context (384 state / 1024 branch / 2048 packed tokens); "
+                     f"none fits any training context ({MAX_TRAIN_STATE:,} state tokens at most)"]
+    assert dropped["max_state"] is None and "limit_id" not in dropped and dropped["over_any_context"] == 1
+    rows = [{"state": state, "questions": short} for _ in range(20)] + [{"state": " ".join(["it"] * 8), "questions": wide}, kept]
+    _, dropped, _ = run("many.jsonl", rows)
+    assert dropped["ids"] == [f"custom/{i}" for i in range(20)] and dropped["limit_id"] == "custom/20" and dropped["limit"] == "row"
+    assert run("short.jsonl", [kept])[1] is None
+
+
+def test_admitting_max_state_is_the_smallest_training_context_that_fits(tiny_base, tmp_path):
+    """admitting_max_state is exact on each of the three limits the context filter applies: the record fits at the value
+    it names and not one below, whether the state, a question's row or the packed record is what overflows; a state over
+    MAX_TRAIN_STATE has no value. A run that drops nothing records no `dropped` key (checked on the round-trip run above)."""
+    import json
+    from kev.data import load_records, materialize
+    from kev.model import MAX_BRANCH, MAX_PACKED, MAX_STATE, MAX_TRAIN_STATE, admitting_max_state, fits, load_tokenizer, training_context
+    tok = load_tokenizer(str(tiny_base / "base"))
+    def record(state_words, option_words=1, questions=1):
+        q = {f"q{i}": {"type": "choice", "instructions": "which team", "label": "billing",
+                       "criteria": {"billing": None, "shipping": None, " ".join(["it"] * option_words): None}} for i in range(questions)}
+        (tmp_path / "one.jsonl").write_text(json.dumps({"state": " ".join(["it"] * state_words), "questions": q}) + "\n", encoding="utf-8")
+        return materialize(load_records(tmp_path / "one.jsonl")[0])
+    limits = {"state": MAX_STATE, "row": MAX_BRANCH, "packed": MAX_PACKED}
+    assert admitting_max_state(tok, record(MAX_STATE - 1)) == (MAX_STATE, "state", MAX_STATE)
+    cases = [(record(MAX_STATE + 21), "state"), (record(8, option_words=1100), "row"), (record(8, option_words=680, questions=3), "packed")]
+    for rec, limit in cases:
+        need, got, tokens = admitting_max_state(tok, rec)
+        assert got == limit and need == MAX_STATE + (tokens - limits[limit])
+        assert need > MAX_STATE and fits(rec, tok, **training_context(need)) and not fits(rec, tok, **training_context(need - 1))
+    assert admitting_max_state(tok, record(MAX_TRAIN_STATE - 1)) == (MAX_TRAIN_STATE, "state", MAX_TRAIN_STATE)
+    assert admitting_max_state(tok, record(MAX_TRAIN_STATE)) is None
+
+
+def test_records_built_on_the_fly_get_the_same_drop_line(tiny_base, tmp_path, monkeypatch, capsys):
+    """The smoke path (no --suite, no --data; issue #5) goes through the same filter, so it gets the same line."""
+    from kev import train
+    from kev.data import load_records
+    from kev.model import MAX_STATE
+    built = load_records(long_state_data(tiny_base, tmp_path / "built.jsonl", MAX_STATE + 21))
+    monkeypatch.setattr(train, "build", lambda *args, **kwargs: built)
+    reqs, dropped = _requests(tiny_base, None)
+    line = next(l for l in capsys.readouterr().out.splitlines() if l.startswith("dropped "))
+    assert [r["_meta"]["id"] for r in reqs] == ["custom/1"]
+    assert f"--max_state {MAX_STATE + 22} keeps them (custom/0 has {MAX_STATE + 22} state tokens)" in line
+    assert dropped["limit_id"] == "custom/0" and dropped["limit"] == "state"
 
 
 def test_loader_rule_needs_head_pt_and_files_to_agree(tmp_path):
