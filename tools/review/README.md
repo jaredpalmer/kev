@@ -1,7 +1,7 @@
 # Kev label review
 
 A keyboard-first page for one person to accept, relabel or drop AI-proposed labels, one item at a time.
-Nothing leaves the browser: decisions autosave to localStorage (keyed by a hash of the file), so a reload resumes where you were.
+Nothing leaves the browser: decisions autosave to localStorage, keyed by the SHA-256 of the file, so a reload resumes where you were. Web Crypto computes the key, so open the page on localhost or https. Reviews saved before the key changed to SHA-256 do not resume; they stay in localStorage under their old key.
 
 ```sh
 npm install && npm run dev
