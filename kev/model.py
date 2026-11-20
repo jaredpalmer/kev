@@ -1,5 +1,10 @@
 """Decision model: causal LM backbone + block-causal branch mask + pointer readout."""
 import copy, math, os, re
+
+from .deps import require_transformers
+
+require_transformers()   # name pyproject's transformers range before the cache_utils import below fails on an older release (#280)
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
