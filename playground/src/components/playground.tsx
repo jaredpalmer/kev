@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { api, PRESETS, type PermuteResponse, type Question, type SystemOneRequest, type SystemOneResponse } from "@/lib/kev";
+import { api, parseRequestDraft, PRESETS, type PermuteResponse, type SystemOneResponse } from "@/lib/kev";
 import { AnswerCard } from "@/components/answer-card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -10,14 +10,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 const pretty = (v: unknown) => JSON.stringify(v, null, 2);
-
-function parseState(s: string) {
-  const t = s.trim();
-  if (t.startsWith("{") || t.startsWith("[")) {
-    try { return JSON.parse(t); } catch { /* treat as plain text */ }
-  }
-  return s;
-}
 
 type ModelInfo = { run: string; base: string } | { error: string } | null;
 
@@ -37,17 +29,7 @@ export function Playground() {
     api.models().then((m) => setModel(m.models[0])).catch((e: Error) => setModel({ error: e.message }));
   }, []);
 
-  const parsed = useMemo<{ req?: SystemOneRequest; err?: string }>(() => {
-    try {
-      const questions = JSON.parse(questionsText) as Record<string, Question>;
-      return { req: { state: parseState(stateText), model: "kev-latest", questions } };
-    } catch (e) { return { err: (e as Error).message }; }
-  }, [stateText, questionsText]);
-
-  const choiceIds = useMemo(
-    () => (parsed.req ? Object.entries(parsed.req.questions).filter(([, q]) => q.type === "choice" && Object.keys(q.criteria).length >= 2).map(([id]) => id) : []),
-    [parsed.req],
-  );
+  const parsed = useMemo(() => parseRequestDraft(stateText, questionsText), [stateText, questionsText]);
 
   function loadPreset(i: number) {
     const p = PRESETS[i];
@@ -234,7 +216,7 @@ export function Playground() {
             <Button variant="outline" onClick={onSeparate} disabled={!parsed.req || !!busy} className="rounded-md shadow-none" title="Answer every question in its own request, then compare with the packed answer">
               {busy === "separate" ? "Comparing" : "Packed vs separate"}
             </Button>
-            {choiceIds.map((id) => (
+            {parsed.choiceIds.map((id) => (
               <Button key={id} variant="ghost" onClick={() => onPermute(id)} disabled={!!busy} className="rounded-md text-muted-foreground" title={`Re-ask "${id}" under 6 option orders`}>
                 {busy === "permute" && permute?.question === id ? "Permuting" : "Permute"} <span className="font-mono">{id}</span>
               </Button>
