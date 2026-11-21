@@ -20,7 +20,12 @@ export function parseRequestDraft(stateText: string, questionsText: string): { r
   try {
     const questions = JSON.parse(questionsText) as Record<string, Question>;
     // Drafts can be valid JSON before they have all the fields a choice needs.
-    const choiceIds = Object.entries(questions).filter(([, q]) => q.type === "choice" && Object.keys(q.criteria).length >= 2).map(([id]) => id);
+    const choiceIds: string[] = [];
+    for (const [id, q] of Object.entries(questions)) {
+      if (q.type !== "choice") continue;
+      if (q.criteria == null) return { err: `Choice question "${id}" is missing criteria. Add a "criteria" object with named options.`, choiceIds: [] };
+      if (Object.keys(q.criteria).length >= 2) choiceIds.push(id);
+    }
     return { req: { state: parseState(stateText), model: "kev-latest", questions }, choiceIds };
   } catch (e) { return { err: (e as Error).message, choiceIds: [] }; }
 }

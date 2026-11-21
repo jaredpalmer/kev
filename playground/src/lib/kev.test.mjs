@@ -26,6 +26,16 @@ test("incomplete question drafts stay recoverable until the choice is complete",
   assert.deepEqual(recovered.choiceIds, ["topic"]);
 });
 
+test("missing choice criteria identifies the question and explains how to fix it", () => {
+  for (const id of ["topic", "follow_up"]) {
+    for (const criteria of [undefined, null]) {
+      const draft = JSON.stringify({ [id]: { type: "choice", instructions: "Topic?", criteria } });
+      assert.equal(parseRequestDraft("article", draft).err,
+        `Choice question "${id}" is missing criteria. Add a "criteria" object with named options.`);
+    }
+  }
+});
+
 test("presets keep their requests and only choices with multiple options can permute", () => {
   const expectedChoices = {
     "Support triage": ["department", "return_reason", "requested_resolution", "tone"],
