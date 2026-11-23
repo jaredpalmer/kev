@@ -73,7 +73,7 @@ def test_example_is_one_benign_choice_without_eval_payload():
     assert len(question["options"]) == 2
     assert question["label"] == 0
     assert smoke.TRANSFORMERS_REVISION == "6173a2f679ff4ed393afc499aefc569da7e68bc1"
-    assert smoke.MODEL_REVISION == "6e7c8248f75265bdd4fbab5273304243b5d8c2cb"
+    assert smoke.MODEL_REVISION == "7a67ae2314b44ef05c87fd1d4d311c58aaeb18f6"
 
 
 def test_remote_runner_with_tiny_local_release_fixture(monkeypatch, tmp_path):

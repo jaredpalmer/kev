@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 MODEL_ID = "thinkingmachines/Inkling-2-Mini"
-MODEL_REVISION = "6e7c8248f75265bdd4fbab5273304243b5d8c2cb"
+MODEL_REVISION = "7a67ae2314b44ef05c87fd1d4d311c58aaeb18f6"
 TRANSFORMERS_REVISION = "6173a2f679ff4ed393afc499aefc569da7e68bc1"
 EXPECTED_TEXT_CONFIG = {
     "model_type": "inkling2_loop_text",
