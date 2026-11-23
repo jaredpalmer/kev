@@ -17,7 +17,6 @@ import modal
 
 from scripts import inkling_weight_smoke as smoke
 
-APP_NAME = "kev-research"
 STUDY_TAG = "inkling2-mini-plumbing"
 ROOT = Path(__file__).resolve().parents[1]
 MARKER_PATH = Path.home() / "inkling-feasibility" / "inkling2-mini-h200-smoke.marker.json"
@@ -47,9 +46,9 @@ def timestamp() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def terminate(sandbox, name: str) -> dict:
+def terminate(sandbox, name: str, app_name: str) -> dict:
     try:
-        target = sandbox if sandbox is not None else modal.Sandbox.from_name(APP_NAME, name)
+        target = sandbox if sandbox is not None else modal.Sandbox.from_name(app_name, name)
         return {"exit_code": target.terminate(wait=True)}
     except Exception as exc:
         return {"error_type": type(exc).__name__}
@@ -123,7 +122,9 @@ def verify_pinned_hub_metadata() -> dict:
     }
 
 
-def launch(report_path: Path = DEFAULT_REPORT_PATH) -> dict:
+def launch(report_path: Path = DEFAULT_REPORT_PATH, *, app_name: str) -> dict:
+    if not app_name:
+        raise ValueError("Modal app name must not be empty")
     report_path = Path(report_path)
     if MARKER_PATH.resolve().is_relative_to(ROOT) or report_path.resolve().is_relative_to(ROOT):
         raise ValueError("smoke marker and report must remain outside the repository")
@@ -139,7 +140,7 @@ def launch(report_path: Path = DEFAULT_REPORT_PATH) -> dict:
         raise RuntimeError("configured smoke cost bound exceeds $20")
     hub_metadata = verify_pinned_hub_metadata()
 
-    app = modal.App.lookup(APP_NAME)
+    app = modal.App.lookup(app_name)
     if _has_active_smoke_sandbox():
         raise RuntimeError("an Inkling smoke sandbox exists; inspect and terminate it, never relaunch")
 
@@ -148,7 +149,7 @@ def launch(report_path: Path = DEFAULT_REPORT_PATH) -> dict:
     tags = {"study": STUDY_TAG, "run_id": run_id}
     marker = {
         "run_id": run_id,
-        "app_name": APP_NAME,
+        "app_name": app_name,
         "sandbox_name": name,
         "sandbox_tags": tags,
         "hub_metadata": hub_metadata,
@@ -167,7 +168,10 @@ def launch(report_path: Path = DEFAULT_REPORT_PATH) -> dict:
     exec_started = None
     exec_ended = None
 
-    watchdog = threading.Timer(smoke.END_TO_END_WATCHDOG_SECONDS, lambda: terminate(sandbox, name))
+    watchdog = threading.Timer(
+        smoke.END_TO_END_WATCHDOG_SECONDS,
+        lambda: terminate(sandbox, name, app_name),
+    )
     watchdog.daemon = True
     watchdog.start()
     try:
@@ -225,7 +229,7 @@ def launch(report_path: Path = DEFAULT_REPORT_PATH) -> dict:
     finally:
         watchdog.cancel()
         times["termination_started_at"] = timestamp()
-        shutdown = terminate(sandbox, name) if create_attempted else {"not_created": True}
+        shutdown = terminate(sandbox, name, app_name) if create_attempted else {"not_created": True}
         ended = time.monotonic()
         times["sandbox_terminated_at"] = timestamp() if shutdown.get("exit_code") is not None else None
 
@@ -240,7 +244,7 @@ def launch(report_path: Path = DEFAULT_REPORT_PATH) -> dict:
         status = "failed_shutdown"
     report = {
         "run_id": run_id,
-        "app_name": APP_NAME,
+        "app_name": app_name,
         "sandbox_name": name,
         "sandbox_id": sandbox_id,
         "sandbox_tags": tags,
@@ -289,7 +293,9 @@ def launch(report_path: Path = DEFAULT_REPORT_PATH) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT_PATH)
-    report = launch(parser.parse_args().report)
+    parser.add_argument("--app-name", required=True)
+    args = parser.parse_args()
+    report = launch(args.report, app_name=args.app_name)
     print(json.dumps(report, sort_keys=True))
     return 0 if report["status"] == "passed" else 1
 

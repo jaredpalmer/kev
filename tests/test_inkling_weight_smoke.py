@@ -208,16 +208,57 @@ def test_modal_app_wrapper_delegates_without_remote_launch(monkeypatch, tmp_path
     calls = []
     expected = {"status": "mocked"}
 
-    def fake_launch(report_path=inkling_weight_smoke_launch.DEFAULT_REPORT_PATH):
-        calls.append(report_path)
+    def fake_launch(report_path=inkling_weight_smoke_launch.DEFAULT_REPORT_PATH, *, app_name):
+        calls.append((report_path, app_name))
         return expected
 
-    monkeypatch.setattr(inkling_weight_smoke_launch, "launch", fake_launch)
     import modal_app
 
+    monkeypatch.setattr(modal_app, "APP_NAME", "kev-smoke-nondefault")
+    monkeypatch.setattr(inkling_weight_smoke_launch, "launch", fake_launch)
     report_path = tmp_path / "wrapper-report.json"
     assert modal_app.inkling_weight_smoke(report_path) is expected
-    assert calls == [report_path]
+    assert calls == [(report_path, "kev-smoke-nondefault")]
+
+
+def test_launch_uses_app_name_for_lookup_without_creating_sandbox(monkeypatch, tmp_path):
+    import modal
+    from scripts import inkling_weight_smoke_launch as launcher
+
+    marker = tmp_path / "durable-marker.json"
+    report = tmp_path / "smoke-report.json"
+    calls = []
+    monkeypatch.setattr(launcher, "MARKER_PATH", marker)
+    monkeypatch.setattr(launcher, "verify_pinned_hub_metadata", lambda: {"resolved_sha": "test"})
+    monkeypatch.setattr(modal.App, "lookup", lambda name: calls.append(name) or object())
+    monkeypatch.setattr(launcher, "_has_active_smoke_sandbox", lambda: True)
+    monkeypatch.setattr(modal.Sandbox, "create", lambda **kwargs: pytest.fail("must not create a Sandbox"))
+
+    with pytest.raises(RuntimeError, match="an Inkling smoke sandbox exists"):
+        launcher.launch(report, app_name="kev-smoke-nondefault")
+    assert calls == ["kev-smoke-nondefault"]
+    assert not marker.exists()
+    assert not report.exists()
+
+
+def test_named_termination_uses_requested_app_name(monkeypatch):
+    import modal
+    from scripts import inkling_weight_smoke_launch as launcher
+
+    calls = []
+
+    class Sandbox:
+        def terminate(self, wait):
+            assert wait
+            return 0
+
+    monkeypatch.setattr(
+        modal.Sandbox,
+        "from_name",
+        lambda app_name, name: calls.append((app_name, name)) or Sandbox(),
+    )
+    assert launcher.terminate(None, "inkling-sandbox", "kev-smoke-nondefault") == {"exit_code": 0}
+    assert calls == [("kev-smoke-nondefault", "inkling-sandbox")]
 
 
 def test_modal_wrapper_command_exits_nonzero_for_failed_report():
@@ -274,7 +315,7 @@ def test_metadata_404_fails_before_modal_create_and_leaves_marker_untouched(monk
     monkeypatch.setattr(modal.App, "lookup", unexpected)
     monkeypatch.setattr(modal.Sandbox, "create", unexpected)
     with pytest.raises(launcher.HubMetadataError, match="HTTP 404:.*Invalid rev id"):
-        launcher.launch(report)
+        launcher.launch(report, app_name="test-app")
 
     assert not marker.exists()
     assert not report.exists()
@@ -287,7 +328,7 @@ def test_metadata_404_fails_before_modal_create_and_leaves_marker_untouched(monk
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("metadata must not be queried")),
     )
     with pytest.raises(FileExistsError):
-        launcher.launch(report)
+        launcher.launch(report, app_name="test-app")
     assert marker.read_bytes() == marker_contents
 
 
@@ -385,6 +426,6 @@ def test_required_tokenizer_404_fails_before_modal_and_marker(monkeypatch, tmp_p
     monkeypatch.setattr(modal.App, "lookup", unexpected)
     monkeypatch.setattr(modal.Sandbox, "create", unexpected)
     with pytest.raises(launcher.HubMetadataError, match="tokenizer.json returned HTTP 404"):
-        launcher.launch(report)
+        launcher.launch(report, app_name="test-app")
     assert not marker.exists()
     assert not report.exists()
