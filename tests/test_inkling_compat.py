@@ -4,11 +4,30 @@ import ast
 import importlib.util
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 SPEC = importlib.util.spec_from_file_location("inkling_compat", Path(__file__).resolve().parents[1] / "scripts" / "inkling_compat.py")
 launcher = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(launcher)
+
+
+def test_smoke_constants_import_when_resource_is_unavailable():
+    code = """import builtins
+original = builtins.__import__
+def import_without_resource(name, *args, **kwargs):
+    if name == "resource":
+        raise ImportError("resource blocked by test")
+    return original(name, *args, **kwargs)
+builtins.__import__ = import_without_resource
+from scripts.inkling_weight_smoke import MODEL_ID, MODEL_REVISION
+assert MODEL_ID and MODEL_REVISION
+"""
+    subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
 
 
 def test_cached_tokenizer_probe_uses_shared_model_pin():

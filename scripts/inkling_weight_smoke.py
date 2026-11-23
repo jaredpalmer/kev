@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
-import resource
 import subprocess
 import sys
 import tempfile
@@ -308,6 +307,8 @@ def run_remote_smoke(device: str = "cuda") -> dict:
             raise RuntimeError("the one-example pointer readout was non-finite or had wrong option count")
         device_code.sync(device)
         peak_gpu = device_code.allocated_bytes(device) / (1024**3)
+        import resource
+
         peak_host = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024**2)
         return {
             "status": "passed",
