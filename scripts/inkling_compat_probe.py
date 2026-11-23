@@ -26,6 +26,7 @@ from transformers.models.inkling2_loop.modeling_inkling2_loop import Inkling2Loo
 from kev.model import DecisionModel, PointerHead, SPECIAL, encode, is_hybrid, rows_of
 from kev.suite import write_json
 from inkling_compat import REQUIRED_GATES, exit_code, loading_info_json
+from scripts.inkling_weight_smoke import MODEL_ID, MODEL_REVISION
 
 SEED = 20261120
 ATTENTION_TARGETS = ("q_proj.linear", "k_proj.linear", "v_proj.linear", "o_proj.linear")
@@ -98,7 +99,7 @@ def flatten_logits(rows):
 def cached_tokenizer_metadata():
     try:
         tokenizer = AutoTokenizer.from_pretrained(
-            "thinkingmachines/Inkling-2-Mini", revision="6e7c8248f75265bdd4fbab5273304243b5d8c2cb",
+            MODEL_ID, revision=MODEL_REVISION,
             local_files_only=True, trust_remote_code=False,
         )
     except Exception as exc:
@@ -106,7 +107,7 @@ def cached_tokenizer_metadata():
     vocab = tokenizer.get_vocab()
     ids = {token: tokenizer.convert_tokens_to_ids(token) for token in SPECIAL}
     missing = [token for token, value in ids.items() if token not in vocab or value == tokenizer.unk_token_id]
-    return {"status": "pass", "revision": "6e7c8248f75265bdd4fbab5273304243b5d8c2cb",
+    return {"status": "pass", "revision": MODEL_REVISION,
             "boundary_ids": ids, "missing_specials": missing, "weights_loaded": False}
 
 

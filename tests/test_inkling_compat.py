@@ -1,5 +1,6 @@
 """Offline source-pin and report-serialization tests for the research launcher."""
 
+import ast
 import importlib.util
 import json
 import subprocess
@@ -8,6 +9,43 @@ from pathlib import Path
 SPEC = importlib.util.spec_from_file_location("inkling_compat", Path(__file__).resolve().parents[1] / "scripts" / "inkling_compat.py")
 launcher = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(launcher)
+
+
+def test_cached_tokenizer_probe_uses_shared_model_pin():
+    source_path = Path(__file__).resolve().parents[1] / "scripts" / "inkling_compat_probe.py"
+    module = ast.parse(source_path.read_text(encoding="utf-8"))
+    smoke_import = next(
+        node for node in module.body
+        if isinstance(node, ast.ImportFrom) and node.module == "scripts.inkling_weight_smoke"
+    )
+    assert {name.name for name in smoke_import.names} >= {"MODEL_ID", "MODEL_REVISION"}
+
+    metadata = next(
+        node for node in module.body
+        if isinstance(node, ast.FunctionDef) and node.name == "cached_tokenizer_metadata"
+    )
+    load = next(
+        node for node in ast.walk(metadata)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "from_pretrained"
+    )
+    assert isinstance(load.args[0], ast.Name) and load.args[0].id == "MODEL_ID"
+    assert any(
+        kw.arg == "revision" and isinstance(kw.value, ast.Name) and kw.value.id == "MODEL_REVISION"
+        for kw in load.keywords
+    )
+    assert any(
+        isinstance(node, ast.Dict)
+        and any(
+            isinstance(key, ast.Constant)
+            and key.value == "revision"
+            and isinstance(value, ast.Name)
+            and value.id == "MODEL_REVISION"
+            for key, value in zip(node.keys, node.values)
+        )
+        for node in ast.walk(metadata)
+    )
 
 
 def checkout(path):
