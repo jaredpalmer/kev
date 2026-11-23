@@ -769,6 +769,13 @@ def smoke_base(base: str, revision: str, gpu: str = "H200"):
     print(json.dumps(run_smoke_base.with_options(gpu=gpu).remote(base, revision), indent=1))
 
 
+def inkling_weight_smoke(report_path: str | Path | None = None) -> dict:
+    """Direct Python wrapper for the isolated Inkling Sandbox smoke; do not invoke through Modal CLI."""
+    from scripts.inkling_weight_smoke_launch import launch
+
+    return launch(Path(report_path)) if report_path is not None else launch()
+
+
 class Job(NamedTuple):
     """The arguments of one run_trial call (spawned or starmapped as *job)."""
     study: str
