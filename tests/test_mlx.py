@@ -15,7 +15,7 @@ pytest.importorskip("mlx_lm")
 pytestmark = pytest.mark.skipif(platform.system() != "Darwin" or platform.machine() != "arm64", reason="MLX runs on Apple Silicon only")
 
 from kev.checkpoint import Checkpoint, LoadOptions, mlx_available  # noqa: E402
-from kev.mlx_model import MLXDecisionModel, merge_lora  # noqa: E402
+from kev.mlx_model import MLXDecisionModel, load_base, merge_lora  # noqa: E402
 from kev.model import SCORING_INTERFACE, DecisionModel  # noqa: E402
 
 RUN = "jaredpalmer/kev-0.8b@9a45d25eb2ab761841196625383fa1dff0e56c1e"   # pinned (round 15, 2026-09-24): bf16 noise is per checkpoint, so a republish must not move these bars
@@ -63,6 +63,18 @@ def test_backend_resolution():
         ck.load("mps", LoadOptions(backend="mlx", merge=False))
     with pytest.raises(ValueError, match="attention-only"):
         Checkpoint("jaredpalmer/kev-4b@qwen3").load("mps", LoadOptions(backend="mlx"))   # Qwen3 base: no DeltaNet layers
+
+
+def test_load_base_refuses_model_code(tmp_path):
+    """mlx-lm 0.31.x executes config.json's model_file unconditionally; a base that brings one is refused before
+    load_model gets as far as running it (valid safetensors, so only the guard stands in the way)."""
+    sentinel = tmp_path / "sentinel"
+    (tmp_path / "config.json").write_text(json.dumps({"model_type": "qwen3_5", "model_file": "model.py"}), encoding="utf-8")
+    mx.save_safetensors(str(tmp_path / "model.safetensors"), {"x": mx.zeros((1,))})
+    (tmp_path / "model.py").write_text(f"open({str(sentinel)!r}, 'w').write('x')\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="model_file"):
+        load_base(tmp_path)
+    assert not sentinel.exists()
 
 
 # --- full-weight checkpoints (kev.train --full_ft; kev.mlx_model.load_full): a 4-layer Qwen3.5 text model with random
