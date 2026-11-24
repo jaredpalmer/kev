@@ -76,6 +76,13 @@ def permutation_kl(z1, z2, perm, dev):
     return 0.5 * (F.kl_div(lp2, lp1, log_target=True, reduction="sum") + F.kl_div(lp1, lp2, log_target=True, reduction="sum"))
 
 
+def _one_cycle_scheduler(opt, max_lr, steps):
+    total_steps = max(steps, 1)
+    # At ten steps, the 10% warmup rounds to a zero-length interval in OneCycleLR.
+    pct_start = math.nextafter(0.1, 1.0) if total_steps == 10 else 0.1
+    return torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=max_lr, total_steps=total_steps, pct_start=pct_start)
+
+
 def accumulation_records(n, batch, accum, microbatch):
     start = (microbatch // accum) * accum * batch
     return min(accum * batch, n - start)
@@ -585,7 +592,7 @@ def main():
     steps = min(steps, a.max_steps) if a.max_steps else steps
     if a.full_ft and (problem := full_ft.too_many_snapshots(full_ft.snapshot_fractions(a.snapshot_fractions), a.snapshot_every_steps, steps)):
         raise SystemExit(f"kev.train: {problem}")   # before the first step (and before a resume point is read): nothing to lose yet
-    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=[a.lr, a.head_lr or a.lr], total_steps=max(steps, 1), pct_start=0.1)
+    sched = _one_cycle_scheduler(opt, [a.lr, a.head_lr or a.lr], steps)
     step = seen = tokens_seen = peak_mem = optimizer_seconds = elapsed = start_epoch = start_mb = 0; step_seconds, resume_seconds = [], []; run = Counter()
     grad_norms = []   # per epoch, each optimizer step's global gradient norm before clipping
     resume_dir, resume_args = out_dir / "resume", {k: v for k, v in vars(a).items() if k not in RESUME_KNOBS}
