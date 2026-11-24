@@ -91,6 +91,25 @@ def test_probe_allocates_multiplies_and_synchronizes(monkeypatch, cuda, mps, res
                                                    "matmul", ("sync", resolved)])
 
 
+def test_probe_announces_auto_before_the_availability_check(monkeypatch, capsys):
+    """The parent only sees this line when the CUDA check hangs, so it has to be flushed first."""
+    seen = []
+    def cuda_available():
+        seen.append(capsys.readouterr().out)
+        return False
+    def ones(*args, **kwargs):
+        raise RuntimeError("stop")
+    monkeypatch.setattr(torch.cuda, "is_available", cuda_available)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+    monkeypatch.setattr(torch, "ones", ones)
+    with pytest.raises(RuntimeError, match="stop"):
+        device._probe("auto", torch.float32)
+    assert seen == [device.PROBE_START_PREFIX + "auto\n"]
+    assert capsys.readouterr().out == device.PROBE_START_PREFIX + "mps\n"
+    for token in ("auto", "cuda", "mps", "cpu"):
+        assert not (device.PROBE_START_PREFIX + token).startswith(device.PROBE_PREFIX)
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX native signal exit status")
 @pytest.mark.parametrize("requested", ["auto", "cuda"])
 def test_real_sigsegv_in_probe_cannot_kill_parent(tmp_path, monkeypatch, requested):
@@ -355,19 +374,45 @@ def test_base_mmlu_probe_help_does_not_probe(monkeypatch):
     assert error.value.code == 0
 
 
-def test_auto_tries_mps_after_the_cuda_probe_fails(monkeypatch):
+@pytest.mark.parametrize("failure", [
+    subprocess.CalledProcessError(-11, "probe", output=device.PROBE_START_PREFIX + "cuda\n",
+                                  stderr="HIP error: invalid device function"),
+    # A banner, a bare "cuda" line, and the marker text inside a longer line are not announcements.
+    subprocess.TimeoutExpired("probe", 30, output=(
+        "ROCm 6.2 init\ncuda\nnote kev-probing mps\n" + device.PROBE_START_PREFIX + "cuda\n").encode()),
+    subprocess.TimeoutExpired("probe", 30, output=(device.PROBE_START_PREFIX + "auto\n").encode()),
+])
+def test_auto_tries_mps_after_the_cuda_probe_fails(monkeypatch, failure):
     calls = []
     def run(command, **kwargs):
         calls.append(command[-2])
         assert kwargs["timeout"] == 30.0
         if command[-2] == "auto":
-            raise subprocess.CalledProcessError(-11, "probe", stderr="HIP error: invalid device function")
+            raise failure
         return SimpleNamespace(stdout=reported("mps"))
     monkeypatch.setattr(subprocess, "run", run)
     with warnings.catch_warnings():
         warnings.simplefilter("error", RuntimeWarning)
         assert device.select() == "mps"
     assert calls == ["auto", "mps"]
+
+
+def test_auto_names_cuda_and_mps_failures_once(monkeypatch):
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command[-2])
+        if command[-2] == "auto":
+            raise subprocess.CalledProcessError(
+                -11, command, output=device.PROBE_START_PREFIX + "auto\n" + device.PROBE_START_PREFIX + "cuda\n",
+                stderr="HIP error: invalid device function")
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"], output=(device.PROBE_START_PREFIX + "mps\n").encode())
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.warns(RuntimeWarning) as caught:
+        assert device.select() == "cpu"
+    assert calls == ["auto", "mps"]
+    head = str(caught[0].message).split(").", 1)[0]
+    assert head.count("cuda:") == 1 and head.count("mps:") == 1 and head.count(";") == 1
+    assert head.count("HIP error") == 1 and head.count("timed out") == 1
 
 
 def test_explicit_accelerator_does_not_fall_through(monkeypatch):
@@ -525,3 +570,133 @@ def test_serve_cuda_on_apple_silicon_does_not_switch_to_mlx(startup, monkeypatch
     monkeypatch.setattr(subprocess, "run", run)
     serve.main()
     assert seen == ["cuda"] and startup[0][0] == "cuda"
+
+
+@pytest.mark.parametrize("failure", ["error", "timeout", "crash"])
+def test_auto_does_not_repeat_a_failed_mps_probe(tmp_path, monkeypatch, failure):
+    """Run the real child with an MPS stand-in; each allocation records one probe attempt."""
+    fake_torch = '''
+import os, signal, time
+from contextlib import nullcontext
+from types import SimpleNamespace
+float32 = "float32"
+cuda = SimpleNamespace(is_available=lambda: False)
+backends = SimpleNamespace(mps=SimpleNamespace(is_available=lambda: True))
+no_grad = nullcontext
+def ones(*args, **kwargs):
+    with open(os.environ["PROBE_ATTEMPTS"], "a", encoding="utf-8") as out:
+        out.write(kwargs["device"] + "\\n")
+    failure = os.environ["PROBE_FAILURE"]
+    if failure == "timeout":
+        time.sleep(30)
+    elif failure == "crash":
+        os.kill(os.getpid(), signal.SIGTERM)
+    raise TypeError("unsupported MPS dtype")
+'''
+    (tmp_path / "torch.py").write_text(fake_torch, encoding="utf-8")
+    attempts = tmp_path / "attempts.txt"
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+    monkeypatch.setenv("PROBE_ATTEMPTS", str(attempts))
+    monkeypatch.setenv("PROBE_FAILURE", failure)
+    with pytest.warns(RuntimeWarning, match="Falling back to CPU") as caught:
+        assert device.select(timeout=2 if failure == "timeout" else 10) == "cpu"
+    assert attempts.read_text(encoding="utf-8").splitlines() == ["mps"]
+    message = str(caught[0].message)
+    assert message.startswith("Device probe failed (mps:")
+    assert "; mps:" not in message
+
+
+def test_probe_start_marker_does_not_report_success(monkeypatch):
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command[-2])
+        return SimpleNamespace(stdout=device.PROBE_START_PREFIX + "auto\n" + device.PROBE_START_PREFIX + "mps\n")
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.warns(RuntimeWarning, match="unexpected probe result"):
+        assert device.select() == "cpu"
+    assert calls == ["auto"]
+
+
+@pytest.mark.parametrize("failure", [
+    subprocess.CalledProcessError(-11, "probe"),
+    subprocess.TimeoutExpired("probe", 0.3),
+    subprocess.TimeoutExpired("probe", 0.3, output=b"ROCm 6.2 init\ncuda\nnote kev-probing mps\n"),
+    OSError("cannot launch interpreter"),
+])
+def test_auto_does_not_relaunch_a_child_that_died_before_announcing(monkeypatch, failure):
+    """No kev-probing line means the next child would die in the same place. Import timeouts are this case."""
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command[-2])
+        raise failure
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.warns(RuntimeWarning, match="Falling back to CPU") as caught:
+        assert device.select() == "cpu"
+    assert calls == ["auto"]
+    head = str(caught[0].message).split(").", 1)[0]
+    assert head.startswith("Device probe failed (auto:")
+    assert ";" not in head
+
+
+def test_auto_mps_timeout_bytes_are_one_probe_and_named_mps(monkeypatch):
+    """The bytes are what subprocess.run actually raises. text=True does not decode a timeout."""
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command[-2])
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"], output=(
+            "ROCm 6.2 init\n" + device.PROBE_START_PREFIX + "auto\n" + device.PROBE_START_PREFIX + "mps\n").encode())
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.warns(RuntimeWarning) as caught:
+        assert device.select(timeout=0.3) == "cpu"
+    assert calls == ["auto"]
+    head = str(caught[0].message).split(").", 1)[0]
+    assert head.startswith("Device probe failed (mps:")
+    assert head.count("timed out after 0.3") == 1
+    assert ";" not in head
+
+
+def test_auto_does_not_relaunch_a_child_that_hangs_during_import(tmp_path, monkeypatch):
+    """The short timeout in the report fires during torch import, before _probe can print."""
+    fake_torch = '''
+import os, time
+with open(os.environ["PROBE_ATTEMPTS"], "a", encoding="utf-8") as out:
+    out.write("import\\n")
+time.sleep(30)
+'''
+    (tmp_path / "torch.py").write_text(fake_torch, encoding="utf-8")
+    attempts = tmp_path / "attempts.txt"
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+    monkeypatch.setenv("PROBE_ATTEMPTS", str(attempts))
+    with pytest.warns(RuntimeWarning, match="Falling back to CPU") as caught:
+        assert device.select(timeout=2) == "cpu"
+    assert attempts.read_text(encoding="utf-8").splitlines() == ["import"]
+    assert ";" not in str(caught[0].message).split(").", 1)[0]
+
+
+def test_auto_still_tries_mps_when_cuda_discovery_hangs(tmp_path, monkeypatch):
+    """Import finished and the CUDA check hung. The MPS child is the case the second probe exists for."""
+    fake_torch = '''
+import os, time
+from contextlib import nullcontext
+from types import SimpleNamespace
+float32 = "float32"
+class Matrix:
+    def __matmul__(self, other):
+        return self
+def ones(*args, **kwargs):
+    with open(os.environ["PROBE_ATTEMPTS"], "a", encoding="utf-8") as out:
+        out.write(kwargs["device"] + "\\n")
+    return Matrix()
+cuda = SimpleNamespace(is_available=lambda: time.sleep(30) or False)
+backends = SimpleNamespace(mps=SimpleNamespace(is_available=lambda: True))
+mps = SimpleNamespace(synchronize=lambda: None)
+no_grad = nullcontext
+'''
+    (tmp_path / "torch.py").write_text(fake_torch, encoding="utf-8")
+    attempts = tmp_path / "attempts.txt"
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+    monkeypatch.setenv("PROBE_ATTEMPTS", str(attempts))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        assert device.select(timeout=2) == "mps"
+    assert attempts.read_text(encoding="utf-8").splitlines() == ["mps"]
