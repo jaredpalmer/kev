@@ -196,7 +196,9 @@ Title Case sections, API tables, Authors + License); model cards are formal.
   non-unique `id` field, so `codereviewer/cls-test/13657` names two development records and `codereviewer/cls-test/19245` two test records
   (paired comparisons drop both; 66 more ids repeat inside train or across train and an eval partition, so check train/eval overlap by `text_sha256`),
   and its CodeReviewer `text_sha256` hashes the hunk without `lines_before_hunk`. Without `--reproduce-v1` the builder makes line-based unique ids, keys the
-  whole state and admits commitpackft records after their message question is added; see its docstring), and the real-document suites
+  whole state and admits commitpackft records after their message question is added; see its docstring; the devtools-v1 and breadth-v1 builders download only into a `--raw` directory you own that no one else can write (`build_devtools_v1.private_dir`),
+  each file through an `mkstemp` file moved into place),
+  and the real-document suites
   `evals/documents-v1` (CFPB complaint narratives, product + issue Choice questions; its 23 MB train partition, Kev-4B's round-8 delta data, is not in git; `load_split` fetches it from the kev-suites mirror (since 2026-09-30))
   and `evals/documents-v2` (held-out test only, private mirror, manifest only): `scripts/build_documents_v{1,2}.py` -> `label_documents_v1.py`
   (AI Gateway teachers/judges, spend ledger) -> `freeze_documents_v1.py` (no flag: report + adjudication queue; `--combine`, `--spot-check`, `--freeze ... --min-agreement 47`);
