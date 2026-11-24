@@ -51,7 +51,7 @@ def render(v: JSONContent, indent: int = 0) -> str:
     pad = "  " * indent
     if v is None: return ""
     if isinstance(v, (str, int, float, bool)): return str(v)
-    if isinstance(v, list): return "\n".join(f"{pad}- {render(x, indent + 1).lstrip()}" for x in v)
+    if isinstance(v, list): return "\n".join(f"{pad}- {x if isinstance(x, str) else render(x, indent + 1).lstrip()}" for x in v)
     return "\n".join(f"{pad}{k}:\n{render(x, indent + 1)}" if isinstance(x, (dict, list)) else f"{pad}{k}: {render(x)}" for k, x in v.items())
 
 
