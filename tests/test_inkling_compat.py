@@ -1,0 +1,132 @@
+"""Offline source-pin and report-serialization tests for the research launcher."""
+
+import ast
+import importlib.util
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+SPEC = importlib.util.spec_from_file_location("inkling_compat", Path(__file__).resolve().parents[1] / "scripts" / "inkling_compat.py")
+launcher = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(launcher)
+
+
+def test_smoke_constants_import_when_resource_is_unavailable():
+    code = """import builtins
+original = builtins.__import__
+def import_without_resource(name, *args, **kwargs):
+    if name == "resource":
+        raise ImportError("resource blocked by test")
+    return original(name, *args, **kwargs)
+builtins.__import__ = import_without_resource
+from scripts.inkling_weight_smoke import MODEL_ID, MODEL_REVISION
+assert MODEL_ID and MODEL_REVISION
+"""
+    subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
+
+
+def test_cached_tokenizer_probe_uses_shared_model_pin():
+    source_path = Path(__file__).resolve().parents[1] / "scripts" / "inkling_compat_probe.py"
+    module = ast.parse(source_path.read_text(encoding="utf-8"))
+    smoke_import = next(
+        node for node in module.body
+        if isinstance(node, ast.ImportFrom) and node.module == "scripts.inkling_weight_smoke"
+    )
+    assert {name.name for name in smoke_import.names} >= {"MODEL_ID", "MODEL_REVISION"}
+
+    metadata = next(
+        node for node in module.body
+        if isinstance(node, ast.FunctionDef) and node.name == "cached_tokenizer_metadata"
+    )
+    load = next(
+        node for node in ast.walk(metadata)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "from_pretrained"
+    )
+    assert isinstance(load.args[0], ast.Name) and load.args[0].id == "MODEL_ID"
+    assert any(
+        kw.arg == "revision" and isinstance(kw.value, ast.Name) and kw.value.id == "MODEL_REVISION"
+        for kw in load.keywords
+    )
+    assert any(
+        isinstance(node, ast.Dict)
+        and any(
+            isinstance(key, ast.Constant)
+            and key.value == "revision"
+            and isinstance(value, ast.Name)
+            and value.id == "MODEL_REVISION"
+            for key, value in zip(node.keys, node.values)
+        )
+        for node in ast.walk(metadata)
+    )
+
+
+def checkout(path):
+    root = path / "upstream"
+    (root / "src/transformers").mkdir(parents=True)
+    (root / "src/transformers/__init__.py").write_text("__version__ = 'fixture'\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "src"], check=True)
+    subprocess.run(["git", "-C", str(root), "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-qm", "fixture"], check=True)
+    revision = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    return root, revision
+
+
+def invoke(root, tmp_path, capsys):
+    status = launcher.main(["--upstream", str(root), "--report", str(tmp_path / "report.json")])
+    return status, capsys.readouterr().err
+
+
+def test_cli_rejects_bad_revision(tmp_path, capsys):
+    root, _ = checkout(tmp_path)
+    status, error = invoke(root, tmp_path, capsys)
+    assert status == 2
+    assert "upstream revision mismatch" in error
+
+
+def test_cli_rejects_untracked_source(tmp_path, monkeypatch, capsys):
+    root, revision = checkout(tmp_path)
+    monkeypatch.setattr(launcher, "PINNED_REVISION", revision)
+    (root / "untracked.py").write_text("untracked\n", encoding="utf-8")
+    status, error = invoke(root, tmp_path, capsys)
+    assert status == 2
+    assert "dirty or has untracked files" in error
+
+
+def test_cli_rejects_dirty_source(tmp_path, monkeypatch, capsys):
+    root, revision = checkout(tmp_path)
+    monkeypatch.setattr(launcher, "PINNED_REVISION", revision)
+    (root / "src/transformers/__init__.py").write_text("modified\n", encoding="utf-8")
+    status, error = invoke(root, tmp_path, capsys)
+    assert status == 2
+    assert "dirty or has untracked files" in error
+
+
+def test_exit_code_uses_only_aggregate_required_gate_status():
+    complete = [{"name": name, "status": "pass"} for name in launcher.REQUIRED_GATES]
+    complete[4]["checks"] = {"independent_rows": True, "padding_batching": True}
+    assert launcher.exit_code({"gates": complete}) == 0
+    for status in ("fail", "untested"):
+        changed = [dict(gate) for gate in complete]
+        changed[1]["status"] = status
+        assert launcher.exit_code({"gates": changed}) == 1
+    assert launcher.exit_code({"gates": complete[:-1]}) == 1
+    with_optional = [*complete, {"name": "original_release_loader", "required": False, "status": "untested"}]
+    assert launcher.exit_code({"gates": with_optional}) == 0
+
+
+def test_loading_info_uses_canonical_json_without_stringifying_sets(tmp_path):
+    from kev.suite import write_json
+
+    value = launcher.loading_info_json({"missing_keys": set(), "unexpected_keys": set(), "mismatched_keys": set(), "error_msgs": []})
+    path = tmp_path / "loading-info.json"
+    write_json(path, value)
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "missing_keys": [], "unexpected_keys": [], "mismatched_keys": [], "error_msgs": []
+    }
