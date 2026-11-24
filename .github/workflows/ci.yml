@@ -31,4 +31,5 @@ jobs:
           cache-dependency-path: playground/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npm test
       - run: npx next typegen && npx tsc --noEmit -p .

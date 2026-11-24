@@ -8,6 +8,28 @@ export type Question =
 
 export type SystemOneRequest = { state: JSONContent; model: string; questions: Record<string, Question> };
 
+function parseState(s: string) {
+  const t = s.trim();
+  if (t.startsWith("{") || t.startsWith("[")) {
+    try { return JSON.parse(t); } catch { /* treat as plain text */ }
+  }
+  return s;
+}
+
+export function parseRequestDraft(stateText: string, questionsText: string): { req?: SystemOneRequest; err?: string; choiceIds: string[] } {
+  try {
+    const questions = JSON.parse(questionsText) as Record<string, Question>;
+    // Drafts can be valid JSON before they have all the fields a choice needs.
+    const choiceIds: string[] = [];
+    for (const [id, q] of Object.entries(questions)) {
+      if (q.type !== "choice") continue;
+      if (q.criteria == null) return { err: `Choice question "${id}" is missing criteria. Add a "criteria" object with named options.`, choiceIds: [] };
+      if (Object.keys(q.criteria).length >= 2) choiceIds.push(id);
+    }
+    return { req: { state: parseState(stateText), model: "kev-latest", questions }, choiceIds };
+  } catch (e) { return { err: (e as Error).message, choiceIds: [] }; }
+}
+
 export type Answer =
   | { type: "noul"; noul: number }
   | { type: "choice"; choice: string; confidence: number; probabilities: Record<string, number> }
