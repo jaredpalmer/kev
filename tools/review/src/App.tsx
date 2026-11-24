@@ -31,11 +31,10 @@ const HELP: [string, string][] = [
   ["?", "toggle this help"],
 ];
 
-// Two independent FNV-1a 32-bit hashes plus the length: plenty to key one person's files.
-function hash(s: string): string {
-  let a = 0x811c9dc5, b = 0x01000193;
-  for (let i = 0; i < s.length; i++) (a = Math.imul(a ^ s.charCodeAt(i), 16777619)), (b = Math.imul(b ^ s.charCodeAt(i), 2654435761));
-  return `${(a >>> 0).toString(36)}${(b >>> 0).toString(36)}-${s.length}`;
+// Saved reviews are bound to the file's SHA-256: a changed file cannot inherit another file's decisions.
+async function sha256(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 // Fisher-Yates with mulberry32, so a seed gives the same sample everywhere.
@@ -98,8 +97,14 @@ export default function App() {
   const proposedRef = useRef<HTMLLIElement>(null);
   const items = file?.items ?? [];
 
-  function load(text: string, name: string) {
-    const key = "kev-review:" + hash(text);
+  async function load(text: string, name: string) {
+    let key: string;
+    try {
+      key = "kev-review:sha256:" + (await sha256(text));
+    } catch (e) {
+      setError(`Could not hash the file: ${e}. Web Crypto needs a secure context, so open this page on localhost or https.`);
+      return;
+    }
     const { items, bad } = parse(text);
     const saved = localStorage.getItem(key);
     setFile({ name, items, bad, key });
@@ -143,7 +148,8 @@ export default function App() {
     return null;
   };
   const curItem = queue.find((it) => it.id === s.cur);
-  const item = curItem && matches(curItem) ? curItem : queue.find((it) => it.id === step(s.cur, 1));
+  const nextId = curItem && matches(curItem) ? null : step(s.cur, 1);
+  const item = curItem && matches(curItem) ? curItem : nextId === null ? null : queue.find((it) => it.id === nextId);
   const visible = queue.filter((it) => matches(it));
 
   useEffect(() => {
@@ -219,6 +225,12 @@ export default function App() {
   }, []);
 
   const d = item && s.decisions[item.id];
+  const byLabel = new Map<string, Judge[]>();
+  if (item) for (const j of item.judges) {
+    const bucket = byLabel.get(j.label);
+    if (bucket) bucket.push(j);
+    else byLabel.set(j.label, [j]);
+  }
   const btn = (active = false) => "rounded border px-2 py-0.5 text-xs disabled:opacity-40 "
     + (active ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white hover:bg-gray-100");
 
@@ -314,7 +326,7 @@ export default function App() {
                         {proposed && <span className="rounded bg-blue-600 px-1 text-[10px] text-white">proposed</span>}
                         {chosen && d?.verdict === "relabel" && <span className="rounded bg-gray-700 px-1 text-[10px] text-white">your label</span>}
                         {item.adjudication?.label === key && <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-800">adjudicated</span>}
-                        {item.judges.filter((j) => j.label === key).map((j) => (
+                        {(byLabel.get(key) ?? []).map((j) => (
                           <span key={j.model} title={j.rationale} className="rounded bg-gray-200 px-1 text-[10px] text-gray-700">{shortModel(j.model)}</span>
                         ))}
                       </div>
