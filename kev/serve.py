@@ -6,7 +6,7 @@ TypeSafe-compatible: POST /v1/systemone, GET /v1/models, the `x-typesafe-request
 when KEV_API_KEY is set (unset = open server, the local default). Demo extras: POST /v1/systemone/permute (one Choice
 under several option orders) and POST /v1/systemone/separate (each question in its own pass, for the packed-vs-separate
 comparison). KEV_PREFIX_CACHE / KEV_PREFIX_MIN_TOKENS / KEV_PREFIX_MAX_TOKENS size the state-prefix cache; KEV_DATE_FACTS=1 opts into the
-date preprocessing (api.with_date_facts). A state over kev.model.SERVE_MAX_STATE tokens is refused with a 422 (kev.model.admit);
+date preprocessing (api.prepare_request, which also bounds how deeply request values may nest). A state over kev.model.SERVE_MAX_STATE tokens is refused with a 422 (kev.model.admit);
 KEV_TRUNCATE_STATES=1 reads its first SERVE_MAX_STATE tokens instead, and then every response says whether it did. Backend
 and precision follow LoadOptions (KEV_BACKEND, KEV_DTYPE, ...): on Apple Silicon a hybrid checkpoint runs on MLX
 by default, without a torch MPS probe, elsewhere on torch in bf16.
@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
+from .api import SystemOneRequest, to_record, to_answers, output_tokens, prepare_request
 from .checkpoint import Checkpoint, LoadOptions, fused_available, is_hub_id, mlx_available
 from .device import DEVICE_HELP, DEVICES, empty_cache, out_of_memory, select, sync
 from .model import SERVE_MAX_STATE, ContextOverflow, admit
@@ -221,8 +221,10 @@ class Server:
 
 
 def prepare(req):
-    """Opt-in preprocessing applied to every request before the model sees it."""
-    return req.model_copy(update={"state": with_date_facts(req.state)}) if DATE_FACTS else req
+    """The gate every request passes before the model sees it (api.prepare_request): the bounds on untrusted input, and
+    the opt-in date preprocessing when KEV_DATE_FACTS=1. A violation is a 422."""
+    try: return prepare_request(req, DATE_FACTS)
+    except ValueError as e: raise HTTPException(422, str(e)) from e
 
 
 app = FastAPI(title="kev")
