@@ -18,8 +18,8 @@ from dataclasses import dataclass, field, replace
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-from .api import SystemOneRequest, to_record, to_answers, output_tokens, with_date_facts
+from pydantic import BaseModel, Field, model_validator
+from .api import SystemOneRequest, JSONContent, Question, to_record, to_answers, output_tokens, with_date_facts
 from .checkpoint import Checkpoint, LoadOptions, fused_available, is_hub_id, mlx_available
 from .device import DEVICE_HELP, DEVICES, empty_cache, out_of_memory, select, sync
 from .model import SERVE_MAX_STATE, ContextOverflow, admit
@@ -144,6 +144,33 @@ class Server:
         self.queue.put((enc, done))
         return done
 
+    def submit_many(self, records):
+        """Atomically enqueue several independent records so the model worker can batch them together.
+
+        Returns one (Future, error) pair per input record. Invalid/over-length records fail
+        independently and do not prevent valid records from being queued.
+        """
+        if self.stopping.is_set(): raise HTTPException(503, "the server is stopping")
+        prepared = []
+        for rec in records:
+            try:
+                prepared.append((admit(self.model, self.tok, rec, truncate=self.truncate_states), Future(), None))
+            except ValueError as exc:
+                is_state = isinstance(exc, ContextOverflow) and exc.max_state is not None
+                detail = str(exc) + (f"; or start the server with KEV_TRUNCATE_STATES=1 to read only its first {exc.max_state:,} tokens (responses then say truncated: true)" if is_state else "")
+                prepared.append((None, None, {"status": "error", "error": detail, "http_status": 422}))
+        valid = [(enc, future) for enc, future, error in prepared if error is None]
+        if valid:
+            # Queue.Queue.put() one-by-one can wake the model thread between states. Append
+            # the whole request under the queue condition so this HTTP batch is visible atomically.
+            with self.queue.not_full:
+                if self.stopping.is_set(): raise HTTPException(503, "the server is stopping")
+                for entry in valid:
+                    self.queue.queue.append(entry)
+                    self.queue.unfinished_tasks += 1
+                self.queue.not_empty.notify_all()
+        return [(future, error) for _, future, error in prepared]
+
     def probs(self, rec):
         return self.submit(rec).result()
 
@@ -250,6 +277,67 @@ def server() -> Server:
 async def systemone(req: SystemOneRequest):
     """TypeSafe-compatible endpoint: typed questions in, typed answers out, one prefill pass."""
     return await server().answer_async(req)
+
+
+class BatchState(BaseModel):
+    id: str = Field(min_length=1, max_length=128)
+    state: JSONContent
+
+
+class BatchSystemOneRequest(BaseModel):
+    """Several independent states evaluated against one shared set of questions."""
+    model: str = "kev-latest"
+    states: list[BatchState] = Field(min_length=1, max_length=int(os.environ.get("KEV_MAX_BATCH_STATES", "256")))
+    questions: dict[str, Question] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _unique_ids(self):
+        ids = [item.id for item in self.states]
+        if len(ids) != len(set(ids)):
+            raise ValueError("states[].id values must be unique")
+        return self
+
+
+@app.post("/v1/systemone/batch")
+async def systemone_batch(req: BatchSystemOneRequest):
+    """Evaluate independent states with shared questions in native model micro-batches."""
+    s = server()
+    prepared = []
+    records = []
+    for item in req.states:
+        one = SystemOneRequest(model=req.model, state=item.state, questions=req.questions)
+        try:
+            rec, meta = to_record(prepare(one))
+            prepared.append((item.id, one, meta, len(records)))
+            records.append(rec)
+        except Exception as exc:
+            prepared.append((item.id, one, None, {"status": "error", "error": str(exc), "http_status": 422}))
+
+    submitted = s.submit_many(records)
+    pending = []
+    for item_id, one, meta, slot in prepared:
+        if isinstance(slot, dict):
+            pending.append((item_id, one, meta, None, slot))
+        else:
+            future, error = submitted[slot]
+            pending.append((item_id, one, meta, future, error))
+
+    async def resolve(entry):
+        item_id, one, meta, future, error = entry
+        if error is not None:
+            return {"id": item_id, **error}
+        try:
+            probs, stats = await asyncio.wrap_future(future)
+            return {"id": item_id, "status": "ok", **s._body(one, meta, probs, stats)}
+        except Exception as exc:
+            status = exc.status_code if isinstance(exc, HTTPException) else 500
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            return {"id": item_id, "status": "error", "error": detail, "http_status": status}
+
+    results = await asyncio.gather(*(resolve(entry) for entry in pending))
+    ok = sum(result["status"] == "ok" for result in results)
+    return {"model": req.model, "count": len(results), "succeeded": ok,
+            "failed": len(results) - ok, "results": results}
 
 
 class PermuteSystemOne(BaseModel):
